@@ -1,0 +1,30 @@
+# The client of Alelyon's identity service: native sign-in (password, providers through the system browser,
+# QR pairing), the kept session, and friends, presence and chat. No user interface: an application draws its
+# own screens over these calls.
+#
+# Its own workspace and lockfile, so it builds and tests on its own.
+[workspace]
+resolver = "3"
+
+[package]
+name = "alelyon-identity-client"
+description = "Client of Alelyon's identity service: native sign-in (RFC 8252 loopback with PKCE), a DPAPI-sealed session, and the social routes."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# HTTPS through the system's TLS.
+reqwest = { version = "0.13.5", default-features = false, features = ["native-tls", "http2", "charset", "system-proxy"] }
+serde_json = "1.0.151"
+# PKCE (RFC 7636 S256): SHA-256, base64url and the system's randomness; and the query encoding.
+sha2 = "0.10.9"
+base64 = "0.23.1"
+getrandom = "0.2.17"
+percent-encoding = "2.3.2"
+
+[dev-dependencies]
+# examples/status.rs runs its one request on a tokio runtime.
+tokio = { version = "1.53.1", features = ["rt", "time"] }
