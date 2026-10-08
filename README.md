@@ -1,43 +1,111 @@
-# Alelyon-Client
+<div align="center">
 
-The open pieces of the Alelyon desktop client: source that users, developers and anyone evaluating Alelyon can read,
-build, test and build on.
+<img src="assets/banner.svg" alt="Alelyon Client — the open pieces of the desktop app" width="820">
+
+<p>
+  <a href="https://github.com/TLace03/Alelyon-Client/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-57c7b0?style=flat-square&labelColor=0f0f0f"></a>
+  <a href="https://github.com/TLace03/Alelyon-Client/tree/main/crates/alelyon-identity-client"><img alt="Crate" src="https://img.shields.io/badge/crate-alelyon--identity--client%200.1.0-e6c46a?style=flat-square&labelColor=0f0f0f"></a>
+  <a href="https://github.com/TLace03/Alelyon-Client/blob/main/crates/alelyon-identity-client/Cargo.toml"><img alt="Rust" src="https://img.shields.io/badge/rust-1.97%2B%20%C2%B7%20edition%202024-57c7b0?style=flat-square&labelColor=0f0f0f"></a>
+  <a href="https://github.com/TLace03/Alelyon-Client/tree/main/crates/alelyon-identity-client/docs"><img alt="API contracts" src="https://img.shields.io/badge/API%20contracts-sign--in%20%C2%B7%20social-e6c46a?style=flat-square&labelColor=0f0f0f"></a>
+</p>
+
+<b>The open pieces of the Alelyon desktop app.</b>
+
+Alelyon's desktop app comes with an account that follows you: sign in with a password,
+GitHub, Google, Hugging Face or LinkedIn, or a QR code from your phone, and keep your
+friends, presence and chats wherever you sign in. This repository opens the parts of the
+client that others can build on, piece by piece. Each piece is a crate that builds and
+tests on its own.
+
+```bash
+git clone https://github.com/TLace03/Alelyon-Client
+cd Alelyon-Client/crates/alelyon-identity-client
+cargo test --locked && cargo run --example status
+```
+
+</div>
+
+> The example prints the live identity service's status (its state, notices and which ways
+> of signing in are switched on) and needs no account. More about Alelyon:
+> <https://www.alelyon.com/>.
 
 ## What is here
 
-| path | what it is |
+| Crate | What it does |
 |---|---|
-| [`crates/alelyon-identity-client`](https://github.com/TLace03/Alelyon-Client/tree/main/crates/alelyon-identity-client) | The client of Alelyon's identity service, without a user interface: native sign-in (password, providers through the system browser with PKCE and a loopback redirect, QR pairing), "stay signed in" sealed with Windows' DPAPI, and friends, presence and chat. Its HTTP contracts are in its `docs/`. |
+| [`alelyon-identity-client`](https://github.com/TLace03/Alelyon-Client/tree/main/crates/alelyon-identity-client) | The client of Alelyon's identity service, without a user interface: password sign-in, refresh and sign-out; provider sign-in through the system browser with PKCE and a loopback redirect; QR pairing; "stay signed in" sealed with Windows' DPAPI; and friends, presence and one-to-one chat. |
 
-More of the client will be opened piece by piece. Each piece arrives as a crate that builds and tests on its own.
+Its HTTP contracts are written out in full, so a client in another language can be built
+from them alone:
 
-## Building and testing
+- [Native sign-in contract](https://github.com/TLace03/Alelyon-Client/blob/main/crates/alelyon-identity-client/docs/native-sign-in-contract.md)
+- [Social contract](https://github.com/TLace03/Alelyon-Client/blob/main/crates/alelyon-identity-client/docs/social-contract.md): friends, presence and chat
 
-Each crate is its own Cargo workspace with a committed lockfile. With Rust 1.97 or later:
+## Use it
 
+```toml
+[dependencies]
+alelyon-identity-client = { git = "https://github.com/TLace03/Alelyon-Client" }
 ```
-cd crates/alelyon-identity-client
-cargo test --locked
-cargo run --example status
+
+```rust
+use alelyon_identity_client::{Client, client, vault};
+
+async fn sign_in(login: &str, password: &str) -> Result<(), String> {
+    let base = client::base_url().ok_or("signing in is switched off")?;
+    let c = Client::new(base)?;
+    let session = c.sign_in(login, password, true, None).await.map_err(|f| f.words())?;
+    println!("signed in as {}", session.account.name());
+    if let Some(at) = vault::path() {
+        vault::keep(&at, &session.refresh_token)?; // sealed with DPAPI, never in the clear
+    }
+    Ok(())
+}
 ```
 
-The example prints the identity service's status and needs no account.
+The calls are `async` and run on any executor that can drive
+[reqwest](https://docs.rs/reqwest). `ALELYON_IDENTITY_URL` points the client at another
+service (for example a local stand-in), or `off` for none. The crate's own
+[README](https://github.com/TLace03/Alelyon-Client/blob/main/crates/alelyon-identity-client/README.md)
+has the full walkthrough.
 
-## Where this source comes from
+## How it keeps you safe
 
-This repository is generated. The source of truth is Alelyon's private repository, and an export tool copies an
-explicit list of files here, with `UPSTREAM.json` naming the source commit and a SHA-256 digest of each exported
-file. That manifest is declared traceability, not a signature.
+- **Your password goes once, over TLS, and is never stored.** A session is an opaque
+  refresh token that the service rotates on every refresh.
+- **Provider sign-in never touches this app.** The system browser talks to GitHub, Google
+  and the others; this client only ever sees a one-time code bound to a PKCE S256 challenge
+  (RFC 7636), delivered to a loopback port (RFC 8252).
+- **"Stay signed in" is sealed to you.** The refresh token is encrypted with Windows' DPAPI
+  for the signed-in Windows user; another user, or a copy of the file on another PC, cannot
+  open it. Unchecked, nothing is kept.
+- **No token in logs.** A session's debug output leaves the token out, and transport errors
+  are reduced to a few words, never the URL.
 
-So a change is not merged here directly. Open an issue or a pull request: a maintainer ports an accepted change into
-the private source, and the next export brings it back here, credited in the commit. See
+Security still rests on the service, not on keeping this source closed. If you find a
+vulnerability, report it privately: see [SECURITY.md](SECURITY.md).
+
+## This tree is generated
+
+Everything here is produced from Alelyon's private repository by an exporter that copies an
+explicit allowlist of files and refuses the export if any of them carries a secret, a
+private path or a private project's name. A pull request editing those files cannot be
+merged as-is, because the next export would overwrite it; an accepted change is ported into
+the private source and comes back here in the next export, credited in the commit. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Security
+`UPSTREAM.json` names the exact source commit and records a SHA-256 for every generated
+file. It is self-declared traceability, not authenticated provenance.
 
-Please do not report a vulnerability in a public issue. See [SECURITY.md](SECURITY.md): report it privately through
-GitHub's security advisories for this repository.
+Issues, discussions, and reports of anything wrong here are welcome and wanted; that is what
+this repository is for.
 
-## Licence
+## License
 
-Apache-2.0: see [LICENSE](https://github.com/TLace03/Alelyon-Client/blob/main/LICENSE).
+Licensed under the Apache License, Version 2.0
+([LICENSE](https://github.com/TLace03/Alelyon-Client/blob/main/LICENSE) or
+<https://www.apache.org/licenses/LICENSE-2.0>).
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for
+inclusion in this work by you shall be licensed as above, without any additional terms or
+conditions.
