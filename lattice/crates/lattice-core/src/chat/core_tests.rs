@@ -765,11 +765,29 @@ fn shutdown_stops_every_answer_and_waits_for_its_save() {
     h.fixture.install("m");
     h.answer_with(Drip::chars("abc", Duration::from_millis(5), DripEnd::Stall));
     let accepted = h.send(None, "q", "local", local_shown()).unwrap();
-    std::thread::sleep(Duration::from_millis(100));
+    let job = h.core.job(&accepted.job).unwrap();
+    // Shut down only once the answer holds all three pieces: a job publishes
+    // a delta after adding it to the text it saves, so the deltas read here
+    // are what a stop would save. A fixed sleep raced the stub under load.
+    let written = || -> String {
+        job.events_after(0)
+            .0
+            .iter()
+            .filter_map(|e| match &e.kind {
+                ChatEventKind::Delta { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while written() != "abc" && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(written(), "abc", "the answer wrote its three pieces");
+    assert!(!job.finished(), "the stalled answer is still running");
     let started = Instant::now();
     h.runtime.block_on(h.core.shutdown(Duration::from_secs(5)));
     assert!(started.elapsed() < Duration::from_secs(5));
-    let job = h.core.job(&accepted.job).unwrap();
     assert!(job.finished());
     let stored = h.store.load(&accepted.thread.id);
     let answer = stored.last().unwrap();

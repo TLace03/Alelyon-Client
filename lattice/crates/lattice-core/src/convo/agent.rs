@@ -452,6 +452,8 @@ pub(crate) struct Inner {
     pub artifacts: Mutex<()>,
     /// The background commands (`super::background`).
     pub background: super::background::Background,
+    /// The labs' agents' sessions (`crate::acp::pool`), also the chat core's.
+    pub agent_pool: Arc<crate::acp::pool::Pool>,
 }
 
 impl Inner {
@@ -965,6 +967,7 @@ impl AgentChat {
                                 ConfirmRequest::AgentPermission {
                                     agent: agent.label().to_owned(),
                                     action: permission.title,
+                                    diff: crate::acp::session::diff_lines(&permission.diffs),
                                     detail: permission.detail,
                                 },
                                 Initiated::Page,
@@ -990,7 +993,7 @@ impl AgentChat {
             local: config.local.clone(),
             paths: config.paths.clone(),
             model_factory: config.model_factory.clone(),
-            agents: Some(agents),
+            agents: Some(agents.clone()),
             echo_gap: Duration::from_millis(chat::echo::PIECE_GAP_MS),
             follow_gap: config.gap.min,
         };
@@ -1063,6 +1066,7 @@ impl AgentChat {
                 plans: Mutex::default(),
                 artifacts: Mutex::default(),
                 background: Default::default(),
+                agent_pool: agents,
                 plugins: Arc::new(crate::plugins::Plugins::new(
                     &config.state,
                     config.clock.clone(),
@@ -1595,6 +1599,38 @@ impl AgentChat {
         let dir = crate::acp::agents_dir(&self.inner.config.state);
         let node = crate::acp::find_node(self.inner.config.env.as_ref()).is_file();
         crate::acp::Agent::ALL.into_iter().map(|agent| (agent, agent.installed(&dir), node)).collect()
+    }
+
+    /// What `agent` last offered to answer with, and the reader's pick
+    /// (`crate::acp::models`).
+    pub fn agent_models(
+        &self,
+        agent: crate::acp::Agent,
+    ) -> (crate::acp::models::Offered, Option<String>) {
+        crate::acp::models::known(&crate::acp::agents_dir(&self.inner.config.state), agent)
+    }
+
+    /// Check models: start `agent` only to read the models it offers.
+    pub fn agent_check_models(
+        &self,
+        agent: crate::acp::Agent,
+    ) -> BoxFuture<'static, Result<crate::acp::models::Offered, Refusal>> {
+        let pool = self.inner.agent_pool.clone();
+        async move {
+            pool.check_models(agent)
+                .await
+                .map_err(|why| refuse(RefusalKind::Unavailable, &why))
+        }
+        .boxed()
+    }
+
+    /// The reader's pick of `agent`'s model for its new chats; `None` for its default.
+    pub fn agent_pick_model(
+        &self,
+        agent: crate::acp::Agent,
+        model: Option<&str>,
+    ) -> Result<(), String> {
+        crate::acp::models::pick(&crate::acp::agents_dir(&self.inner.config.state), agent, model)
     }
 
     /// Install `agent`'s adapter with npm (the reader's action; a download the

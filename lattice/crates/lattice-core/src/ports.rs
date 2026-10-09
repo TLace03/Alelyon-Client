@@ -93,6 +93,9 @@ pub enum ConfirmRequest {
         agent: String,
         action: String,
         detail: String,
+        /// The change it would make, as lines (`acp::session::diff_lines`);
+        /// empty when the agent did not say.
+        diff: Vec<String>,
     },
     /// "Allow always" for one tool of one server (§12).
     AllowMcpTool {
@@ -367,9 +370,17 @@ impl ConfirmRequest {
                 "Use it",
                 "Do not use it",
             ),
-            Self::AgentPermission { agent, action, detail } => {
+            Self::AgentPermission {
+                agent,
+                action,
+                detail,
+                diff,
+            } => {
                 let mut lines = vec![format!("{}: {}", e(agent), e(action))];
-                if !detail.is_empty() {
+                if !diff.is_empty() {
+                    lines.push("The change (nothing is written unless you allow it):".to_owned());
+                    lines.extend(diff.iter().map(|line| e(line)));
+                } else if !detail.is_empty() {
                     lines.push(format!("Details: {}", e(detail)));
                 }
                 lines.push("It runs as you, with its own tools, on your account with its maker. Yes allows this once.".to_owned());
@@ -607,6 +618,7 @@ mod tests {
                 agent: s("Claude Code (your subscription)"),
                 action: s("Edit a.txt"),
                 detail: s("{\"path\": \"a.txt\"}"),
+                diff: vec![s("a.txt:"), s("- hello"), s("+ goodbye")],
             },
             ConfirmRequest::BrowserAct {
                 site: s("x.com"),

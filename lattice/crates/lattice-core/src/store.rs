@@ -79,6 +79,8 @@ static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Debug)]
 pub struct RunStore {
     dir: PathBuf,
+    /// How long a refused rename or open is tried again ([`REFUSAL_WAIT`]).
+    refusal_wait: Duration,
 }
 
 /// The right to record runs in a directory: held, through this value, by exactly
@@ -111,7 +113,19 @@ fn is_leftover_temporary(name: &str) -> bool {
 
 impl RunStore {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            refusal_wait: REFUSAL_WAIT,
+        }
+    }
+
+    /// This store, trying a refused rename or open again for `wait` instead
+    /// of [`REFUSAL_WAIT`]: for a test that must not depend on how long
+    /// something outside the process holds a file.
+    #[cfg(test)]
+    pub(crate) fn with_refusal_wait(mut self, wait: Duration) -> Self {
+        self.refusal_wait = wait;
+        self
     }
 
     pub fn dir(&self) -> &Path {
@@ -201,7 +215,7 @@ impl RunStore {
         loop {
             match fs::rename(&temporary, target) {
                 Ok(()) => return Ok(()),
-                Err(_) if started.elapsed() < REFUSAL_WAIT => std::thread::sleep(RENAME_PAUSE),
+                Err(_) if started.elapsed() < self.refusal_wait => std::thread::sleep(RENAME_PAUSE),
                 Err(error) => {
                     let _ = fs::remove_file(&temporary);
                     return Err(error);
@@ -264,7 +278,7 @@ impl RunStore {
     /// One run's summary, if its file is a readable summary of that run.
     pub fn read_summary(&self, id: &str) -> Option<RunSummary> {
         let path = self.summary_path(id).ok()?;
-        read_summary_file(&path, id)
+        read_summary_file(&path, id, self.refusal_wait)
     }
 
     /// The `limit` newest runs by `created_at` (ties by id), unreadable and
@@ -289,7 +303,7 @@ impl RunStore {
         files.truncate(MAX_SCANNED);
         let mut summaries: Vec<RunSummary> = files
             .into_iter()
-            .filter_map(|(_, id, path)| read_summary_file(&path, &id))
+            .filter_map(|(_, id, path)| read_summary_file(&path, &id, self.refusal_wait))
             .collect();
         summaries.sort_by(|a, b| {
             b.created_at
@@ -305,7 +319,7 @@ impl RunStore {
         let Ok(path) = self.events_path(id) else {
             return Vec::new();
         };
-        let Ok(file) = open_for_reading(&path, false) else {
+        let Ok(file) = open_for_reading(&path, false, self.refusal_wait) else {
             return Vec::new();
         };
         let mut reader = BufReader::new(file);
@@ -351,14 +365,14 @@ impl RunStore {
     }
 }
 
-/// Open `path` to read it, trying again for at most [`REFUSAL_WAIT`] while
+/// Open `path` to read it, trying again for at most `wait` ([`REFUSAL_WAIT`]) while
 /// Windows refuses the open for a moment: an access refusal (5), which an open
 /// meets while a rename replaces the file, or a sharing violation (32), which a
 /// scanner holding it causes. `replaced` also tries again on a missing file
 /// (2): a file that is only ever replaced by a rename, never removed (a run's
 /// summary), can read as missing while one replaces it. A file that may
 /// simply not exist yet (a run's events) is not tried again when missing.
-fn open_for_reading(path: &Path, replaced: bool) -> io::Result<File> {
+fn open_for_reading(path: &Path, replaced: bool, wait: Duration) -> io::Result<File> {
     let started = Instant::now();
     loop {
         match File::open(path) {
@@ -366,7 +380,7 @@ fn open_for_reading(path: &Path, replaced: bool) -> io::Result<File> {
                 if matches!(error.raw_os_error(), Some(5 | 32))
                     || (replaced && error.kind() == io::ErrorKind::NotFound) =>
             {
-                if started.elapsed() >= REFUSAL_WAIT {
+                if started.elapsed() >= wait {
                     return Err(error);
                 }
                 std::thread::sleep(OPEN_PAUSE);
@@ -376,9 +390,9 @@ fn open_for_reading(path: &Path, replaced: bool) -> io::Result<File> {
     }
 }
 
-fn read_summary_file(path: &Path, id: &str) -> Option<RunSummary> {
+fn read_summary_file(path: &Path, id: &str, wait: Duration) -> Option<RunSummary> {
     let mut bytes = Vec::new();
-    open_for_reading(path, true)
+    open_for_reading(path, true, wait)
         .ok()?
         .take(MAX_SUMMARY_BYTES + 1)
         .read_to_end(&mut bytes)
@@ -729,6 +743,14 @@ mod tests {
         assert!(store.read_summary(ID_A).is_some());
     }
 
+    /// Something outside the process (not identified; an on-access scanner
+    /// fits) can refuse a rename over the summary (error 5) for longer than
+    /// [`REFUSAL_WAIT`] under a verify's load: 2 of 200 loaded runs, once for
+    /// 6+ s, on 2026-10-09. A store bound that this test does not control
+    /// would make it measure the machine; its stores wait this long instead,
+    /// and what it proves of the writers and the reader is unchanged.
+    const OUTSIDE_HOLD_WAIT: Duration = Duration::from_secs(30);
+
     #[test]
     fn writers_of_one_summary_in_turn_never_fail_or_tear_the_file() {
         let dir = TempDir::new("store-concurrent");
@@ -740,7 +762,7 @@ mod tests {
             .map(|writer| {
                 let runs = runs.clone();
                 std::thread::spawn(move || {
-                    let store = RunStore::new(runs);
+                    let store = RunStore::new(runs).with_refusal_wait(OUTSIDE_HOLD_WAIT);
                     let mut failures = 0;
                     for round in 0..150 {
                         let mut one = summary(ID_A, 1.0);
@@ -756,7 +778,7 @@ mod tests {
         let reader = {
             let runs = runs.clone();
             std::thread::spawn(move || {
-                let store = RunStore::new(runs);
+                let store = RunStore::new(runs).with_refusal_wait(OUTSIDE_HOLD_WAIT);
                 let mut unreadable = 0;
                 for _ in 0..2_000 {
                     if store.read_summary(ID_A).is_none() {
@@ -860,6 +882,50 @@ mod tests {
             .expect("a write refused for a moment lands once the file is released");
         release.join().unwrap();
         assert_eq!(store.read_summary(ID_A).unwrap().created_at, 2.0);
+        let names: Vec<String> = fs::read_dir(store.dir())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [format!("{ID_A}.run.json")],
+            "no temporary file is left behind"
+        );
+    }
+
+    /// The bound is a store's own: a hold past [`REFUSAL_WAIT`] fails a
+    /// store's write after it (and removes its temporary file), while a store
+    /// given a longer wait lands once the hold ends.
+    #[cfg(windows)]
+    #[test]
+    fn a_hold_past_the_refusal_wait_fails_a_write_unless_the_store_waits_longer() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = TempDir::new("store-write-held-long");
+        let store = RunStore::new(dir.path().join("runs"));
+        store.write_summary(&summary(ID_A, 1.0), false).unwrap();
+        let held = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(store.summary_path(ID_A).unwrap())
+            .unwrap();
+        // Held for four times the bound, so that a loaded machine's late
+        // wake-up cannot carry the failing write's last try past the hold.
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(REFUSAL_WAIT * 4);
+            drop(held);
+        });
+        let patient = store.clone().with_refusal_wait(OUTSIDE_HOLD_WAIT);
+        let waits = std::thread::spawn(move || patient.write_summary(&summary(ID_A, 3.0), false));
+        assert!(
+            store.write_summary(&summary(ID_A, 2.0), false).is_err(),
+            "a write refused for longer than REFUSAL_WAIT fails"
+        );
+        waits
+            .join()
+            .unwrap()
+            .expect("a store that waits longer lands once the hold ends");
+        release.join().unwrap();
+        assert_eq!(store.read_summary(ID_A).unwrap().created_at, 3.0);
         let names: Vec<String> = fs::read_dir(store.dir())
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())

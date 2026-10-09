@@ -28,9 +28,10 @@ pub const MAX_TEXT: usize = 64 * 1024;
 /// How a session's model is chosen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Model {
-    /// `session/set_model {modelId}` (Claude Code's adapter).
+    /// `session/set_model {modelId}` (Codex's adapter offers its models so).
     SetModel(String),
-    /// `session/set_config_option {configId: "model", value}` (Codex's).
+    /// `session/set_config_option {configId: "model", value}` (Claude
+    /// Code's adapter offers its models so).
     ConfigOption(String),
     /// The agent's own choice.
     Agents,
@@ -49,6 +50,9 @@ pub enum Update {
         title: String,
         kind: String,
         status: String,
+        /// The changes it proposes, when it carries them (Codex announces its
+        /// edit's diff here, then asks).
+        diffs: Vec<Diff>,
     },
     /// A tool call's progress or end, with any text it gave.
     ToolUpdate {
@@ -68,6 +72,74 @@ pub struct Permission {
     pub title: String,
     pub detail: String,
     pub options: Vec<(String, String, String)>,
+    /// The tool call it asks about.
+    pub call_id: String,
+    /// The changes it would make, when it says (Claude Code puts its edit's
+    /// diff in the request itself).
+    pub diffs: Vec<Diff>,
+}
+
+/// A change to one file an agent proposes: the whole old text (`None` for a
+/// new file) or the part it replaces, and the new.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diff {
+    pub path: String,
+    pub old: Option<String>,
+    pub new: String,
+}
+
+/// The `{type: "diff"}` items of a tool call's content.
+pub fn diffs(content: Option<&Value>) -> Vec<Diff> {
+    content
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("diff"))
+                .map(|item| Diff {
+                    path: item.get("path").and_then(Value::as_str).unwrap_or("").to_owned(),
+                    old: item.get("oldText").and_then(Value::as_str).map(str::to_owned),
+                    new: item.get("newText").and_then(Value::as_str).unwrap_or("").to_owned(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The most lines of a change the approval dialog shows.
+pub const DIFF_LINES: usize = 60;
+
+/// A change as the approval dialog shows it: each file, then its removed
+/// (`- `) and added (`+ `) lines with a line of context around them, at most
+/// [`DIFF_LINES`] in all.
+pub fn diff_lines(diffs: &[Diff]) -> Vec<String> {
+    let mut out = Vec::new();
+    for diff in diffs {
+        out.push(match &diff.old {
+            None => format!("{} (new file)", diff.path),
+            Some(_) => format!("{}:", diff.path),
+        });
+        let old = diff.old.clone().unwrap_or_default();
+        let text = similar::TextDiff::from_lines(old.as_str(), diff.new.as_str());
+        for group in text.grouped_ops(1) {
+            for op in group {
+                for change in text.iter_changes(&op) {
+                    let mark = match change.tag() {
+                        similar::ChangeTag::Delete => "- ",
+                        similar::ChangeTag::Insert => "+ ",
+                        similar::ChangeTag::Equal => "  ",
+                    };
+                    out.push(format!("{mark}{}", change.value().trim_end_matches(['\r', '\n'])));
+                }
+            }
+        }
+    }
+    if out.len() > DIFF_LINES {
+        let more = out.len() - DIFF_LINES;
+        out.truncate(DIFF_LINES);
+        out.push(format!("... and {more} more lines"));
+    }
+    out
 }
 
 /// What the caller does with what the agent sends and asks.
@@ -116,6 +188,7 @@ pub fn parse_update(update: &Value) -> Update {
             title: cut(&field("title"), 400),
             kind: field("kind"),
             status: field("status"),
+            diffs: diffs(update.get("content")),
         },
         "tool_call_update" => {
             let text = update
@@ -191,6 +264,12 @@ pub fn parse_permission(params: &Value) -> Permission {
         title,
         detail,
         options,
+        call_id: call
+            .get("toolCallId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        diffs: diffs(call.get("content")),
     }
 }
 
@@ -267,6 +346,8 @@ pub fn events(client: Arc<dyn Client>, log: Arc<dyn Fn(String) + Send + Sync>) -
 pub struct AgentSession {
     conn: Arc<Connection>,
     pub id: String,
+    /// The models the agent offered when the session opened.
+    pub offered: super::models::Offered,
 }
 
 fn failed(step: &str, error: CallError) -> String {
@@ -281,6 +362,7 @@ impl AgentSession {
         cwd: &Path,
         auth: Option<&str>,
         model: &Model,
+        mode: Option<&str>,
     ) -> Result<Self, String> {
         let init = json!({
             "protocolVersion": 1,
@@ -307,6 +389,7 @@ impl AgentSession {
             .and_then(Value::as_str)
             .ok_or_else(|| "The agent opened no session.".to_owned())?
             .to_owned();
+        let offered = super::models::offered(&new);
         let chosen = match model {
             Model::SetModel(m) => {
                 Some(("session/set_model", json!({"sessionId": id, "modelId": m})))
@@ -322,7 +405,16 @@ impl AgentSession {
                 .await
                 .map_err(|e| failed("The agent's model could not be chosen", e))?;
         }
-        Ok(Self { conn, id })
+        if let Some(mode) = mode {
+            conn.request(
+                "session/set_config_option",
+                json!({"sessionId": id, "configId": "mode", "value": mode}),
+                START_WAIT,
+            )
+            .await
+            .map_err(|e| failed("The agent's mode could not be set", e))?;
+        }
+        Ok(Self { conn, id, offered })
     }
 
     /// Send one prompt; its updates stream to the client. Its stop reason.

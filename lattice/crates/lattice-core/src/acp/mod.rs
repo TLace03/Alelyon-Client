@@ -23,6 +23,7 @@
 //! `CLAUDECODE` (Claude Code refuses to start inside another Claude Code).
 
 pub mod connection;
+pub mod models;
 pub mod pool;
 pub mod session;
 #[cfg(test)]
@@ -138,6 +139,17 @@ impl Agent {
     }
 
     /// Whether its adapter is installed in `dir`.
+    /// The mode its sessions open in, so that it asks before every edit:
+    /// Codex edits without asking in its other modes (measured on 2026-10-09:
+    /// in `read-only` it asks once per patch and announces the patch's diff
+    /// just before); Claude Code asks in its own default.
+    pub fn mode(self) -> Option<&'static str> {
+        match self {
+            Agent::ClaudeCode => None,
+            Agent::Codex => Some("read-only"),
+        }
+    }
+
     pub fn installed(self, dir: &Path) -> bool {
         self.script(dir).is_file()
     }
