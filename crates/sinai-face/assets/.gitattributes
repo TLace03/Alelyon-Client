@@ -1,0 +1,4 @@
+# sinai_body.bin is Sinai's baked bust, compiled into the crate with include_bytes!, so its bytes ARE the build
+# input. Git already guesses it binary (a NUL in the first 8000 bytes); this makes it the repository's rule rather
+# than a heuristic's.
+sinai_body.bin -text

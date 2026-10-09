@@ -1,0 +1,25 @@
+# Sinai's face: the baked bust and every shape it can take, its expressions, a person's appearance and where
+# that is kept, and the shaders that draw it and its world. It draws nothing and opens no device itself: a
+# window links it and does the drawing (CENTCOM's Sinai page, and the Angel window).
+#
+# Its own workspace and lockfile, so it builds and tests on its own. Written for Rust 2021: one of its tests
+# does not compile under 2024 (a returned closure's captured lifetimes), and a dependent on 2024 links it
+# unchanged.
+[workspace]
+resolver = "3"
+
+[package]
+name = "sinai-face"
+description = "Sinai's face: the baked bust and its morph targets, expressions, appearance, and the WGSL shaders that draw it."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+serde_json = "1.0.151"
+# An appearance's share code (appearance.rs).
+base64 = "0.23.1"
+# The checked copy a window's state home makes on its first start (state_home.rs).
+sha2 = "0.10.9"

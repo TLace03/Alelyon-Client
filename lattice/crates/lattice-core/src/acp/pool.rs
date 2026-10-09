@@ -53,16 +53,38 @@ struct Sink {
     folder: PathBuf,
     turn: Mutex<Option<mpsc::UnboundedSender<Update>>>,
     permissions: Permissions,
+    /// The changes the agent's tool calls announced, by call, until asked about.
+    diffs: Mutex<std::collections::HashMap<String, Vec<super::session::Diff>>>,
 }
 
 impl Client for Sink {
     fn update(&self, update: Update) {
+        // A tool call's proposed changes, for its permission question.
+        if let Update::ToolCall { id, diffs, .. } = &update
+            && !diffs.is_empty()
+        {
+            let mut known = lock(&self.diffs);
+            if known.len() >= 64 {
+                known.clear();
+            }
+            known.insert(id.clone(), diffs.clone());
+        }
         if let Some(turn) = lock(&self.turn).as_ref() {
             let _ = turn.send(update);
         }
     }
 
-    fn permission(&self, permission: Permission) -> BoxFuture<'static, Option<String>> {
+    fn permission(&self, mut permission: Permission) -> BoxFuture<'static, Option<String>> {
+        // Its changes: in the question itself, else as its tool call announced them.
+        if permission.diffs.is_empty() {
+            permission.diffs = lock(&self.diffs).remove(&permission.call_id).unwrap_or_default();
+        }
+        // Shown by their place in the chat's folder.
+        for diff in &mut permission.diffs {
+            if let Some(inside) = inside(&self.folder, &diff.path) {
+                diff.path = inside;
+            }
+        }
         let ask = (self.permissions)(self.agent, permission.clone());
         Box::pin(async move {
             let yes = ask.await;
@@ -175,6 +197,14 @@ impl Pool {
         if let Some(found) = live.get(&key) {
             return Ok(found.clone());
         }
+        let made = Arc::new(self.open(agent, self.folder(thread)).await?);
+        live.insert(key, made.clone());
+        Ok(made)
+    }
+
+    /// Open a session of `agent` in `folder`, on the reader's pick of model
+    /// (`super::models`), and keep what it offered.
+    async fn open(&self, agent: Agent, folder: PathBuf) -> Result<Live, String> {
         let dir = agents_dir(&self.state);
         if !agent.installed(&dir) {
             return Err(format!(
@@ -182,7 +212,6 @@ impl Pool {
                 agent.label()
             ));
         }
-        let folder = self.folder(thread);
         std::fs::create_dir_all(&folder)
             .map_err(|_| "The agent's folder could not be made.".to_owned())?;
         let mut child = start(
@@ -205,6 +234,7 @@ impl Pool {
             folder: folder.clone(),
             turn: Mutex::new(None),
             permissions: self.permissions.clone(),
+            diffs: Mutex::default(),
         });
         let client: Arc<dyn Client> = sink.clone();
         let conn = Connection::start(
@@ -215,14 +245,29 @@ impl Pool {
             session::asks(client, self.handle.clone()),
         )
         .map_err(|_| format!("{} could not be connected to.", agent.label()))?;
-        let session = AgentSession::start(conn, &folder, agent.auth(), &agent.model()).await?;
-        let made = Arc::new(Live {
+        let model = super::models::model_for(&dir, agent);
+        let session =
+            AgentSession::start(conn, &folder, agent.auth(), &model, agent.mode()).await?;
+        // Kept for the reader's model picker; a failure to keep it changes nothing here.
+        let _ = super::models::remember_offered(&dir, agent, &session.offered);
+        Ok(Live {
             session,
             sink,
             _child: child,
-        });
-        live.insert(key, made.clone());
-        Ok(made)
+        })
+    }
+
+    /// Check models: open a session of `agent` in a folder of its own only to
+    /// read the models it offers (kept as any session's are), then end it.
+    pub async fn check_models(&self, agent: Agent) -> Result<super::models::Offered, String> {
+        let folder = agents_dir(&self.state).join("check").join(agent.choice().replace(':', "-"));
+        let live = self.open(agent, folder).await?;
+        let offered = live.session.offered.clone();
+        live.session.close();
+        if offered.models.is_empty() {
+            return Err(format!("{} offered no model to choose.", agent.label()));
+        }
+        Ok(offered)
     }
 
     /// Start `agent`'s session for `thread` if it is not running; why not, in
@@ -345,4 +390,94 @@ fn tokio_stream_from(
     mut out: mpsc::UnboundedReceiver<Result<ModelEvent, ModelError>>,
 ) -> BoxStream<'static, Result<ModelEvent, ModelError>> {
     futures::stream::poll_fn(move |cx| out.poll_recv(cx)).boxed()
+}
+
+/// `path`'s place inside `folder` (forward slashes), when it is inside it: as
+/// the folder is named, or as its real path (an agent may report a folder
+/// reached through a link by where it really is), without regard to case or a
+/// verbatim prefix.
+fn inside(folder: &Path, path: &str) -> Option<String> {
+    let plain = |p: &str| {
+        let p = p.replace('/', "\\");
+        p.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(p)
+    };
+    let wanted = plain(path);
+    let mut names = vec![folder.to_string_lossy().into_owned()];
+    if let Ok(real) = std::fs::canonicalize(folder) {
+        names.push(real.to_string_lossy().into_owned());
+    }
+    names.into_iter().find_map(|name| {
+        let base = plain(name.trim_end_matches(['\\', '/']));
+        let n = base.len();
+        let head = wanted.get(..n)?;
+        let rest = wanted[n..].strip_prefix('\\')?;
+        (head.eq_ignore_ascii_case(&base) && !rest.is_empty()).then(|| rest.replace('\\', "/"))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::acp::session::Diff;
+
+    /// A permission question without its own diff takes the one its tool call
+    /// announced (Codex's way), with paths shown inside the chat's folder; one
+    /// that carries its diff (Claude Code's way) keeps it; yes takes the
+    /// allow-once option, no a reject.
+    #[test]
+    fn a_question_shows_the_change_its_tool_call_announced() {
+        let seen: Arc<Mutex<Vec<Permission>>> = Arc::default();
+        let answer = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let permissions: Permissions = {
+            let (seen, answer) = (seen.clone(), answer.clone());
+            Arc::new(move |_, permission| {
+                seen.lock().unwrap().push(permission);
+                let yes = answer.load(std::sync::atomic::Ordering::SeqCst);
+                Box::pin(async move { yes })
+            })
+        };
+        let folder = PathBuf::from(r"C:\work");
+        let sink = Sink {
+            agent: Agent::Codex,
+            folder: folder.clone(),
+            turn: Mutex::new(None),
+            permissions,
+            diffs: Mutex::default(),
+        };
+        let diff = |path: &str| Diff { path: path.into(), old: Some("a\n".into()), new: "b\n".into() };
+        sink.update(Update::ToolCall {
+            id: "t1".into(),
+            title: "Editing files".into(),
+            kind: "edit".into(),
+            status: "in_progress".into(),
+            diffs: vec![diff(r"C:\work\src\a.txt")],
+        });
+        let question = |call: &str, diffs: Vec<Diff>| Permission {
+            title: "Edit files".into(),
+            detail: String::new(),
+            options: vec![
+                ("ok".into(), "Allow".into(), "allow_once".into()),
+                ("always".into(), "Always".into(), "allow_always".into()),
+                ("no".into(), "Reject".into(), "reject_once".into()),
+            ],
+            call_id: call.into(),
+            diffs,
+        };
+        let pick = futures::executor::block_on(sink.permission(question("t1", Vec::new())));
+        assert_eq!(pick.as_deref(), Some("ok"));
+        assert_eq!(seen.lock().unwrap()[0].diffs, [diff("src/a.txt")]);
+        // Its own diff is kept; a no is a reject, never an always.
+        answer.store(false, std::sync::atomic::Ordering::SeqCst);
+        let pick = futures::executor::block_on(sink.permission(question("t2", vec![diff(r"C:\work\b.txt")])));
+        assert_eq!(pick.as_deref(), Some("no"));
+        assert_eq!(seen.lock().unwrap()[1].diffs, [diff("b.txt")]);
+        // Another spelling of the same folder still counts; a folder beside it does not.
+        assert_eq!(inside(&folder, r"c:/WORK/x/y.txt").as_deref(), Some("x/y.txt"));
+        assert_eq!(inside(&folder, r"\\?\C:\work\z.txt").as_deref(), Some("z.txt"));
+        assert_eq!(inside(&folder, r"C:\workshop\a.txt"), None);
+        assert_eq!(inside(&folder, r"C:\work"), None);
+        // An announced diff is used once.
+        futures::executor::block_on(sink.permission(question("t1", Vec::new())));
+        assert!(seen.lock().unwrap()[2].diffs.is_empty());
+    }
 }
