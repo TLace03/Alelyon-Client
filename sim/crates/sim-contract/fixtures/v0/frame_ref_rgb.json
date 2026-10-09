@@ -1,0 +1,10 @@
+{
+  "buffer": 7,
+  "byte_offset": 0,
+  "width": 448,
+  "height": 448,
+  "channels": 3,
+  "dtype": "u8",
+  "row_stride_bytes": 1344,
+  "semantic": "rgb"
+}

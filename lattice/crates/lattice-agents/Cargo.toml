@@ -1,0 +1,22 @@
+[package]
+name = "lattice-agents"
+description = "An agent runtime ported from the OpenAI Agents SDK (openai-agents-python 0.22.3, MIT, Copyright (c) 2025 OpenAI): agents, tools, handoffs, guardrails, streaming runs and local-only tracing."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+lattice-protocol.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net", "io-util", "test-util"] }

@@ -1,0 +1,10 @@
+{
+  "seq": 28,
+  "at": 1790000107.0,
+  "type": "task_settled",
+  "task": "task_0011223344556677",
+  "outcome": {
+    "type": "started",
+    "conversation": "0a0b0c0d0e0f"
+  }
+}

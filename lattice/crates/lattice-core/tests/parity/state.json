@@ -1,0 +1,176 @@
+{
+  "resolve": [
+    {
+      "name": "home_wins",
+      "env": {
+        "ALELYON_HOME": "<TMP>/home"
+      },
+      "installed": false,
+      "root": "<TMP>/home",
+      "globals": "<TMP>/home/globals",
+      "globals_is_root_plus_globals": true
+    },
+    {
+      "name": "home_is_tidied",
+      "env": {
+        "ALELYON_HOME": "<TMP>/a/../home/./x"
+      },
+      "installed": false,
+      "root": "<TMP>/home/x",
+      "globals": "<TMP>/home/x/globals",
+      "globals_is_root_plus_globals": true
+    },
+    {
+      "name": "home_beats_force_packaged",
+      "env": {
+        "ALELYON_HOME": "<TMP>/home",
+        "ALELYON_FORCE_PACKAGED": "1"
+      },
+      "installed": false,
+      "root": "<TMP>/home",
+      "globals": "<TMP>/home/globals",
+      "globals_is_root_plus_globals": true
+    },
+    {
+      "name": "force_packaged_alone",
+      "env": {
+        "ALELYON_FORCE_PACKAGED": "1"
+      },
+      "installed": true,
+      "root": null,
+      "globals": null,
+      "globals_is_root_plus_globals": true
+    },
+    {
+      "name": "blank_home_falls_through_to_force_packaged",
+      "env": {
+        "ALELYON_HOME": "   ",
+        "ALELYON_FORCE_PACKAGED": "yes"
+      },
+      "installed": true,
+      "root": null,
+      "globals": null,
+      "globals_is_root_plus_globals": true
+    },
+    {
+      "name": "home_is_a_bare_tilde",
+      "env": {
+        "ALELYON_HOME": "~",
+        "USERPROFILE": "<TMP>/user",
+        "HOME": "<TMP>/user"
+      },
+      "installed": false,
+      "root": "<TMP>/user",
+      "globals": "<TMP>/user/globals",
+      "globals_is_root_plus_globals": true
+    },
+    {
+      "name": "home_is_a_tilde_and_a_path",
+      "env": {
+        "ALELYON_HOME": "~/lat",
+        "USERPROFILE": "<TMP>/user",
+        "HOME": "<TMP>/user"
+      },
+      "installed": false,
+      "root": "<TMP>/user/lat",
+      "globals": "<TMP>/user/lat/globals",
+      "globals_is_root_plus_globals": true
+    },
+    {
+      "name": "home_is_a_tilde_and_a_tidied_path",
+      "env": {
+        "ALELYON_HOME": "~/a/../lat/./x",
+        "USERPROFILE": "<TMP>/user",
+        "HOME": "<TMP>/user"
+      },
+      "installed": false,
+      "root": "<TMP>/user/lat/x",
+      "globals": "<TMP>/user/lat/x/globals",
+      "globals_is_root_plus_globals": true
+    },
+    {
+      "name": "home_with_a_tilde_in_the_middle_is_not_expanded",
+      "env": {
+        "ALELYON_HOME": "<TMP>/~/lat"
+      },
+      "installed": false,
+      "root": "<TMP>/~/lat",
+      "globals": "<TMP>/~/lat/globals",
+      "globals_is_root_plus_globals": true
+    }
+  ],
+  "force_packaged": [
+    {
+      "value": "1",
+      "forced": true
+    },
+    {
+      "value": "true",
+      "forced": true
+    },
+    {
+      "value": "TRUE",
+      "forced": true
+    },
+    {
+      "value": "yes",
+      "forced": true
+    },
+    {
+      "value": "Yes",
+      "forced": true
+    },
+    {
+      "value": "on",
+      "forced": true
+    },
+    {
+      "value": "ON",
+      "forced": true
+    },
+    {
+      "value": " on ",
+      "forced": true
+    },
+    {
+      "value": "\ton\n",
+      "forced": true
+    },
+    {
+      "value": "0",
+      "forced": false
+    },
+    {
+      "value": "no",
+      "forced": false
+    },
+    {
+      "value": "off",
+      "forced": false
+    },
+    {
+      "value": "",
+      "forced": false
+    },
+    {
+      "value": "2",
+      "forced": false
+    },
+    {
+      "value": "truee",
+      "forced": false
+    },
+    {
+      "value": "y",
+      "forced": false
+    },
+    {
+      "value": "t",
+      "forced": false
+    },
+    {
+      "value": "enabled",
+      "forced": false
+    }
+  ]
+}

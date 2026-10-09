@@ -1,0 +1,8 @@
+{
+  "schema_version": 0,
+  "env_id": 3,
+  "episode_id": 12,
+  "step": 50,
+  "sim_time_s": 1.0,
+  "seed": 20260930
+}

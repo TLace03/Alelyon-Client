@@ -1,0 +1,12 @@
+[package]
+name = "sim-contract"
+description = "The observation contract (v0) between Sinai's simulator and the Sinai side: one bundle per environment per tick, actions and resets back, and the evaluation-only ground truth and perturbations that never reach the model."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

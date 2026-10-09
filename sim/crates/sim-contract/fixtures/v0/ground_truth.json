@@ -1,0 +1,112 @@
+{
+  "identity": {
+    "schema_version": 0,
+    "env_id": 3,
+    "episode_id": 12,
+    "step": 50,
+    "sim_time_s": 1.0,
+    "seed": 20260930
+  },
+  "temperatures_k": [
+    {
+      "name": "plate_surface",
+      "value": 373.15
+    },
+    {
+      "name": "object_core",
+      "value": 301.5
+    }
+  ],
+  "reaction_progress": [
+    {
+      "name": "maillard",
+      "value": 0.125
+    },
+    {
+      "name": "water_loss",
+      "value": 0.0625
+    }
+  ],
+  "contacts": [
+    {
+      "a": 1,
+      "b": 2,
+      "normal_force_n": 4.5,
+      "position": [
+        0.25,
+        0.0,
+        0.5
+      ]
+    }
+  ],
+  "object_ids_through_occlusion": [
+    [
+      2,
+      false
+    ],
+    [
+      5,
+      true
+    ]
+  ],
+  "segmentation": [
+    {
+      "camera": 0,
+      "frame": {
+        "captured_at_s": 1.0,
+        "value": {
+          "buffer": 9,
+          "byte_offset": 256,
+          "width": 448,
+          "height": 448,
+          "channels": 1,
+          "dtype": "u16",
+          "row_stride_bytes": 896,
+          "semantic": "segmentation"
+        }
+      }
+    }
+  ],
+  "seg_table": {
+    "episode_id": 12,
+    "entries": [
+      [
+        41,
+        1
+      ],
+      [
+        7,
+        2
+      ],
+      [
+        23,
+        5
+      ]
+    ]
+  },
+  "shown_segmentation": [
+    {
+      "perturbation": {
+        "kind": "offset",
+        "sense": "sight",
+        "seconds": -0.05
+      },
+      "frame": {
+        "camera": 0,
+        "frame": {
+          "captured_at_s": 0.95,
+          "value": {
+            "buffer": 10,
+            "byte_offset": 256,
+            "width": 448,
+            "height": 448,
+            "channels": 1,
+            "dtype": "u16",
+            "row_stride_bytes": 896,
+            "semantic": "segmentation"
+          }
+        }
+      }
+    }
+  ]
+}

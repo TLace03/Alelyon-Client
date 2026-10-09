@@ -1,0 +1,13 @@
+{
+  "key": {
+    "id": "ba9876543210",
+    "created": 1780000000.0
+  },
+  "title": "Old question",
+  "updated": 1780000500.0,
+  "turns": 2,
+  "evicted_at": 1790000000.0,
+  "file": "ba9876543210-2.jsonl",
+  "reason": "reader",
+  "transcript_missing": false
+}

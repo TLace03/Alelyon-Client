@@ -1,0 +1,191 @@
+{
+  "final_output": "The manual was found.",
+  "stream": [
+    "agent_updated_stream_event",
+    "handoff_requested",
+    "handoff_occured",
+    "agent_updated_stream_event",
+    "tool_called",
+    "tool_output",
+    "raw_text_delta",
+    "message_output_created"
+  ],
+  "spans": [
+    {
+      "kind": "task",
+      "span_data": {
+        "type": "custom",
+        "name": "task",
+        "data": {
+          "sdk_span_type": "task",
+          "name": "Agent workflow",
+          "usage": {
+            "input_tokens": 49,
+            "output_tokens": 15,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "requests": 3,
+            "total_tokens": 64
+          }
+        }
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Triage agent",
+            "handoffs": [
+              "Specialist agent"
+            ],
+            "tools": [],
+            "output_type": "str"
+          },
+          "error": null,
+          "children": [
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 1,
+                  "agent_name": "Triage agent",
+                  "usage": {
+                    "input_tokens": 9,
+                    "output_tokens": 2,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "handoff",
+                  "span_data": {
+                    "type": "handoff",
+                    "from_agent": "Triage agent",
+                    "to_agent": "Specialist agent"
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Specialist agent",
+            "handoffs": [],
+            "tools": [
+              "lookup"
+            ],
+            "output_type": "str"
+          },
+          "error": null,
+          "children": [
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 2,
+                  "agent_name": "Specialist agent",
+                  "usage": {
+                    "input_tokens": 15,
+                    "output_tokens": 6,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "lookup",
+                    "input": "{\"query\":\"manual\"}",
+                    "output": "found:manual",
+                    "mcp_data": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 3,
+                  "agent_name": "Specialist agent",
+                  "usage": {
+                    "input_tokens": 25,
+                    "output_tokens": 7,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

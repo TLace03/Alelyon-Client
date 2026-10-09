@@ -1,0 +1,13 @@
+{
+  "kind": "case",
+  "name": "builtin_flag_is_recomputed",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"openai\", \"builtin\": false}, {\"id\": \"mine\", \"label\": \"Mine\", \"base_url\": \"http://localhost:1/v1\", \"builtin\": true}]}"
+  },
+  "complete": true,
+  "issues": [],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter", "mine"],
+  "endpoints": [
+    {"id": "mine", "label": "Mine", "kind": "openai-compatible", "base_url": "http://localhost:1/v1", "model": "", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": false, "status": "no model name set"}
+  ]
+}

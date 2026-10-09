@@ -1,0 +1,11 @@
+{
+  "id": 4,
+  "kind": "copies",
+  "reason": {
+    "type": "before_keep"
+  },
+  "at_turn": "a1b2c3d4e5f6",
+  "exposed": true,
+  "omitted": 2,
+  "bytes": 18432
+}

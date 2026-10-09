@@ -1,0 +1,10 @@
+{
+  "seq": 9,
+  "at": 1790000102.25,
+  "type": "approval_resolved",
+  "call_id": "call_3",
+  "approved": true,
+  "by": {
+    "type": "reader"
+  }
+}

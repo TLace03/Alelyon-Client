@@ -1,0 +1,24 @@
+{
+  "kind": "case",
+  "name": "address_quirks_that_are_accepted",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"q1\", \"label\": \"Upper\", \"base_url\": \"HTTP://LOCALHOST:8000/v1\", \"model\": \"m\"}, {\"id\": \"q2\", \"label\": \"Spaces\", \"base_url\": \"  http://localhost:8000/v1  \", \"model\": \"m\"}, {\"id\": \"q3\", \"label\": \"Tab\", \"base_url\": \"http://local\\thost:8000/v1\", \"model\": \"m\"}, {\"id\": \"q4\", \"label\": \"Mapped\", \"base_url\": \"http://[::ffff:127.0.0.1]:8000/v1\", \"model\": \"m\"}, {\"id\": \"q5\", \"label\": \"Zone\", \"base_url\": \"http://[fe80::1%25eth0]:8000/v1\", \"model\": \"m\"}, {\"id\": \"q6\", \"label\": \"Dotted\", \"base_url\": \"http://localhost.:8000/v1\", \"model\": \"m\"}, {\"id\": \"q7\", \"label\": \"Localdomain\", \"base_url\": \"http://LocalHost.LocalDomain/v1\", \"model\": \"m\"}, {\"id\": \"q8\", \"label\": \"Private\", \"base_url\": \"http://192.168.1.10:8000/v1\", \"model\": \"m\"}, {\"id\": \"q9\", \"label\": \"Empty port\", \"base_url\": \"http://localhost:/v1\", \"model\": \"m\"}, {\"id\": \"q10\", \"label\": \"Port zero\", \"base_url\": \"http://localhost:0/v1\", \"model\": \"m\"}, {\"id\": \"q11\", \"label\": \"Trailing slash\", \"base_url\": \"http://localhost:8000/v1/\", \"model\": \"m\"}, {\"id\": \"q12\", \"label\": \"Chat path\", \"base_url\": \"http://localhost:8000/v1/chat/completions\", \"model\": \"m\"}]}"
+  },
+  "complete": true,
+  "issues": [],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"],
+  "endpoints": [
+    {"id": "q1", "label": "Upper", "kind": "openai-compatible", "base_url": "HTTP://LOCALHOST:8000/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q2", "label": "Spaces", "kind": "openai-compatible", "base_url": "  http://localhost:8000/v1  ", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q3", "label": "Tab", "kind": "openai-compatible", "base_url": "http://local\thost:8000/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q4", "label": "Mapped", "kind": "openai-compatible", "base_url": "http://[::ffff:127.0.0.1]:8000/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q5", "label": "Zone", "kind": "openai-compatible", "base_url": "http://[fe80::1%25eth0]:8000/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q6", "label": "Dotted", "kind": "openai-compatible", "base_url": "http://localhost.:8000/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q7", "label": "Localdomain", "kind": "openai-compatible", "base_url": "http://LocalHost.LocalDomain/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q8", "label": "Private", "kind": "openai-compatible", "base_url": "http://192.168.1.10:8000/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q9", "label": "Empty port", "kind": "openai-compatible", "base_url": "http://localhost:/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q10", "label": "Port zero", "kind": "openai-compatible", "base_url": "http://localhost:0/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q11", "label": "Trailing slash", "kind": "openai-compatible", "base_url": "http://localhost:8000/v1/", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "q12", "label": "Chat path", "kind": "openai-compatible", "base_url": "http://localhost:8000/v1/chat/completions", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"}
+  ]
+}

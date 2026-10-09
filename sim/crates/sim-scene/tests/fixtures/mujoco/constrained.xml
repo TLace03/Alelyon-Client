@@ -1,0 +1,83 @@
+<!-- The "constrained" model: one small articulated model that exercises every kind of
+     soft constraint of phase 1c-i (joint limits, joint and tendon friction loss, a
+     tendon limit) with non-default solver parameters. It is ours (not MuJoCo's),
+     written for crates/sim-scene (the importer's parity with MuJoCo's compile of the
+     soft-constraint attributes) and crates/sim-physics (the constraint pipeline and
+     the Newton and CG solvers against MuJoCo). It has no contacts: every geom has
+     contype and conaffinity 0.
+
+       - "cart": a world-attached body with ONE slide joint along x and nothing else
+         (an inertial frame at the body frame, no child): MuJoCo's "simple" body of
+         level 2, whose approximate inverse inertia is 1 / mass, not
+         1 / (mass + armature). It has a limit with a margin, non-default solref and
+         solimp of the limit and of the friction loss, friction loss and armature;
+         its position servo drives it;
+       - "arm" -> "fore" -> "hand" -> "finger": a chain with a hinge ("shoulder", limit
+         with margin and friction loss, a motor), a hinge ("elbow") whose limit uses
+         MuJoCo's DIRECT solref format (negative stiffness and damping), a BALL joint
+         ("wrist", a limit of 50 degrees with a margin, and friction loss, which makes
+         three friction rows) and a slide ("finger", a limit with a time constant
+         shorter than twice the timestep, so the integrator-safety rule that raises it
+         acts);
+       - one fixed tendon "couple" of the two hinges with a limit, a margin, friction
+         loss and non-default solref and solimp;
+       - the solver options are not MuJoCo's defaults (CG, 80 iterations, a tighter
+         tolerance, a longer line search, an elliptic cone and an impratio, the last
+         two unused until contacts exist).
+
+     Euler is the integrator, with joint damping, so the implicit damping uses the
+     constraint force. Gravity is on (the default). The only thing the physics phase
+     does not model in this scene is nothing: it lists no unsupported entry. -->
+<mujoco model="constrained">
+  <compiler angle="degree"/>
+  <option timestep="0.004" integrator="Euler" solver="CG" iterations="80" tolerance="1e-9"
+          ls_iterations="40" ls_tolerance="0.02" cone="elliptic" impratio="1.5"/>
+  <default>
+    <geom contype="0" conaffinity="0" density="600"/>
+    <joint damping="0.08" armature="0.02" solreffriction="0.03 0.9"
+           solimpfriction="0.8 0.9 0.002 0.4 2"/>
+  </default>
+  <worldbody>
+    <body name="cart" pos="-1 0 0.5">
+      <joint name="cart_x" type="slide" axis="1 0 0" range="-0.4 0.4" margin="0.05"
+             armature="0.05" damping="0.1" frictionloss="0.8" solreflimit="0.03 0.8"
+             solimplimit="0.8 0.95 0.01 0.4 3" solreffriction="0.015 1"
+             solimpfriction="0.85 0.95 0.002 0.5 2"/>
+      <geom name="cart_geom" type="sphere" size="0.1" mass="2"/>
+    </body>
+
+    <body name="arm" pos="0 0 1.5">
+      <joint name="shoulder" type="hinge" axis="0 1 0" range="-40 50" margin="0.1"
+             stiffness="0.5" frictionloss="0.4" solreflimit="0.04 1.2"
+             solimplimit="0.7 0.9 0.05 0.5 2"/>
+      <geom name="upper" type="capsule" fromto="0 0 0 0.4 0 0" size="0.03" mass="1.5"/>
+      <body name="fore" pos="0.4 0 0">
+        <joint name="elbow" type="hinge" axis="0 1 0" range="-100 10" margin="0.05"
+               frictionloss="0.3" solreflimit="-400 -15" solimplimit="0.85 0.95 0.02 0.6 2.5"/>
+        <geom name="lower" type="capsule" fromto="0 0 0 0.3 0 0" size="0.025" mass="1"/>
+        <body name="hand" pos="0.3 0 0">
+          <joint name="wrist" type="ball" range="0 50" margin="0.08" frictionloss="0.15"
+                 solreflimit="0.05 1" solimplimit="0.8 0.9 0.03 0.5 2"/>
+          <geom name="palm" type="sphere" size="0.04" mass="0.5"/>
+          <body name="finger" pos="0 0 -0.1">
+            <joint name="finger" type="slide" axis="0 0 1" range="-0.05 0.05" margin="0.01"
+                   frictionloss="0.2" solreflimit="0.005 1"/>
+            <geom name="tip" type="sphere" size="0.02" mass="0.2"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <tendon>
+    <fixed name="couple" limited="true" range="-0.5 0.6" margin="0.05" frictionloss="0.25"
+           solreflimit="0.05 1" solimplimit="0.8 0.9 0.02 0.5 2" solreffriction="0.04 0.8"
+           solimpfriction="0.75 0.85 0.004 0.5 2">
+      <joint joint="shoulder" coef="1"/>
+      <joint joint="elbow" coef="0.5"/>
+    </fixed>
+  </tendon>
+  <actuator>
+    <motor name="m_shoulder" joint="shoulder" gear="6" ctrlrange="-1 1"/>
+    <position name="p_cart" joint="cart_x" kp="30" ctrlrange="-0.5 0.5"/>
+  </actuator>
+</mujoco>

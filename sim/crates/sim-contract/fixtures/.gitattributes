@@ -1,0 +1,5 @@
+# The fixtures are read by a Python training loop and compared byte for byte
+# against what the contract tests regenerate, so a checkout must never rewrite
+# their line endings (core.autocrlf would make them a different artifact on a
+# different machine).
+* text eol=lf

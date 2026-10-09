@@ -1,0 +1,74 @@
+{
+  "error": "Exception",
+  "stream": [
+    "agent_updated_stream_event"
+  ],
+  "spans": [
+    {
+      "kind": "task",
+      "span_data": {
+        "type": "custom",
+        "name": "task",
+        "data": {
+          "sdk_span_type": "task",
+          "name": "Agent workflow"
+        }
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Assistant",
+            "handoffs": [],
+            "tools": [],
+            "output_type": "str"
+          },
+          "error": {
+            "message": "Error in agent run",
+            "data": {
+              "error": "boom"
+            }
+          },
+          "children": [
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 1,
+                  "agent_name": "Assistant"
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": {
+                    "message": "Error",
+                    "data": {
+                      "name": "Exception",
+                      "message": "boom"
+                    }
+                  },
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

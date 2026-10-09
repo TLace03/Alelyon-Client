@@ -1,0 +1,28 @@
+<mujoco model="contact_stack">
+  <!--
+    Ours (not MuJoCo's): three boxes stacked on a plane, each smaller than the one below,
+    so that every upper face lies strictly inside the lower one (box-box with one clipped
+    manifold of four contacts per interface, and plane-box under the bottom box). Friction
+    0.5, MuJoCo's default solref and solimp: interface k carries (3 - k) m g.
+  -->
+  <option timestep="0.002"/>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 .1" friction="0.5 0.005 0.0001"/>
+
+    <body name="bottom" pos="0 0 .05">
+      <freejoint/>
+      <geom name="bottom_geom" type="box" size=".3 .3 .05" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+
+    <body name="middle" pos="0 0 .15">
+      <freejoint/>
+      <geom name="middle_geom" type="box" size=".25 .25 .05" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+
+    <body name="top" pos="0 0 .25">
+      <freejoint/>
+      <geom name="top_geom" type="box" size=".2 .2 .05" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+  </worldbody>
+</mujoco>

@@ -1,0 +1,10 @@
+{
+  "buffer": 8,
+  "byte_offset": 0,
+  "width": 448,
+  "height": 448,
+  "channels": 1,
+  "dtype": "f16",
+  "row_stride_bytes": 896,
+  "semantic": "depth_metres"
+}

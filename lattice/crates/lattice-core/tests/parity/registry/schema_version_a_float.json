@@ -1,0 +1,11 @@
+{
+  "kind": "case",
+  "name": "schema_version_a_float",
+  "input": {
+    "text": "{\"version\": 1.0, \"endpoints\": []}"
+  },
+  "complete": false,
+  "issues": ["unsupported-schema"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
+  "endpoints": []
+}

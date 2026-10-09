@@ -1,0 +1,11 @@
+{
+  "seq": 10,
+  "at": 1790000102.5,
+  "type": "question",
+  "call_id": "call_4",
+  "text": "Which crate should I change?",
+  "options": [
+    "lattice-core",
+    "lattice-sys"
+  ]
+}

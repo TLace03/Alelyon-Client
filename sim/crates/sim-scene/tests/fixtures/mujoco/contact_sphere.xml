@@ -1,0 +1,24 @@
+<mujoco model="contact_sphere">
+  <!--
+    Ours (not MuJoCo's): a plane, a sphere resting on it and a second sphere that the
+    generator sets sliding (condim 3, friction 0.5, MuJoCo's default solref and solimp,
+    impratio 1). The resting sphere is the case of the physics checks of phase 1c-ii: its
+    penetration at rest follows from solref, solimp and the cone (see
+    crates/sim-physics/tests/contacts_physics.rs).
+  -->
+  <option timestep="0.002"/>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 .1" friction="0.5 0.005 0.0001"/>
+
+    <body name="rest" pos="0 0 .1">
+      <freejoint/>
+      <geom name="rest_geom" type="sphere" size=".1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+
+    <body name="slide" pos="1 0 .1">
+      <freejoint/>
+      <geom name="slide_geom" type="sphere" size=".1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+  </worldbody>
+</mujoco>

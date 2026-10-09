@@ -1,0 +1,19 @@
+{
+  "seq": 30,
+  "at": 1790000107.5,
+  "type": "todos_updated",
+  "items": [
+    {
+      "content": "Read how the explorer sorts its rows",
+      "status": "done"
+    },
+    {
+      "content": "Compare digit runs by value",
+      "status": "in_progress"
+    },
+    {
+      "content": "Add a test for file2 before file10",
+      "status": "pending"
+    }
+  ]
+}

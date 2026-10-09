@@ -1,0 +1,33 @@
+{
+  "change": "ch_00112233445566aa",
+  "path": "src/lib.rs",
+  "against": "previous",
+  "snapshot": 3,
+  "binary": false,
+  "hunks": [
+    {
+      "id": "9a8b7c6d5e4f3a2b",
+      "state": "pending",
+      "old_start": 10,
+      "old_lines": 3,
+      "new_start": 10,
+      "new_lines": 4,
+      "section": "fn main() {",
+      "lines": [
+        {
+          "kind": "context",
+          "text": "use std::fs;"
+        },
+        {
+          "kind": "remove",
+          "text": "use std::io;"
+        },
+        {
+          "kind": "add",
+          "text": "use std::io::{self, Read};"
+        }
+      ]
+    }
+  ],
+  "truncated": false
+}

@@ -1,0 +1,65 @@
+{
+  "final_output": "Echoed: hi",
+  "stream": [
+    "agent_updated_stream_event",
+    "tool_called",
+    "tool_output",
+    "raw_text_delta",
+    "message_output_created"
+  ],
+  "spans": [
+    {
+      "kind": "agent",
+      "span_data": {
+        "type": "agent",
+        "name": "Assistant",
+        "handoffs": [],
+        "tools": [
+          "echo"
+        ],
+        "output_type": "str"
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "generation",
+          "span_data": {
+            "type": "generation",
+            "input": null,
+            "output": null,
+            "model": null,
+            "model_config": null,
+            "usage": null
+          },
+          "error": null,
+          "children": []
+        },
+        {
+          "kind": "function",
+          "span_data": {
+            "type": "function",
+            "name": "echo",
+            "input": "{\"text\":\"hi\"}",
+            "output": "echo:hi",
+            "mcp_data": null
+          },
+          "error": null,
+          "children": []
+        },
+        {
+          "kind": "generation",
+          "span_data": {
+            "type": "generation",
+            "input": null,
+            "output": null,
+            "model": null,
+            "model_config": null,
+            "usage": null
+          },
+          "error": null,
+          "children": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "kind": "render_from_perturbed_state",
+  "sense": "touch",
+  "state_delta_id": "plate_colder_by_20k"
+}

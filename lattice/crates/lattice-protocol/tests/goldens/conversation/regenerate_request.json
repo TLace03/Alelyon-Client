@@ -1,0 +1,9 @@
+{
+  "conversation": "0123456789ab",
+  "choice": "endpoint:lab",
+  "shown": {
+    "locality": "remote",
+    "label": "Lab GPU"
+  },
+  "mode": "ask"
+}

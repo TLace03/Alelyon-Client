@@ -1,0 +1,18 @@
+{
+  "seq": 19,
+  "at": 1790000104.75,
+  "type": "command_effect",
+  "call_id": "call_3",
+  "before": 3,
+  "after": 4,
+  "files": [
+    {
+      "path": "target/report.txt",
+      "change": "added"
+    },
+    {
+      "path": "src/gen.rs",
+      "change": "modified"
+    }
+  ]
+}

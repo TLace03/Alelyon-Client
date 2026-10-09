@@ -1,0 +1,13 @@
+<mujoco model="dp">
+  <option timestep="0.004166666666666667" gravity="0 0 -9.81" integrator="Euler"/>
+  <worldbody>
+    <body name="a" pos="0 0 2">
+      <joint name="j1" type="hinge" axis="0 1 0" damping="0"/>
+      <geom type="sphere" size="0.05" pos="0 0 -0.5" mass="1" />
+      <body name="b" pos="0 0 -1">
+        <joint name="j2" type="hinge" axis="0 1 0" damping="0"/>
+        <geom type="sphere" size="0.05" pos="0 0 -0.5" mass="1"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

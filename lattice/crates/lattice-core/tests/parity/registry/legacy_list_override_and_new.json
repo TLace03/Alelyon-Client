@@ -1,0 +1,15 @@
+{
+  "kind": "case",
+  "name": "legacy_list_override_and_new",
+  "input": {
+    "text": "[{\"id\": \"openai\", \"enabled\": true, \"model\": \"gpt-4.1\"}, {\"id\": \"zeta\", \"label\": \"Zeta\", \"base_url\": \"http://127.0.0.1:9000/v1\", \"model\": \"z\"}, {\"id\": \"alpha\", \"label\": \"Alpha\", \"base_url\": \"http://localhost:9001/v1\"}]"
+  },
+  "complete": false,
+  "issues": ["unsupported-root"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter", "zeta", "alpha"],
+  "endpoints": [
+    {"id": "openai", "label": "OpenAI", "kind": "openai-compatible", "base_url": "https://api.openai.com/v1", "model": "gpt-4.1", "api_key_name": "OPENAI_API_KEY", "enabled": true, "builtin": true, "note": "", "local": false, "needs_key": true, "ready": true, "status": "ready"},
+    {"id": "zeta", "label": "Zeta", "kind": "openai-compatible", "base_url": "http://127.0.0.1:9000/v1", "model": "z", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "alpha", "label": "Alpha", "kind": "openai-compatible", "base_url": "http://localhost:9001/v1", "model": "", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": false, "status": "no model name set"}
+  ]
+}

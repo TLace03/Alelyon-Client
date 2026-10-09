@@ -1,0 +1,13 @@
+{
+  "id": "e_0123456789abcdef",
+  "workspace": "0f1e2d3c4b5a6978",
+  "argv": [
+    "cargo",
+    "test"
+  ],
+  "program": "<tools>\\cargo.exe",
+  "cwd": "",
+  "created_at": 1790000000.0,
+  "scope": "exact",
+  "revoked_at": null
+}

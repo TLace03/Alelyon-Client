@@ -1,0 +1,9 @@
+{
+  "seq": 32,
+  "at": 1790000108.0,
+  "type": "plan_settled",
+  "plan": "plan_8899aabbccddeeff",
+  "outcome": {
+    "type": "approved"
+  }
+}

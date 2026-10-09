@@ -1,0 +1,135 @@
+{
+  "final_output": "Retried.",
+  "stream": [
+    "agent_updated_stream_event",
+    "tool_called",
+    "tool_output",
+    "raw_text_delta",
+    "message_output_created"
+  ],
+  "spans": [
+    {
+      "kind": "task",
+      "span_data": {
+        "type": "custom",
+        "name": "task",
+        "data": {
+          "sdk_span_type": "task",
+          "name": "Agent workflow",
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "requests": 2,
+            "total_tokens": 0
+          }
+        }
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Assistant",
+            "handoffs": [],
+            "tools": [
+              "echo"
+            ],
+            "output_type": "str"
+          },
+          "error": null,
+          "children": [
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 1,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "echo",
+                    "input": "[1, 2]",
+                    "output": "An error occurred while running the tool. Please try again. Error: Invalid JSON input for tool echo: expected a JSON object",
+                    "mcp_data": null
+                  },
+                  "error": {
+                    "message": "Error running tool (non-fatal)",
+                    "data": {
+                      "tool_name": "echo",
+                      "error": "Invalid JSON input for tool echo: expected a JSON object"
+                    }
+                  },
+                  "children": []
+                }
+              ]
+            },
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 2,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

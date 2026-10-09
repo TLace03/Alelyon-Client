@@ -14,8 +14,7 @@
 Alelyon's desktop app comes with an account that follows you: sign in with a password,
 GitHub, Google, Hugging Face or LinkedIn, or a QR code from your phone, and keep your
 friends, presence and chats wherever you sign in. This repository opens the parts of the
-client that others can build on, piece by piece. Each piece is a crate that builds and
-tests on its own.
+client that others can build on, piece by piece. Each piece builds and tests on its own.
 
 ```bash
 git clone https://github.com/TLace03/Alelyon-Client
@@ -31,9 +30,18 @@ cargo test --locked && cargo run --example status
 
 ## What is here
 
-| Crate | What it does |
+| Piece | What it does |
 |---|---|
 | [`alelyon-identity-client`](https://github.com/TLace03/Alelyon-Client/tree/main/crates/alelyon-identity-client) | The client of Alelyon's identity service, without a user interface: password sign-in, refresh and sign-out; provider sign-in through the system browser with PKCE and a loopback redirect; QR pairing; "stay signed in" sealed with Windows' DPAPI; and friends, presence and one-to-one chat. |
+| [`lattice/`](https://github.com/TLace03/Alelyon-Client/tree/main/lattice) | Lattice, the app's chat and coding agent, as a Rust workspace of five crates: the run and chat contract (`lattice-protocol`), a port of the OpenAI Agents SDK (`lattice-agents`), the chat core with staged edits, a per-call policy, checkpoints, commands, skills, MCP servers and a managed llama.cpp server (`lattice-core`), the thin Win32 layer (`lattice-sys`), and a native window drawn with iced over wgpu (`lattice-app`). |
+| [`sim/`](https://github.com/TLace03/Alelyon-Client/tree/main/sim) | Sinai's simulator, its CPU crates: the observation contract (`sim-contract`), one scene description with a MuJoCo MJCF importer (`sim-scene`), the world-state layout (`sim-world`), and the CPU reference of the physics core, ported from MuJoCo 3.14.0 and held to it by golden files (`sim-physics`). |
+
+Each workspace builds and tests on its own, with its lockfile:
+
+```bash
+(cd lattice && cargo test --locked --workspace)
+(cd sim && cargo test --locked --workspace)
+```
 
 Its HTTP contracts are written out in full, so a client in another language can be built
 from them alone:

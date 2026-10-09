@@ -1,0 +1,6 @@
+<mujoco model="sweep_plane_capsule_mg">
+  <worldbody>
+    <geom name="ga" type="plane" size="1.0 1.0 0.1" margin="0.02" gap="0.03"/>
+    <body name="b"><freejoint/><geom name="gb" type="capsule" size="0.05 0.12" margin="0.02" gap="0.03" mass="1"/></body>
+  </worldbody>
+</mujoco>

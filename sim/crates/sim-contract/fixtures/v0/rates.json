@@ -1,0 +1,7 @@
+{
+  "rgb_hz": 10,
+  "audio_hz": 16000,
+  "touch_hz": 100,
+  "smell_hz": 10,
+  "taste_hz": 10
+}

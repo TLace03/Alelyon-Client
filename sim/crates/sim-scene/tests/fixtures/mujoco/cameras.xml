@@ -1,0 +1,61 @@
+<mujoco model="cameras">
+  <!-- Written for the camera import's parity test (crates/sim-scene/tests/mjcf_parity.rs,
+       golden values from tools/sim_scene_mujoco_golden.py): fixed cameras in the world
+       and on moving bodies in every orientation form, a fovy class default, a class
+       with a resolution, sensor cameras in length units and in pixels, a tracking and
+       an orthographic camera (both recorded, not imported), sites (the model extent
+       counts them; one lies outside the room and sets the extent), and a room of walls
+       so that every ray from a camera hits a geom. -->
+  <visual>
+    <global offwidth="320" offheight="240" fovy="40"/>
+    <map znear="0.02" zfar="40" force="0.2"/>
+  </visual>
+
+  <default>
+    <camera fovy="50"/>
+    <site size="0.02"/>
+    <default class="wide">
+      <camera fovy="90" resolution="64 48"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="3 3 0.1"/>
+    <geom name="wall_xp" type="box" pos="3.05 0 2" size="0.05 3 2"/>
+    <geom name="wall_xn" type="box" pos="-3.05 0 2" size="0.05 3 2"/>
+    <geom name="wall_yp" type="box" pos="0 3.05 2" size="3 0.05 2"/>
+    <geom name="wall_yn" type="box" pos="0 -3.05 2" size="3 0.05 2"/>
+    <geom name="ceiling" type="box" pos="0 0 4.05" size="3 3 0.05"/>
+    <site name="outside" pos="9 0 1"/>
+    <camera name="overview" pos="0 -2.5 2" xyaxes="1 0 0 0 0.6 0.8"/>
+    <camera name="wide_world" class="wide" pos="2.5 2.5 1.5" euler="60 0 135"/>
+    <camera name="ortho" projection="orthographic" fovy="3" pos="0 0 3.5"/>
+    <body name="base" pos="0.3 -0.2 0.6" quat="0.9 0 0 0.3">
+      <freejoint/>
+      <geom type="box" size="0.2 0.15 0.1"/>
+      <site name="strut" type="capsule" fromto="0 0 0.1 0.3 0.1 0.4" size="0.01"/>
+      <camera name="base_cam" pos="-0.25 0 0.15" zaxis="1 0.2 0.3" fovy="70" resolution="160 120"/>
+      <body name="arm" pos="0.2 0 0.1" euler="0 -30 0">
+        <joint name="shoulder" type="hinge" pos="0 0 0.05" axis="0 1 0"/>
+        <geom type="capsule" fromto="0 0 0 0.4 0 0" size="0.04"/>
+        <site name="tip" pos="0.45 0 0"/>
+        <camera name="sensor_mm" pos="0.4 0 0.06" xyaxes="0 -1 0 0.3 0 1"
+                sensorsize="0.0064 0.0048" focal="0.004 0.0045" principal="0.0002 -0.0001"
+                resolution="128 96"/>
+        <body name="wrist" pos="0.4 0 0">
+          <joint name="wrist" type="ball" pos="0.02 0 0"/>
+          <geom type="ellipsoid" size="0.05 0.03 0.02" pos="0.05 0 0"/>
+          <camera name="sensor_px" pos="0.05 0 0.03" axisangle="1 1 0 120"
+                  sensorsize="0.006 0.004" focalpixel="120 110" principalpixel="3 -2"
+                  resolution="100 80"/>
+          <body name="slider" pos="0.1 0 0">
+            <joint name="slide" type="slide" axis="1 0 0"/>
+            <geom type="cylinder" size="0.02 0.05"/>
+            <camera name="follow" mode="trackcom" pos="0 -1 0.5"/>
+            <camera name="hand" pos="0.06 0 0" quat="0.7071068 0 -0.7071068 0"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

@@ -1,0 +1,15 @@
+[package]
+name = "sim-world"
+description = "World-state layout, host mirror, render view, counter-based RNG and step scheduler for Sinai's simulator: the CPU reference that the GPU kernels of later phases must match."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+sim-contract.workspace = true
+sim-scene.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

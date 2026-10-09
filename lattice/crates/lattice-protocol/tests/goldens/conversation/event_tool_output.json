@@ -1,0 +1,9 @@
+{
+  "seq": 6,
+  "at": 1790000101.5,
+  "type": "tool_output",
+  "call_id": "call_1",
+  "preview": "src/lib.rs (412 lines; lines 1-200 shown)",
+  "withheld": false,
+  "truncated": true
+}

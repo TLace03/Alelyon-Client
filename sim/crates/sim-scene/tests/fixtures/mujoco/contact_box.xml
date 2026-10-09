@@ -1,0 +1,16 @@
+<mujoco model="contact_box">
+  <!--
+    Ours (not MuJoCo's): one box on a plane (plane-box, up to four contacts), friction 0.5,
+    MuJoCo's default solref and solimp. Its corners carry m g / 4 each at rest.
+  -->
+  <option timestep="0.002"/>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 .1" friction="0.5 0.005 0.0001"/>
+
+    <body name="block" pos="0 0 .05">
+      <freejoint/>
+      <geom name="block_geom" type="box" size=".15 .1 .05" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+  </worldbody>
+</mujoco>

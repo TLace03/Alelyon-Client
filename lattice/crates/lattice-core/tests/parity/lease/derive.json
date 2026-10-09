@@ -1,0 +1,55 @@
+{
+  "source": "Python common/worktree_cache.py _repository_namespace, _known_repository_context, _repository_context_marker_is_strong, selected_repository_state_root; repository_context.py _checkout_namespace, RepositoryStatePaths.derive, checkout_file; oracle/agent/session.py CHECKOUT_LEASE_FILE",
+  "lease_file": "agent-session.lock",
+  "checkout_schema": "alelyon-checkout-state-v1",
+  "pointer_identity_bytes": 4096,
+  "repository_namespaces": [
+    {"kind": "git-common-dir", "identity": {"device": "13423821238665348035", "inode": "14073748835532361", "birth": "1791022292790420600"}, "normalized": "<root>\\common", "namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b"},
+    {"kind": "git-common-dir", "identity": {"device": "1", "inode": "1267650600228229401496703205383", "birth": "1"}, "normalized": "<root>\\common", "namespace": "e44f9b503acb926f939af0d274f3f3ee32b9b9c527967f1f72bf36bfdd21ee0f"},
+    {"kind": "git-common-dir", "identity": {"device": "0", "inode": "5", "birth": "0"}, "normalized": "<root>\\common", "namespace": "04d66b44383865a8a86988c3502a32e6efb4eea318c672650d0710ff9f42169b"},
+    {"kind": "git-common-dir", "identity": {"device": "9", "inode": "-1", "birth": "3"}, "normalized": "<root>\\common", "namespace": "44de49af77d40d5427fff4d341fcc03db5d11e40fa98b332a55ad5abb843515c"},
+    {"kind": "git-common-dir", "identity": {"device": "7", "inode": "0", "birth": "1791022292790420600"}, "normalized": "<root>\\common", "namespace": "44de49af77d40d5427fff4d341fcc03db5d11e40fa98b332a55ad5abb843515c"},
+    {"kind": "git-common-dir", "identity": null, "normalized": "<root>\\common", "namespace": "44de49af77d40d5427fff4d341fcc03db5d11e40fa98b332a55ad5abb843515c"},
+    {"kind": "selected-root", "identity": {"device": "13423821238665348035", "inode": "14073748835532361", "birth": "1791022292790420600"}, "normalized": "<root>\\common", "namespace": "133525f706a03c53c748730ae2e6517487e4e8798410fe9fd0a777df515ef55e"},
+    {"kind": "selected-root", "identity": {"device": "1", "inode": "1267650600228229401496703205383", "birth": "1"}, "normalized": "<root>\\common", "namespace": "dae10121f7c9acad948acbe3b4974768e44b3e372c4190c4e2299feafcfb17e2"},
+    {"kind": "selected-root", "identity": {"device": "0", "inode": "5", "birth": "0"}, "normalized": "<root>\\common", "namespace": "ba6e86cecad6a3c70079ac8503333485b1bbda0326e6fcf26af3d2963cfbc8eb"},
+    {"kind": "selected-root", "identity": {"device": "9", "inode": "-1", "birth": "3"}, "normalized": "<root>\\common", "namespace": "7e22f82524a5edd52079883ea1c1811774a7cf912b6511b82427d8987becaf17"},
+    {"kind": "selected-root", "identity": {"device": "7", "inode": "0", "birth": "1791022292790420600"}, "normalized": "<root>\\common", "namespace": "7e22f82524a5edd52079883ea1c1811774a7cf912b6511b82427d8987becaf17"},
+    {"kind": "selected-root", "identity": null, "normalized": "<root>\\common", "namespace": "7e22f82524a5edd52079883ea1c1811774a7cf912b6511b82427d8987becaf17"}
+  ],
+  "context_ids": [
+    {"anchor": "<root>\\repo", "marker": ["13423821238665348035", "14073748835532361", "16895", "1791022292790420600", "-1", "13423821238665348035", "14073748835532364", "16895", "1791022292792420400", "-1"], "strong": true, "context_id": "e1aaa952726456b5e72fef8c948f0ec3b9dd107cbb49e417577b9193b0b454c2"},
+    {"anchor": "<root>\\repo", "marker": ["5", "1267650600228229401496703205376", "16895", "7", "-1", "5", "18446744073709551619", "33206", "8", "57896044618658097711785492504343953926634992332820282019741137682857799387858"], "strong": true, "context_id": "d8d265ede8fce29a77d254a612cbff59de3056e72d18d846819df4922831e493"},
+    {"anchor": "<root>\\repo", "marker": ["-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "57896044618658097711785492504343953926634992332820282019741137682857799387858"], "strong": true, "context_id": "70e7ccf107cce5bf4628e76c9cf99a40010638e506067fa1db9da2ae7e5d1394"},
+    {"anchor": "<root>\\repo", "marker": ["5", "0", "16895", "7", "-1", "5", "0", "16895", "8", "-1"], "strong": false, "context_id": "108ae94b1041dd3a6f16e3a57e766db885a56f0e1093b436da4bdd37fdbf6062"},
+    {"anchor": "<root>\\repo", "marker": ["-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"], "strong": false, "context_id": "8d8ce1ec9a07dbe7de94752866296dc335e466a11338a1446e3eab03f54350b3"},
+    {"anchor": "<root>\\repo", "marker": ["0", "0", "0", "-1", "-1", "0", "0", "0", "-1", "0"], "strong": false, "context_id": "d91c3a930e6c8a8fda25b2305fd2c07438b2fc6465ea4e08eaa08a83e195d680"}
+  ],
+  "checkout_namespaces": [
+    {"repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "context_id": "e1aaa952726456b5e72fef8c948f0ec3b9dd107cbb49e417577b9193b0b454c2", "checkout_namespace": "4db6cfb5e4cfb223f93b1baf9ae71510ad6d6e8e1d1331546ae6a4191d3c28e1"},
+    {"repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "context_id": "d8d265ede8fce29a77d254a612cbff59de3056e72d18d846819df4922831e493", "checkout_namespace": "84a1f8433f92b34f4f6ed9fbbb1fdbcc19a86c2ef96e7dbbd01334c5b54e2855"},
+    {"repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "context_id": "70e7ccf107cce5bf4628e76c9cf99a40010638e506067fa1db9da2ae7e5d1394", "checkout_namespace": "55fc8b4225e0f1319497643668fedea8e245249f7d9360a706e604f02524b056"},
+    {"repository_namespace": "e44f9b503acb926f939af0d274f3f3ee32b9b9c527967f1f72bf36bfdd21ee0f", "context_id": "e1aaa952726456b5e72fef8c948f0ec3b9dd107cbb49e417577b9193b0b454c2", "checkout_namespace": "50335317f24398652b095bde60476eceb79a24f1ac3b14b7fe90bd24566ebc28"},
+    {"repository_namespace": "e44f9b503acb926f939af0d274f3f3ee32b9b9c527967f1f72bf36bfdd21ee0f", "context_id": "d8d265ede8fce29a77d254a612cbff59de3056e72d18d846819df4922831e493", "checkout_namespace": "923464fcf5a257acc7e430d9019ea1e54f9fe4afa40217acf5d7533f0dcc0cb9"},
+    {"repository_namespace": "e44f9b503acb926f939af0d274f3f3ee32b9b9c527967f1f72bf36bfdd21ee0f", "context_id": "70e7ccf107cce5bf4628e76c9cf99a40010638e506067fa1db9da2ae7e5d1394", "checkout_namespace": "d349fcbd34b380aa341969959e17f5d6408f63605a9be2a0864030aa3e0229d9"},
+    {"repository_namespace": "04d66b44383865a8a86988c3502a32e6efb4eea318c672650d0710ff9f42169b", "context_id": "e1aaa952726456b5e72fef8c948f0ec3b9dd107cbb49e417577b9193b0b454c2", "checkout_namespace": "20f50331e5eb4e5be4903344cb6ab988ad587d70ef5247be835e59e99fad4fea"},
+    {"repository_namespace": "04d66b44383865a8a86988c3502a32e6efb4eea318c672650d0710ff9f42169b", "context_id": "d8d265ede8fce29a77d254a612cbff59de3056e72d18d846819df4922831e493", "checkout_namespace": "89cb7293b0dcbd8608602bb3b9f70ed0633b7d5e634ee7159f4e3be1aa99f94d"},
+    {"repository_namespace": "04d66b44383865a8a86988c3502a32e6efb4eea318c672650d0710ff9f42169b", "context_id": "70e7ccf107cce5bf4628e76c9cf99a40010638e506067fa1db9da2ae7e5d1394", "checkout_namespace": "ac7b9d2be110f0935e546a0a04f4e299f459b847756ac0f108db04cb1f3fdfd2"}
+  ],
+  "lease_paths": [
+    {"state_home": "<root>/home/globals", "repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "checkout_namespace": "4db6cfb5e4cfb223f93b1baf9ae71510ad6d6e8e1d1331546ae6a4191d3c28e1", "path": "<root>/home/globals/fleet_repositories/fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b/checkouts/4db6cfb5e4cfb223f93b1baf9ae71510ad6d6e8e1d1331546ae6a4191d3c28e1/agent-session.lock"},
+    {"state_home": "<root>/home/globals", "repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "checkout_namespace": "84a1f8433f92b34f4f6ed9fbbb1fdbcc19a86c2ef96e7dbbd01334c5b54e2855", "path": "<root>/home/globals/fleet_repositories/fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b/checkouts/84a1f8433f92b34f4f6ed9fbbb1fdbcc19a86c2ef96e7dbbd01334c5b54e2855/agent-session.lock"},
+    {"state_home": "<root>/home/x/../globals", "repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "checkout_namespace": "4db6cfb5e4cfb223f93b1baf9ae71510ad6d6e8e1d1331546ae6a4191d3c28e1", "path": "<root>/home/globals/fleet_repositories/fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b/checkouts/4db6cfb5e4cfb223f93b1baf9ae71510ad6d6e8e1d1331546ae6a4191d3c28e1/agent-session.lock"},
+    {"state_home": "<root>/home/x/../globals", "repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "checkout_namespace": "84a1f8433f92b34f4f6ed9fbbb1fdbcc19a86c2ef96e7dbbd01334c5b54e2855", "path": "<root>/home/globals/fleet_repositories/fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b/checkouts/84a1f8433f92b34f4f6ed9fbbb1fdbcc19a86c2ef96e7dbbd01334c5b54e2855/agent-session.lock"},
+    {"state_home": "<root>/Home Folder/globals", "repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "checkout_namespace": "4db6cfb5e4cfb223f93b1baf9ae71510ad6d6e8e1d1331546ae6a4191d3c28e1", "path": "<root>/Home Folder/globals/fleet_repositories/fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b/checkouts/4db6cfb5e4cfb223f93b1baf9ae71510ad6d6e8e1d1331546ae6a4191d3c28e1/agent-session.lock"},
+    {"state_home": "<root>/Home Folder/globals", "repository_namespace": "fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b", "checkout_namespace": "84a1f8433f92b34f4f6ed9fbbb1fdbcc19a86c2ef96e7dbbd01334c5b54e2855", "path": "<root>/Home Folder/globals/fleet_repositories/fe4f24116410da4551f462e0be630fcdf48eeaac2264b17d0108629a9e72509b/checkouts/84a1f8433f92b34f4f6ed9fbbb1fdbcc19a86c2ef96e7dbbd01334c5b54e2855/agent-session.lock"}
+  ],
+  "state_homes": [
+    {"case": "a source checkout: ~/.alelyon/globals", "env": {"USERPROFILE": "<root>/user"}, "selected": "<root>/user/.alelyon/globals"},
+    {"case": "ALELYON_HOME: its globals", "env": {"ALELYON_HOME": "<root>/ah", "USERPROFILE": "<root>/user"}, "selected": "<root>/ah/globals"},
+    {"case": "ALELYON_HOME under ~", "env": {"ALELYON_HOME": "~/ah2", "USERPROFILE": "<root>/user"}, "selected": "<root>/user/ah2/globals"},
+    {"case": "forced packaged: LOCALAPPDATA", "env": {"ALELYON_FORCE_PACKAGED": "1", "LOCALAPPDATA": "<root>/lad", "USERPROFILE": "<root>/user"}, "selected": "<root>/lad/Alelyon/globals"},
+    {"case": "forced packaged: APPDATA", "env": {"ALELYON_FORCE_PACKAGED": " Yes ", "APPDATA": "<root>/ad", "USERPROFILE": "<root>/user"}, "selected": "<root>/ad/Alelyon/globals"},
+    {"case": "forced packaged: neither", "env": {"ALELYON_FORCE_PACKAGED": "on", "USERPROFILE": "<root>/user"}, "selected": "<root>/user/AppData/Local/Alelyon/globals"}
+  ]
+}

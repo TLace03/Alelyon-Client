@@ -1,0 +1,60 @@
+{
+  "error": "InputGuardrailTripwireTriggered",
+  "stream": [
+    "agent_updated_stream_event"
+  ],
+  "spans": [
+    {
+      "kind": "task",
+      "span_data": {
+        "type": "custom",
+        "name": "task",
+        "data": {
+          "sdk_span_type": "task",
+          "name": "Agent workflow"
+        }
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Assistant",
+            "handoffs": [],
+            "tools": [],
+            "output_type": "str"
+          },
+          "error": {
+            "message": "Guardrail tripwire triggered",
+            "data": {
+              "guardrail": "refuse_all",
+              "type": "input_guardrail"
+            }
+          },
+          "children": [
+            {
+              "kind": "guardrail",
+              "span_data": {
+                "type": "guardrail",
+                "name": "refuse_all",
+                "triggered": true
+              },
+              "error": null,
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model_inputs": [],
+  "session_add_items": [
+    [
+      {
+        "role": "user",
+        "text": "Do something forbidden."
+      }
+    ]
+  ]
+}

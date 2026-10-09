@@ -1,0 +1,6 @@
+<mujoco model="sweep_plane_cylinder">
+  <worldbody>
+    <geom name="ga" type="plane" size="1.0 1.0 0.1"/>
+    <body name="b"><freejoint/><geom name="gb" type="cylinder" size="0.06 0.1" mass="1"/></body>
+  </worldbody>
+</mujoco>

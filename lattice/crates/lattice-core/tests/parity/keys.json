@@ -1,0 +1,222 @@
+{
+  "parse_env_file": [
+    {
+      "name": "comments_blanks_and_spaces",
+      "text": "# comment\n\n  A_KEY = one  \nB_KEY=two\n",
+      "parsed": {
+        "A_KEY": "one",
+        "B_KEY": "two"
+      }
+    },
+    {
+      "name": "quotes",
+      "text": "A_KEY = \"double\"\nB_KEY = 'single'\nC_KEY = \"'mixed'\"\nD_KEY = \"\"triple\"\"\nE_KEY = '\"x\"'\nF_KEY = \"unbalanced\nG_KEY = end\"\n",
+      "parsed": {
+        "A_KEY": "double",
+        "B_KEY": "single",
+        "C_KEY": "mixed",
+        "D_KEY": "triple",
+        "E_KEY": "\"x\"",
+        "F_KEY": "unbalanced",
+        "G_KEY": "end"
+      }
+    },
+    {
+      "name": "equals_in_the_value",
+      "text": "A_KEY = a=b=c\nB_KEY==leading\n",
+      "parsed": {
+        "A_KEY": "a=b=c",
+        "B_KEY": "=leading"
+      }
+    },
+    {
+      "name": "empty_values_and_bare_lines",
+      "text": "A_KEY =\nB_KEY\n=novalue\n  =  \nC_KEY = \n",
+      "parsed": {
+        "A_KEY": "",
+        "C_KEY": ""
+      }
+    },
+    {
+      "name": "duplicate_keys_last_wins",
+      "text": "A_KEY = one\nB_KEY = x\nA_KEY = two\n",
+      "parsed": {
+        "A_KEY": "two",
+        "B_KEY": "x"
+      }
+    },
+    {
+      "name": "export_prefix_is_part_of_the_key",
+      "text": "export A_KEY=1\n",
+      "parsed": {
+        "export A_KEY": "1"
+      }
+    },
+    {
+      "name": "spaces_inside_a_key",
+      "text": "A KEY = 1\n",
+      "parsed": {
+        "A KEY": "1"
+      }
+    },
+    {
+      "name": "windows_line_endings",
+      "text": "A_KEY = one\r\nB_KEY = two\r\n",
+      "parsed": {
+        "A_KEY": "one",
+        "B_KEY": "two"
+      }
+    },
+    {
+      "name": "lone_carriage_returns",
+      "text": "A_KEY = one\rB_KEY = two\r",
+      "parsed": {
+        "A_KEY": "one",
+        "B_KEY": "two"
+      }
+    },
+    {
+      "name": "other_line_breaks",
+      "text": "A_KEY = one\u000bB_KEY = two\fC_KEY = three\u001cD_KEY = four\u0085E_KEY = five F_KEY = six G_KEY = seven",
+      "parsed": {
+        "A_KEY": "one",
+        "B_KEY": "two",
+        "C_KEY": "three",
+        "D_KEY": "four",
+        "E_KEY": "five",
+        "F_KEY": "six",
+        "G_KEY": "seven"
+      }
+    },
+    {
+      "name": "unicode_and_control_whitespace_is_stripped",
+      "text": " A_KEY = one \n\u001fB_KEY\u001f=\u001ftwo\u001f\n",
+      "parsed": {
+        "A_KEY": "one",
+        "B_KEY": "two"
+      }
+    },
+    {
+      "name": "tabs",
+      "text": "\tA_KEY\t=\tone\t\n",
+      "parsed": {
+        "A_KEY": "one"
+      }
+    },
+    {
+      "name": "byte_order_mark_stays_in_the_first_key",
+      "text": "﻿A_KEY = one\nB_KEY = two\n",
+      "parsed": {
+        "﻿A_KEY": "one",
+        "B_KEY": "two"
+      }
+    },
+    {
+      "name": "unicode_values",
+      "text": "A_KEY = café ☃ 😀\n",
+      "parsed": {
+        "A_KEY": "café ☃ 😀"
+      }
+    },
+    {
+      "name": "hash_inside_a_value_is_kept",
+      "text": "A_KEY = a#b\n#B_KEY = commented\n  # C_KEY = commented too\n",
+      "parsed": {
+        "A_KEY": "a#b"
+      }
+    },
+    {
+      "name": "invalid_utf8_reads_as_nothing",
+      "bytes_hex": "415f4b4559203d20ff0a",
+      "parsed": {}
+    },
+    {
+      "name": "empty_file",
+      "text": "",
+      "parsed": {}
+    }
+  ],
+  "get_key": [
+    {
+      "name": "the_environment_wins_and_is_trimmed",
+      "env": {
+        "PARITY_ALPHA_KEY": "  from-env \n"
+      },
+      "files": ["PARITY_ALPHA_KEY = from-file\n", null, null],
+      "names": ["PARITY_ALPHA_KEY"],
+      "values": {
+        "PARITY_ALPHA_KEY": "from-env"
+      }
+    },
+    {
+      "name": "a_blank_variable_falls_through_to_the_file",
+      "env": {
+        "PARITY_ALPHA_KEY": "   "
+      },
+      "files": ["PARITY_ALPHA_KEY = from-file\n", null, null],
+      "names": ["PARITY_ALPHA_KEY"],
+      "values": {
+        "PARITY_ALPHA_KEY": "from-file"
+      }
+    },
+    {
+      "name": "earlier_files_win",
+      "env": {},
+      "files": ["PARITY_ALPHA_KEY = explicit\n", "PARITY_ALPHA_KEY = root\nPARITY_BETA_KEY = root\n", "PARITY_ALPHA_KEY = engines\nPARITY_BETA_KEY = engines\nPARITY_GAMMA_KEY = engines\n"],
+      "names": ["PARITY_ALPHA_KEY", "PARITY_BETA_KEY", "PARITY_GAMMA_KEY", "PARITY_DELTA_KEY"],
+      "values": {
+        "PARITY_ALPHA_KEY": "explicit",
+        "PARITY_BETA_KEY": "root",
+        "PARITY_GAMMA_KEY": "engines",
+        "PARITY_DELTA_KEY": null
+      }
+    },
+    {
+      "name": "an_empty_value_shadows_a_later_file",
+      "env": {},
+      "files": ["PARITY_ALPHA_KEY =\n", "PARITY_ALPHA_KEY = root\n", null],
+      "names": ["PARITY_ALPHA_KEY"],
+      "values": {
+        "PARITY_ALPHA_KEY": null
+      }
+    },
+    {
+      "name": "absent_files_are_skipped",
+      "env": {},
+      "files": [null, null, "PARITY_ALPHA_KEY = engines\n"],
+      "names": ["PARITY_ALPHA_KEY"],
+      "values": {
+        "PARITY_ALPHA_KEY": "engines"
+      }
+    },
+    {
+      "name": "a_whitespace_only_value_is_nothing",
+      "env": {},
+      "files": ["PARITY_ALPHA_KEY = \"  \"\nPARITY_BETA_KEY = '  '\n", null, null],
+      "names": ["PARITY_ALPHA_KEY", "PARITY_BETA_KEY"],
+      "values": {
+        "PARITY_ALPHA_KEY": null,
+        "PARITY_BETA_KEY": null
+      }
+    },
+    {
+      "name": "the_last_line_of_a_file_wins",
+      "env": {},
+      "files": ["PARITY_ALPHA_KEY = one\nPARITY_ALPHA_KEY = two\n", null, null],
+      "names": ["PARITY_ALPHA_KEY"],
+      "values": {
+        "PARITY_ALPHA_KEY": "two"
+      }
+    },
+    {
+      "name": "quotes_are_stripped_from_the_file_value",
+      "env": {},
+      "files": ["PARITY_ALPHA_KEY = \"\"double\"\"\nPARITY_BETA_KEY = '\"mixed\"'\n", null, null],
+      "names": ["PARITY_ALPHA_KEY", "PARITY_BETA_KEY"],
+      "values": {
+        "PARITY_ALPHA_KEY": "double",
+        "PARITY_BETA_KEY": "\"mixed\""
+      }
+    }
+  ]
+}

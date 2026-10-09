@@ -1,0 +1,61 @@
+<!-- The "zoo": one small model that exercises every joint kind and every code path
+     of the smooth dynamics that the humanoid (a free root and hinges) does not.
+     It is ours (not MuJoCo's), written for crates/sim-physics, and it imports
+     with the sim-scene importer with nothing recorded and nothing refused.
+
+       - "float": a free-floating body with an off-centre, rotated inertial frame, a
+         non-axis-aligned orientation, and spring, damper and armature on its free
+         joint (the translation spring pulls toward the start pose, the rotation
+         spring toward the start quaternion);
+       - "base" -> "mid" -> "tip": a three-link chain whose joints are a ball (with
+         an offset anchor), a hinge (off-centre, about a skew axis) and a slide
+         (along a skew axis), each with stiffness, damping and armature, on bodies
+         with skew orientations;
+       - "wrist": a second child of "base" with TWO joints on one body (a hinge, then
+         a slide), so the tree of dofs branches and a body has several joints;
+       - "marker": a jointless body welded to "tip", with mass, so a welded child
+         contributes to inertia and moves with its parent;
+       - one motor (on the hinge, ctrl clamped to its range) and one position servo
+         (on the slide, target clamped to its range, gear 2 so the transmission
+         ratio enters both the length and the joint force).
+
+     RK4 is the integrator, so the 100-step trajectory exercises the stage-wise
+     integration of free and ball quaternions. Gravity is on (the default). There is
+     no joint range, tendon, friction loss or flag, so the only thing the physics
+     phase does not model in this scene is contacts. -->
+<mujoco model="zoo">
+  <compiler angle="radian"/>
+  <option timestep="0.004" gravity="0.3 -0.2 -9.81" integrator="RK4"/>
+  <worldbody>
+    <body name="float" pos="0.4 -0.3 1.2" euler="0.3 -0.5 0.8">
+      <joint name="root" type="free" stiffness="0.3" damping="0.02" armature="0.01"/>
+      <inertial pos="0.05 -0.02 0.03" mass="2.5" diaginertia="0.04 0.07 0.09" euler="0.2 0.1 -0.4"/>
+      <geom name="float_box" type="box" size="0.1 0.2 0.05" pos="0.05 -0.02 0.03"/>
+    </body>
+
+    <body name="base" pos="-0.5 0.2 0.8" euler="0.1 0.4 -0.2">
+      <joint name="ball" type="ball" pos="0.03 -0.02 0.05" stiffness="0.8" damping="0.05" armature="0.02"/>
+      <geom name="base_geom" type="capsule" fromto="0 0 0 0.05 0 -0.3" size="0.04" mass="1.2"/>
+      <body name="mid" pos="0.05 0.05 -0.3" euler="-0.3 0.2 0.5">
+        <joint name="elbow" type="hinge" axis="0.3 0.8 -0.5" pos="0.02 0 0.04" stiffness="1.5" damping="0.1" armature="0.01"/>
+        <geom name="mid_geom" type="capsule" fromto="0 0 0 0.02 0.03 -0.25" size="0.035" mass="0.8"/>
+        <body name="tip" pos="0.1 0 -0.25" euler="0.4 0.1 0.6">
+          <joint name="slider" type="slide" axis="0.6 -0.2 0.77" stiffness="2" damping="0.3" armature="0.05"/>
+          <geom name="tip_geom" type="box" size="0.03 0.05 0.04" pos="0 0.01 -0.05" mass="0.5"/>
+          <body name="marker" pos="0.04 -0.02 -0.1" euler="0.2 -0.3 0.1">
+            <geom name="marker_geom" type="sphere" size="0.03" mass="0.2"/>
+          </body>
+        </body>
+      </body>
+      <body name="wrist" pos="-0.06 0.04 -0.1" euler="0.5 -0.2 0.3">
+        <joint name="wrist_hinge" type="hinge" axis="0.1 -0.6 0.8" stiffness="0.4" damping="0.15" armature="0.02"/>
+        <joint name="wrist_slide" type="slide" axis="-0.5 0.5 0.7" stiffness="1.1" damping="0.2" armature="0.03"/>
+        <geom name="wrist_geom" type="capsule" fromto="0 0 0 0 0.1 -0.05" size="0.025" mass="0.4"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="elbow_motor" joint="elbow" gear="2.5" ctrlrange="-1 1"/>
+    <position name="slider_servo" joint="slider" kp="30" gear="2" ctrlrange="-0.2 0.2"/>
+  </actuator>
+</mujoco>

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "species": [
+    {
+      "pubchem_cid": 702,
+      "name": "ethanol"
+    },
+    {
+      "pubchem_cid": 176,
+      "name": "acetic acid"
+    },
+    {
+      "pubchem_cid": 6184,
+      "name": "hexanal"
+    }
+  ]
+}

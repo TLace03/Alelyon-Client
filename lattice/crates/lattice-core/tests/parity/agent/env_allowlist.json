@@ -1,0 +1,3 @@
+{
+  "SAFE_AGENT_ENV_NAMES": ["PATH", "SystemRoot", "windir", "COMSPEC", "PATHEXT", "USERPROFILE", "HOME", "TEMP", "TMP", "TMPDIR", "APPDATA", "LOCALAPPDATA", "LANG", "LC_ALL"]
+}

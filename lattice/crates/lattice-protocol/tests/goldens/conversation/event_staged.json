@@ -1,0 +1,10 @@
+{
+  "seq": 12,
+  "at": 1790000103.0,
+  "type": "staged",
+  "change": "ch_00112233445566aa",
+  "path": "src/lib.rs",
+  "added": 3,
+  "removed": 1,
+  "authority": false
+}

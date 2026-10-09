@@ -1,0 +1,11 @@
+{
+  "kind": "case",
+  "name": "exactly_the_size_bound",
+  "input": {
+    "generate": "exactly_max"
+  },
+  "complete": true,
+  "issues": [],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
+  "endpoints": []
+}

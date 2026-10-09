@@ -1,0 +1,71 @@
+Third-party material in this crate
+=================================
+
+The MJCF importer in `src/mjcf/` ports rules and arithmetic from MuJoCo and is a
+derivative work of Apache-2.0 code. The licence is the file LICENSE-MuJoCo next to
+this one (the file `LICENSE` of the MuJoCo source tree, copied unmodified). Each
+Rust function or module that ports MuJoCo code names its origin, file and lines.
+
+  Project:   MuJoCo (https://github.com/google-deepmind/mujoco)
+  Copyright: DeepMind Technologies Limited
+  Licence:   Apache License, Version 2.0 (LICENSE-MuJoCo)
+
+From the MuJoCo tree at commit a8373cc4ee51a2fe1c9e664401b8b8150647becf (the
+compiler, the XML reader and the renderer; the 3.14.0 source tree used by
+crates/sim-physics does not contain them):
+
+  src/user/user_objects.cc
+                         mjCBody::Compile, mjCBody::InertiaFromGeom,
+                         mjCGeom::Compile, mjCGeom::GetVolume, mjCGeom::GetRBound,
+                         mjCJoint::Compile, mjCActuator::Compile,
+                         mjCTendon::Compile, mjCSite::Compile, mjCCamera::Compile,
+                         mjCCamera::ResolveReferences, checksize, checklimited,
+                         ResolveOrientation
+  src/user/user_util.cc  the mjuu_ helpers: normvec, quat2mat, mulquat,
+                         mulvecmat, mulmat, mulRMRT, transposemat, crossvec, dot3,
+                         z2quat, frame2quat, frameaccum, globalinertia, offcenter,
+                         eig3, fullInertia
+  src/user/user_mesh.cc  triangle, ComputeFaceCentroid, ComputeVolume,
+                         ComputeInertia, ApplyTransformations (scale), the tail of
+                         Process (winding correction, centre of mass, principal
+                         axes, inertia box) and Rotate (the box of the vertices in
+                         the principal frame)
+  src/user/user_model.cc the order in which the document's <statistic> values
+                         override the computed model statistic
+  src/user/user_init.c   mjs_defaultCamera, mjs_defaultSite (defaults)
+  src/xml/xml_native_reader.cc
+                         the section order of mjXReader::Parse, mjXReader::Default,
+                         the class resolution of mjXReader::Body, OneCamera,
+                         OneSite, Statistic, Visual
+  src/xml/xml_base.cc    ReadAlternative
+  src/xml/xml_util.cc    ReadAttr (the number reader)
+  src/xml/mjcf.schema and src/xml/generated/mjcf_read_table.inc
+                         the attribute tables (which attributes an element has,
+                         which a <default> may not set, `exclusive fovy sensorsize`)
+  src/render/classic/render_gl3.c, render_util.c
+                         setView and mjr_lookAt: the projection the renderer builds
+                         from a camera's frustum, which the scene camera's
+                         intrinsics reproduce (read, not copied: the importer
+                         derives fx, fy, cx, cy from it in closed form)
+  plugin/stl_decoder/stl_decoder.cc
+                         the binary STL decoder
+
+From MuJoCo 3.14.0 (the oracle's version; src/engine/ of that tree):
+
+  engine_setconst.c      setStat (the model's bounding box, extent and mean body
+                         size), updateBox, setSameframe with isNullVec3,
+                         isNullQuat, isSameQuat, isSameVec3 (kSameFrameEps)
+  engine_core_smooth.c   mj_kinematics at qpos0 (as ported by crates/sim-physics,
+                         src/smooth.rs), for setStat
+  engine_core_util.c     mj_local2Global (positions)
+  engine_vis_visualize.c mjv_cameraFrustum and getFrustum (the camera frustum and
+                         clip planes), the resolution test of the camera frustum
+                         decoration
+  engine_init.c          mj_defaultStatistic, the visual defaults (znear, zfar,
+                         offwidth, offheight)
+  engine_inline.h, engine_util_blas.c, engine_util_spatial.c, engine_util_misc.c
+                         mji_mulMatVec3, mji_rotVecQuat, mji_mulQuat, mju_quat2Mat,
+                         mju_normalize4, mju_dist3, mju_max (and mjMIN, mjMAX of
+                         include/mujoco/mjmacro.h)
+
+The test fixtures in tests/fixtures/mujoco/ carry their own NOTICE.

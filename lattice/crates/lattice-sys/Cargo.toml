@@ -1,0 +1,16 @@
+[package]
+name = "lattice-sys"
+description = "The only crate of the native Lattice allowed `unsafe`: thin Win32 calls for the chat core (file identity, final paths, opening without following links, drive types, ReplaceFileW, moves that never replace, Job Objects and process spawn, and the desktop for auto mode: the screen, windows, input and one hotkey)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+# Test seams for other crates' tests (an injected ReplaceFileW failure, making a
+# junction). Enabled only through a [dev-dependencies] entry; no shipped build
+# turns it on.
+test-support = []
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true

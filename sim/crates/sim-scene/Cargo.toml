@@ -1,0 +1,14 @@
+[package]
+name = "sim-scene"
+description = "The one scene description for Sinai's simulator: physics, rendering and the senses read the same bodies, joints, geoms, meshes, materials, instances and cameras. Serde JSON, validated, with a MuJoCo MJCF importer."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+# float_roundtrip: a Scene written as JSON reads back bit for bit.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+roxmltree.workspace = true

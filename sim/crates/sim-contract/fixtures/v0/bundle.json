@@ -1,0 +1,141 @@
+{
+  "identity": {
+    "schema_version": 0,
+    "env_id": 3,
+    "episode_id": 12,
+    "step": 50,
+    "sim_time_s": 1.0,
+    "seed": 20260930
+  },
+  "rgb": {
+    "captured_at_s": 1.0,
+    "value": {
+      "buffer": 7,
+      "byte_offset": 0,
+      "width": 448,
+      "height": 448,
+      "channels": 3,
+      "dtype": "u8",
+      "row_stride_bytes": 1344,
+      "semantic": "rgb"
+    }
+  },
+  "depth": {
+    "captured_at_s": 1.0,
+    "value": {
+      "buffer": 8,
+      "byte_offset": 0,
+      "width": 448,
+      "height": 448,
+      "channels": 1,
+      "dtype": "f16",
+      "row_stride_bytes": 896,
+      "semantic": "depth_metres"
+    }
+  },
+  "audio": {
+    "captured_at_s": 1.0,
+    "value": {
+      "sample_rate_hz": 16000,
+      "first_sample_index": 16000,
+      "samples": {
+        "kind": "device",
+        "buffer": 11,
+        "byte_offset": 0,
+        "count": 320
+      }
+    }
+  },
+  "proprioception": {
+    "captured_at_s": 1.0,
+    "value": {
+      "joint_positions": [
+        0.0,
+        -0.5,
+        1.25
+      ],
+      "joint_velocities": [
+        0.0,
+        0.125,
+        -0.25
+      ],
+      "base_pose": {
+        "position": [
+          0.0,
+          0.0,
+          0.75
+        ],
+        "orientation_quat": [
+          0.0,
+          0.0,
+          0.70710677,
+          0.70710677
+        ]
+      }
+    }
+  },
+  "touch": {
+    "captured_at_s": 1.0,
+    "value": {
+      "sensors": [
+        {
+          "sensor_id": 4,
+          "rows": 2,
+          "cols": 2,
+          "pressure_pa": [
+            0.0,
+            120.5,
+            0.0,
+            0.0
+          ],
+          "shear_pa": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              1.5,
+              -0.5
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          "temperature_k": [
+            305.15,
+            310.5,
+            305.15,
+            305.15
+          ]
+        }
+      ]
+    }
+  },
+  "smell": {
+    "captured_at_s": 1.0,
+    "value": {
+      "table_version": 1,
+      "concentrations": [
+        0.0,
+        0.00025,
+        0.0001
+      ]
+    }
+  },
+  "taste": {
+    "captured_at_s": 1.0,
+    "value": {
+      "table_version": 1,
+      "concentrations": [
+        0.05,
+        0.0,
+        0.002
+      ]
+    }
+  }
+}

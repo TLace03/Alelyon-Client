@@ -1,0 +1,184 @@
+{
+  "final_output": "Echoed: bye",
+  "stream": [
+    "agent_updated_stream_event",
+    "tool_called",
+    "tool_output",
+    "raw_text_delta",
+    "message_output_created"
+  ],
+  "spans": [
+    {
+      "kind": "task",
+      "span_data": {
+        "type": "custom",
+        "name": "task",
+        "data": {
+          "sdk_span_type": "task",
+          "name": "Agent workflow",
+          "usage": {
+            "input_tokens": 50,
+            "output_tokens": 9,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "requests": 2,
+            "total_tokens": 59
+          }
+        }
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Assistant",
+            "handoffs": [],
+            "tools": [
+              "echo"
+            ],
+            "output_type": "str"
+          },
+          "error": null,
+          "children": [
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 1,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 5,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "echo",
+                    "input": "{\"text\":\"bye\"}",
+                    "output": "echo:bye",
+                    "mcp_data": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 2,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 30,
+                    "output_tokens": 4,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model_inputs": [
+    [
+      {
+        "role": "user",
+        "text": "Echo hi."
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_0",
+        "name": "echo",
+        "arguments": "{\"text\":\"hi\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_0",
+        "output": "echo:hi"
+      },
+      {
+        "role": "user",
+        "text": "Now echo bye."
+      }
+    ],
+    [
+      {
+        "role": "user",
+        "text": "Echo hi."
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_0",
+        "name": "echo",
+        "arguments": "{\"text\":\"hi\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_0",
+        "output": "echo:hi"
+      },
+      {
+        "role": "user",
+        "text": "Now echo bye."
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_1",
+        "name": "echo",
+        "arguments": "{\"text\":\"bye\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": "echo:bye"
+      }
+    ]
+  ]
+}

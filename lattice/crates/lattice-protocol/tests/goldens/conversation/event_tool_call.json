@@ -1,0 +1,9 @@
+{
+  "seq": 5,
+  "at": 1790000101.25,
+  "type": "tool_call",
+  "call_id": "call_1",
+  "tool": "read_file",
+  "summary": "Read src/lib.rs",
+  "target": "src/lib.rs"
+}

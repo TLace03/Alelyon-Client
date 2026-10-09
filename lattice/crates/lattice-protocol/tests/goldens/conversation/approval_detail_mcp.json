@@ -1,0 +1,6 @@
+{
+  "type": "mcp",
+  "server": "files",
+  "tool": "read",
+  "arguments_preview": "{\"path\": \"notes.md\"}"
+}
