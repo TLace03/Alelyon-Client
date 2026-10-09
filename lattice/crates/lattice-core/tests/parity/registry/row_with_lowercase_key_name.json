@@ -1,0 +1,11 @@
+{
+  "kind": "case",
+  "name": "row_with_lowercase_key_name",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"n5\", \"api_key_name\": \"lower\", \"label\": \"L\", \"base_url\": \"http://localhost:8000/v1\"}]}"
+  },
+  "complete": false,
+  "issues": ["invalid-row"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
+  "endpoints": []
+}

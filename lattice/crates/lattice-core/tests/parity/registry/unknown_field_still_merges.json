@@ -1,0 +1,13 @@
+{
+  "kind": "case",
+  "name": "unknown_field_still_merges",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"xai\", \"enabled\": true, \"colour\": \"red\"}]}"
+  },
+  "complete": false,
+  "issues": ["invalid-row"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
+  "endpoints": [
+    {"id": "xai", "label": "xAI Grok", "kind": "openai-compatible", "base_url": "https://api.x.ai/v1", "model": "grok-2-latest", "api_key_name": "XAI_API_KEY", "enabled": true, "builtin": true, "note": "", "local": false, "needs_key": true, "ready": false, "status": "needs XAI_API_KEY"}
+  ]
+}

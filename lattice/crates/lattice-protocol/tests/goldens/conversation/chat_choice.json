@@ -1,0 +1,8 @@
+{
+  "id": "auto",
+  "label": "Auto",
+  "detail": "A model on this machine when one is ready.",
+  "locality": "local",
+  "ready": true,
+  "refusal": null
+}

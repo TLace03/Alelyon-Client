@@ -1,0 +1,18 @@
+{
+  "kind": "case",
+  "name": "versioned_override_of_builtins",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"openai\", \"enabled\": true, \"model\": \"gpt-4.1\"}, {\"id\": \"huggingface\", \"enabled\": true, \"model\": \"openai/gpt-oss-120b\"}, {\"id\": \"groq\", \"enabled\": true}, {\"id\": \"llamacpp-local\", \"note\": \"mine\"}, {\"id\": \"anthropic\", \"enabled\": true}, {\"id\": \"vllm\", \"label\": \"My vLLM\", \"base_url\": \"http://localhost:8000/v1\", \"model\": \"qwen\"}]}"
+  },
+  "complete": true,
+  "issues": [],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter", "vllm"],
+  "endpoints": [
+    {"id": "llamacpp-local", "label": "llama.cpp (this machine, managed)", "kind": "llamacpp", "base_url": "", "model": "", "api_key_name": "", "enabled": true, "builtin": true, "note": "mine", "local": true, "needs_key": false, "ready": true, "status": "no model selected (put a GGUF file in ~/.alelyon/models)"},
+    {"id": "anthropic", "label": "Anthropic", "kind": "anthropic", "base_url": "", "model": "claude-sonnet-5", "api_key_name": "ANTHROPIC_API_KEY", "enabled": true, "builtin": true, "note": "", "local": false, "needs_key": true, "ready": false, "status": "needs ANTHROPIC_API_KEY"},
+    {"id": "huggingface", "label": "Hugging Face (Inference Providers)", "kind": "openai-compatible", "base_url": "https://router.huggingface.co/v1", "model": "openai/gpt-oss-120b", "api_key_name": "HF_TOKEN", "enabled": true, "builtin": true, "note": "One token in front of the models hosted through Hugging Face's inference partners. Use a full model id such as openai/gpt-oss-120b; an optional :provider suffix pins which partner serves it.", "local": false, "needs_key": true, "ready": true, "status": "ready"},
+    {"id": "openai", "label": "OpenAI", "kind": "openai-compatible", "base_url": "https://api.openai.com/v1", "model": "gpt-4.1", "api_key_name": "OPENAI_API_KEY", "enabled": true, "builtin": true, "note": "", "local": false, "needs_key": true, "ready": true, "status": "ready"},
+    {"id": "groq", "label": "Groq", "kind": "openai-compatible", "base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile", "api_key_name": "GROQ_API_KEY", "enabled": true, "builtin": true, "note": "", "local": false, "needs_key": true, "ready": false, "status": "needs GROQ_API_KEY"},
+    {"id": "vllm", "label": "My vLLM", "kind": "openai-compatible", "base_url": "http://localhost:8000/v1", "model": "qwen", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"}
+  ]
+}

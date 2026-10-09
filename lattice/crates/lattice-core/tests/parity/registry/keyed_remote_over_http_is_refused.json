@@ -1,0 +1,11 @@
+{
+  "kind": "case",
+  "name": "keyed_remote_over_http_is_refused",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"g\", \"label\": \"G\", \"base_url\": \"http://models.example.test/v1\", \"api_key_name\": \"SOME_KEY\"}]}"
+  },
+  "complete": false,
+  "issues": ["invalid-row"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
+  "endpoints": []
+}

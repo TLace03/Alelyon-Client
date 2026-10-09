@@ -1,0 +1,10 @@
+{
+  "buffer": 9,
+  "byte_offset": 256,
+  "width": 448,
+  "height": 448,
+  "channels": 1,
+  "dtype": "u16",
+  "row_stride_bytes": 896,
+  "semantic": "segmentation"
+}

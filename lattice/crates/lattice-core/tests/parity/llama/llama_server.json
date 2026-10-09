@@ -1,0 +1,182 @@
+{
+  "source": {
+    "commit": "2c5e69f7a",
+    "path": "Python oracle/assistant/llama_server.py",
+    "blob": "345228b0ee62a3f4d40819bac6eec25c3084f72b"
+  },
+  "constants": {
+    "BINARY_ENV": "ALELYON_LLAMA_SERVER",
+    "MODELS_ENV": "ALELYON_MODELS_DIR",
+    "LOOPBACK": "127.0.0.1",
+    "DEFAULT_CTX": 8192,
+    "DEFAULT_GPU_LAYERS": 999,
+    "DEFAULT_PARALLEL": 1,
+    "DEFAULT_IDLE_SECONDS": 600.0,
+    "START_TIMEOUT_S": 180.0,
+    "HEALTH_TIMEOUT_S": 2.0,
+    "STOP_TIMEOUT_S": 10.0,
+    "STRIPPED_ENV_PREFIXES": ["LLAMA_ARG_", "OLLAMA_"]
+  },
+  "settings": [
+    {"text": "", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{}", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "[]", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "null", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "not json", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{\"ctx_size\": 4096, \"gpu_layers\": 0, \"parallel\": 2, \"idle_seconds\": 1.5}", "ctx_size": "4096", "gpu_layers": "0", "parallel": "2", "idle_seconds": "1.5"},
+    {"text": "{\"ctx_size\": -1, \"gpu_layers\": 1.5, \"parallel\": \"2\", \"idle_seconds\": 0}", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{\"idle_seconds\": -3}", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{\"idle_seconds\": 7}", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "7.0"},
+    {"text": "{\"ctx_size\": 0}", "ctx_size": "0", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{\"model\": \"qwen3-8b\", \"ctx_size\": 2048}", "ctx_size": "2048", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{\"ctx_size\": 8192.0}", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{\"parallel\": 1e3}", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{\"ctx_size\": 4096, \"unknown\": [1, 2]}", "ctx_size": "4096", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "﻿{\"ctx_size\": 4096}", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"},
+    {"text": "{\"ctx_size\": true, \"idle_seconds\": true}", "ctx_size": "True", "gpu_layers": "999", "parallel": "1", "idle_seconds": "1.0", "deviation": "a boolean is not a number natively (Python passes -c True)"},
+    {"text": "{\"ctx_size\": 99999999999999999999999}", "ctx_size": "99999999999999999999999", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0", "deviation": "an integer past u64 is the default natively"},
+    {"text": "{\"ctx_size\": 2048, \"idle_seconds\": NaN}", "ctx_size": "2048", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0", "deviation": "NaN or Infinity anywhere: the native reader gives every default"},
+    {"text": "{\"idle_seconds\": Infinity}", "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "inf", "deviation": "NaN or Infinity anywhere: the native reader gives every default"},
+    {"text": null, "ctx_size": "8192", "gpu_layers": "999", "parallel": "1", "idle_seconds": "600.0"}
+  ],
+  "models": [
+    {
+      "name": "a_mixed_folder",
+      "files": [
+        {"path": "qwen3-8b.gguf", "kind": "gguf"},
+        {"path": "Alpha.gguf", "kind": "gguf"},
+        {"path": "sub/beta-q4.gguf", "kind": "gguf"},
+        {"path": "sub/deeper/gamma.gguf", "kind": "gguf"},
+        {"path": "mmproj-qwen3.gguf", "kind": "gguf"},
+        {"path": "MMPROJ-big.gguf", "kind": "gguf"},
+        {"path": "fake.gguf", "kind": "text"},
+        {"path": "tiny.gguf", "kind": "short"},
+        {"path": "notes.txt", "kind": "gguf"},
+        {"path": "folder.gguf/inner.gguf", "kind": "gguf"},
+        {"path": "a.b.gguf", "kind": "gguf"}
+      ],
+      "listed": [
+        {"name": "a.b", "path": "a.b.gguf", "size": 24},
+        {"name": "Alpha", "path": "Alpha.gguf", "size": 24},
+        {"name": "beta-q4", "path": "sub/beta-q4.gguf", "size": 24},
+        {"name": "inner", "path": "folder.gguf/inner.gguf", "size": 24},
+        {"name": "qwen3-8b", "path": "qwen3-8b.gguf", "size": 24}
+      ],
+      "resolve": [
+        {"query": "qwen3-8b", "model": "qwen3-8b"},
+        {"query": "qwen3", "model": null, "none_chosen": false},
+        {"query": "Qwen3-8B", "model": null, "none_chosen": false},
+        {"query": "qwen3-8b.gguf", "model": "qwen3-8b"},
+        {"query": "qwen3-8b.GGUF", "model": "qwen3-8b"},
+        {"query": "  qwen3-8b  ", "model": "qwen3-8b"},
+        {"query": "", "model": null, "none_chosen": true},
+        {"query": "   ", "model": null, "none_chosen": true},
+        {"query": "mmproj-qwen3", "model": null, "none_chosen": false},
+        {"query": "beta-q4", "model": "beta-q4"},
+        {"query": "sub/beta-q4", "model": null, "none_chosen": false},
+        {"query": "Alpha", "model": "Alpha"},
+        {"query": "alpha", "model": null, "none_chosen": false},
+        {"query": "fake", "model": null, "none_chosen": false},
+        {"query": "tiny", "model": null, "none_chosen": false},
+        {"query": "a.b", "model": "a.b"},
+        {"query": "folder", "model": null, "none_chosen": false},
+        {"query": "gamma", "model": null, "none_chosen": false}
+      ]
+    },
+    {
+      "name": "the_same_stem_twice",
+      "files": [
+        {"path": "b/same.gguf", "kind": "gguf"},
+        {"path": "a/same.gguf", "kind": "gguf"},
+        {"path": "same.gguf", "kind": "gguf"}
+      ],
+      "listed": [
+        {"name": "same", "path": "same.gguf", "size": 24}
+      ],
+      "resolve": [
+        {"query": "same", "model": "same"},
+        {"query": "same.gguf", "model": "same"}
+      ]
+    },
+    {
+      "name": "the_same_stem_below_only",
+      "files": [
+        {"path": "b/same.gguf", "kind": "gguf"},
+        {"path": "a/same.gguf", "kind": "gguf"}
+      ],
+      "listed": [
+        {"name": "same", "path": "a/same.gguf", "size": 24}
+      ],
+      "resolve": [
+        {"query": "same", "model": "same"}
+      ]
+    },
+    {
+      "name": "an_empty_folder",
+      "files": [],
+      "listed": [],
+      "resolve": [
+        {"query": "anything", "model": null, "none_chosen": false}
+      ]
+    }
+  ],
+  "is_ollama_path": [
+    {"path": "C:/Apps/Programs/Ollama/lib/llama-server.exe", "ollama": true},
+    {"path": "C:/OLLAMA-x/llama-server.exe", "ollama": true},
+    {"path": "C:/tools/llama/llama-server.exe", "ollama": false},
+    {"path": "D:/oLLaMa/x.exe", "ollama": true},
+    {"path": "C:/llama/ollamaish.exe", "ollama": true},
+    {"path": "C:/o/llama.exe", "ollama": false}
+  ],
+  "probe_key_drives": "a drive letter X before a backslash is written <drive X> here, so no golden holds a Windows path; the Rust test writes it back before comparing",
+  "probe_key_paths": [
+    {"text": "<drive D>:\\models\\.\\a.gguf", "python": "<drive D>:\\models\\a.gguf"},
+    {"text": "D:/models//sub/a.gguf", "python": "<drive D>:\\models\\sub\\a.gguf"},
+    {"text": "<drive D>:\\models\\\\sub\\.\\a.gguf", "python": "<drive D>:\\models\\sub\\a.gguf"},
+    {"text": "<drive C>:\\a\\..\\b\\x.gguf", "python": "<drive C>:\\a\\..\\b\\x.gguf"},
+    {"text": "D:models\\a.gguf", "python": "D:models\\a.gguf"},
+    {"text": "D:", "python": "D:"},
+    {"text": "<drive D>:\\", "python": "<drive D>:\\"},
+    {"text": ".", "python": "."},
+    {"text": "", "python": "."},
+    {"text": "./x/a.gguf", "python": "x\\a.gguf"},
+    {"text": "x/./y/", "python": "x\\y"},
+    {"text": "c:/A//b", "python": "<drive c>:\\A\\b"},
+    {"text": "\\x\\y", "python": "\\x\\y"},
+    {"text": "/x//y/", "python": "\\x\\y"},
+    {"text": "\\\\server\\share\\.\\m\\a.gguf", "python": "\\\\server\\share\\m\\a.gguf"},
+    {"text": "//server/share//m", "python": "\\\\server\\share\\m"},
+    {"text": "\\\\server\\share", "python": "\\\\server\\share\\"},
+    {"text": "\\\\server", "python": "\\\\server"},
+    {"text": "\\\\?\\<drive C>:\\x\\.\\y", "python": "\\\\?\\<drive C>:\\x\\y"},
+    {"text": "\\\\.\\<drive C>:\\x", "python": "\\\\.\\<drive C>:\\x"},
+    {"text": "\\\\?\\UNC\\srv\\sh\\x", "python": "\\\\?\\UNC\\srv\\sh\\x"},
+    {"text": "///x", "python": "\\\\\\x"},
+    {"text": "./c:x", "python": ".\\c:x"},
+    {"text": "a..b\\.\\c", "python": "a..b\\c"},
+    {"text": "<drive D>:\\modéls\\.\\中.gguf", "python": "<drive D>:\\modéls\\中.gguf"}
+  ],
+  "probe_key_joined": [
+    {"folder": "<drive D>:\\models\\.", "name": "a.gguf", "python": "<drive D>:\\models\\a.gguf"},
+    {"folder": "D:/models//sub", "name": "a.gguf", "python": "<drive D>:\\models\\sub\\a.gguf"},
+    {"folder": "<drive D>:\\models\\", "name": "sub\\a.gguf", "python": "<drive D>:\\models\\sub\\a.gguf"},
+    {"folder": "D:models", "name": "a.gguf", "python": "D:models\\a.gguf"},
+    {"folder": "D:", "name": "a.gguf", "python": "D:a.gguf"},
+    {"folder": "<drive D>:\\", "name": "a.gguf", "python": "<drive D>:\\a.gguf"},
+    {"folder": "models\\.", "name": "a.gguf", "python": "models\\a.gguf"},
+    {"folder": "\\\\server\\share", "name": "a.gguf", "python": "\\\\server\\share\\a.gguf"}
+  ],
+  "command": {
+    "input": {
+      "binary": "<binary>",
+      "model": "<model>",
+      "name": "tiny-model",
+      "port": 41000,
+      "ctx_size": 4096,
+      "gpu_layers": 12,
+      "parallel": 2,
+      "key_file": "<key-file>"
+    },
+    "argv": ["<binary>", "--host", "127.0.0.1", "--port", "41000", "-m", "<model>", "--alias", "tiny-model", "-c", "4096", "-ngl", "12", "-np", "2", "--api-key-file", "<key-file>", "--no-webui", "--offline"]
+  }
+}

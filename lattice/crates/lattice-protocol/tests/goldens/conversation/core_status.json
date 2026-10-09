@@ -1,0 +1,6 @@
+{
+  "runtime": "lattice-agents 0.1.0",
+  "agent_turns": 1,
+  "shared_writes": false,
+  "refusal": null
+}

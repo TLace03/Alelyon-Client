@@ -1,0 +1,373 @@
+{
+  "source": "Python oracle/assistant/history.py",
+  "max_threads": 60,
+  "cases": [
+    {
+      "name": "missing",
+      "input": {
+        "missing": true
+      },
+      "python": "missing",
+      "rows": []
+    },
+    {
+      "name": "a_directory",
+      "input": {
+        "directory": true
+      },
+      "python": "fails",
+      "rows": []
+    },
+    {
+      "name": "empty_file",
+      "input": {
+        "text": ""
+      },
+      "python": "fails",
+      "rows": []
+    },
+    {
+      "name": "empty_list",
+      "input": {
+        "text": "[]"
+      },
+      "python": "parses",
+      "rows": []
+    },
+    {
+      "name": "an_object",
+      "input": {
+        "text": "{}"
+      },
+      "python": "parses",
+      "rows": []
+    },
+    {
+      "name": "null",
+      "input": {
+        "text": "null"
+      },
+      "python": "parses",
+      "rows": []
+    },
+    {
+      "name": "a_number",
+      "input": {
+        "text": "5"
+      },
+      "python": "parses",
+      "rows": []
+    },
+    {
+      "name": "a_string",
+      "input": {
+        "text": "\"rows\""
+      },
+      "python": "parses",
+      "rows": []
+    },
+    {
+      "name": "invalid_json",
+      "input": {
+        "text": "[{\"id\": \"a\""
+      },
+      "python": "fails",
+      "rows": []
+    },
+    {
+      "name": "byte_order_mark",
+      "input": {
+        "text": "﻿[{\"id\": \"a1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "fails",
+      "rows": []
+    },
+    {
+      "name": "invalid_utf8",
+      "input": {
+        "hex": "5b7b226964223a2022ff227d5d"
+      },
+      "python": "fails",
+      "rows": []
+    },
+    {
+      "name": "as_python_writes_it",
+      "input": {
+        "text": "[\r\n {\r\n  \"id\": \"a1\",\r\n  \"title\": \"T\",\r\n  \"created\": 1.5,\r\n  \"updated\": 2.5,\r\n  \"turns\": 2,\r\n  \"pinned_provider\": \"auto\"\r\n },\r\n {\r\n  \"id\": \"b2\",\r\n  \"title\": \"Second\",\r\n  \"created\": 1.5,\r\n  \"updated\": 1.0,\r\n  \"turns\": 2,\r\n  \"pinned_provider\": \"auto\"\r\n }\r\n]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "a1", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "b2", "title": "Second", "created": "1.5", "updated": "1.0", "turns": "2", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "every_field_missing_but_id",
+      "input": {
+        "text": "[{\"id\": \"only\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "only", "title": "", "created": "0.0", "updated": "0.0", "turns": "0", "pinned_provider": ""}
+      ]
+    },
+    {
+      "name": "rows_that_are_not_objects",
+      "input": {
+        "text": "[5, \"x\", null, [], [1], {\"id\": \"kept\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "kept", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "id_missing_or_odd",
+      "input": {
+        "text": "[{\"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": null, \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": 7, \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": 1.5, \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": true, \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": [1], \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "None", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "7", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "1.5", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "True", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "[1]", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ],
+      "d2": {
+        "[1]": "[1]"
+      }
+    },
+    {
+      "name": "title_coerced",
+      "input": {
+        "text": "[{\"id\": \"t0\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"t1\", \"title\": null, \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"t2\", \"title\": 3, \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"t3\", \"title\": 2.5, \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"t4\", \"title\": false, \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"t5\", \"title\": [\"x\"], \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"t6\", \"title\": {\"k\": 1}, \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"t7\", \"title\": \"caf\\u00e9\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"t8\", \"title\": \"\\u2028\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "t0", "title": "", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "t1", "title": "None", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "t2", "title": "3", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "t3", "title": "2.5", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "t4", "title": "False", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "t5", "title": "['x']", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "t6", "title": "{'k': 1}", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "t7", "title": "café", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "t8", "title": " ", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ],
+      "d2": {
+        "['x']": "[\"x\"]",
+        "{'k': 1}": "{\"k\": 1}"
+      }
+    },
+    {
+      "name": "created_and_updated_coerced",
+      "input": {
+        "text": "[{\"id\": \"c0\", \"title\": \"T\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c1\", \"title\": \"T\", \"created\": 0, \"updated\": 0, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c2\", \"title\": \"T\", \"created\": 7, \"updated\": 7, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c3\", \"title\": \"T\", \"created\": \"1.5\", \"updated\": \"1.5\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c4\", \"title\": \"T\", \"created\": \" 2 \", \"updated\": \" 2 \", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c5\", \"title\": \"T\", \"created\": \"1_0\", \"updated\": \"1_0\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c6\", \"title\": \"T\", \"created\": true, \"updated\": true, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c7\", \"title\": \"T\", \"created\": -0.0, \"updated\": -0.0, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c8\", \"title\": \"T\", \"created\": 1e+308, \"updated\": 1e+308, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c9\", \"title\": \"T\", \"created\": 1000000000000000000000000000000, \"updated\": 1000000000000000000000000000000, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c10\", \"title\": \"T\", \"created\": \"nan\", \"updated\": \"nan\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"c11\", \"title\": \"T\", \"created\": \"inf\", \"updated\": \"inf\", \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "c0", "title": "T", "created": "0.0", "updated": "0.0", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c1", "title": "T", "created": "0.0", "updated": "0.0", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c2", "title": "T", "created": "7.0", "updated": "7.0", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c3", "title": "T", "created": "1.5", "updated": "1.5", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c4", "title": "T", "created": "2.0", "updated": "2.0", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c5", "title": "T", "created": "10.0", "updated": "10.0", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c6", "title": "T", "created": "1.0", "updated": "1.0", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c7", "title": "T", "created": "-0.0", "updated": "-0.0", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c8", "title": "T", "created": "1e+308", "updated": "1e+308", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c9", "title": "T", "created": "1e+30", "updated": "1e+30", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c10", "title": "T", "created": "nan", "updated": "nan", "turns": "2", "pinned_provider": "auto"},
+        {"id": "c11", "title": "T", "created": "inf", "updated": "inf", "turns": "2", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "created_or_updated_that_fail",
+      "input": {
+        "text": "[{\"id\": \"n1\", \"title\": \"T\", \"created\": null, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"n2\", \"title\": \"T\", \"created\": 1.5, \"updated\": [], \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"n3\", \"title\": \"T\", \"created\": \"x\", \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"n4\", \"title\": \"T\", \"created\": 1.5, \"updated\": {}, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"ok\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "ok", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "turns_coerced",
+      "input": {
+        "text": "[{\"id\": \"n0\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"pinned_provider\": \"auto\"}, {\"id\": \"n1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 0, \"pinned_provider\": \"auto\"}, {\"id\": \"n2\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": -2, \"pinned_provider\": \"auto\"}, {\"id\": \"n3\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 3.9, \"pinned_provider\": \"auto\"}, {\"id\": \"n4\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": -3.9, \"pinned_provider\": \"auto\"}, {\"id\": \"n5\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"3\", \"pinned_provider\": \"auto\"}, {\"id\": \"n6\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \" 4 \", \"pinned_provider\": \"auto\"}, {\"id\": \"n7\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"0_5\", \"pinned_provider\": \"auto\"}, {\"id\": \"n8\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": true, \"pinned_provider\": \"auto\"}, {\"id\": \"n9\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": false, \"pinned_provider\": \"auto\"}, {\"id\": \"n10\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"+6\", \"pinned_provider\": \"auto\"}, {\"id\": \"n11\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 9223372036854775807, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "n0", "title": "T", "created": "1.5", "updated": "2.5", "turns": "0", "pinned_provider": "auto"},
+        {"id": "n1", "title": "T", "created": "1.5", "updated": "2.5", "turns": "0", "pinned_provider": "auto"},
+        {"id": "n2", "title": "T", "created": "1.5", "updated": "2.5", "turns": "-2", "pinned_provider": "auto"},
+        {"id": "n3", "title": "T", "created": "1.5", "updated": "2.5", "turns": "3", "pinned_provider": "auto"},
+        {"id": "n4", "title": "T", "created": "1.5", "updated": "2.5", "turns": "-3", "pinned_provider": "auto"},
+        {"id": "n5", "title": "T", "created": "1.5", "updated": "2.5", "turns": "3", "pinned_provider": "auto"},
+        {"id": "n6", "title": "T", "created": "1.5", "updated": "2.5", "turns": "4", "pinned_provider": "auto"},
+        {"id": "n7", "title": "T", "created": "1.5", "updated": "2.5", "turns": "5", "pinned_provider": "auto"},
+        {"id": "n8", "title": "T", "created": "1.5", "updated": "2.5", "turns": "1", "pinned_provider": "auto"},
+        {"id": "n9", "title": "T", "created": "1.5", "updated": "2.5", "turns": "0", "pinned_provider": "auto"},
+        {"id": "n10", "title": "T", "created": "1.5", "updated": "2.5", "turns": "6", "pinned_provider": "auto"},
+        {"id": "n11", "title": "T", "created": "1.5", "updated": "2.5", "turns": "9223372036854775807", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "turns_that_fail",
+      "input": {
+        "text": "[{\"id\": \"f1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"3.5\", \"pinned_provider\": \"auto\"}, {\"id\": \"f2\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": null, \"pinned_provider\": \"auto\"}, {\"id\": \"f3\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"x\", \"pinned_provider\": \"auto\"}, {\"id\": \"f4\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": [], \"pinned_provider\": \"auto\"}, {\"id\": \"ok\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "ok", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "pinned_provider_coerced",
+      "input": {
+        "text": "[{\"id\": \"p0\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2}, {\"id\": \"p1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": null}, {\"id\": \"p2\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"\"}, {\"id\": \"p3\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"endpoint:x\"}, {\"id\": \"p4\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": 5}, {\"id\": \"p5\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \" cloud \"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "p0", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": ""},
+        {"id": "p1", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "None"},
+        {"id": "p2", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": ""},
+        {"id": "p3", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "endpoint:x"},
+        {"id": "p4", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "5"},
+        {"id": "p5", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": " cloud "}
+      ]
+    },
+    {
+      "name": "a_repeated_key",
+      "input": {
+        "text": "[{\"id\": \"a\", \"title\": \"first\", \"id\": \"b\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "b", "title": "first", "created": "0.0", "updated": "0.0", "turns": "0", "pinned_provider": ""}
+      ]
+    },
+    {
+      "name": "extra_keys_ignored",
+      "input": {
+        "text": "[{\"id\": \"a1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\", \"colour\": \"red\", \"evicted_at\": 1.0}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "a1", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "nan_updated",
+      "input": {
+        "text": "[{\"id\": \"a\", \"title\": \"T\", \"created\": 1.0, \"updated\": NaN, \"turns\": 1}]"
+      },
+      "python": "parses",
+      "deviation": "D7: NaN",
+      "python_row_count": 1
+    },
+    {
+      "name": "infinity_created",
+      "input": {
+        "text": "[{\"id\": \"a\", \"created\": Infinity}]"
+      },
+      "python": "parses",
+      "deviation": "D7: Infinity",
+      "python_row_count": 1
+    },
+    {
+      "name": "lone_surrogate_title",
+      "input": {
+        "text": "[{\"id\": \"a\", \"title\": \"\\ud800\", \"turns\": 1}]"
+      },
+      "python": "parses",
+      "deviation": "D7: a lone surrogate",
+      "python_row_count": 1
+    },
+    {
+      "name": "number_past_a_double",
+      "input": {
+        "text": "[{\"id\": \"a\", \"updated\": 1e400}]"
+      },
+      "python": "parses",
+      "deviation": "D7: a number that overflows a double",
+      "python_row_count": 1
+    },
+    {
+      "name": "turns_beyond_i64",
+      "input": {
+        "text": "[{\"id\": \"a1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 100000000000000000000, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "deviation": "D7: a count beyond i64",
+      "python_row_count": 1
+    },
+    {
+      "name": "turns_float_beyond_i64",
+      "input": {
+        "text": "[{\"id\": \"a1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 1e+30, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "deviation": "D7: a count beyond i64",
+      "python_row_count": 1
+    },
+    {
+      "name": "created_in_another_script",
+      "input": {
+        "text": "[{\"id\": \"a1\", \"title\": \"T\", \"created\": \"\\u0661\\u0662\", \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "deviation": "D7: a numeral in another script",
+      "python_row_count": 1
+    },
+    {
+      "name": "turns_in_other_numeric_characters",
+      "input": {
+        "text": "[{\"id\": \"kept\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"x0\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u00b2\", \"pinned_provider\": \"auto\"}, {\"id\": \"x1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u00bd\", \"pinned_provider\": \"auto\"}, {\"id\": \"x2\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u2167\", \"pinned_provider\": \"auto\"}, {\"id\": \"x3\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u2460\", \"pinned_provider\": \"auto\"}, {\"id\": \"x4\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"1\\u00b2\", \"pinned_provider\": \"auto\"}, {\"id\": \"x5\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u0661\\u00e9\", \"pinned_provider\": \"auto\"}, {\"id\": \"x6\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u0661 \\u0662\", \"pinned_provider\": \"auto\"}, {\"id\": \"x7\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u0661.\\u0665\", \"pinned_provider\": \"auto\"}, {\"id\": \"x8\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u0661\\u2028\\u0662\", \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "kept", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "created_in_other_numeric_characters",
+      "input": {
+        "text": "[{\"id\": \"kept\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"y0\", \"title\": \"T\", \"created\": \"\\u00b2\", \"updated\": \"\\u00b2\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"y1\", \"title\": \"T\", \"created\": \"\\u00bd\", \"updated\": \"\\u00bd\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"y2\", \"title\": \"T\", \"created\": \"\\u2167\", \"updated\": \"\\u2167\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"y3\", \"title\": \"T\", \"created\": \"\\u2460\", \"updated\": \"\\u2460\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"y4\", \"title\": \"T\", \"created\": \"1\\u00b2\", \"updated\": \"1\\u00b2\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"y5\", \"title\": \"T\", \"created\": \"\\u0661\\u00e9\", \"updated\": \"\\u0661\\u00e9\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"y6\", \"title\": \"T\", \"created\": \"\\u0661 \\u0662\", \"updated\": \"\\u0661 \\u0662\", \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"y7\", \"title\": \"T\", \"created\": \"\\u0661\\u001f\\u0662\", \"updated\": \"\\u0661\\u001f\\u0662\", \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "kept", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ]
+    },
+    {
+      "name": "turns_in_another_script_beside_spaces",
+      "input": {
+        "text": "[{\"id\": \"a1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\u3000\\u0661\\u0662\\u2003\", \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "deviation": "D7: a numeral in another script",
+      "python_row_count": 1
+    },
+    {
+      "name": "created_in_another_script_with_a_point",
+      "input": {
+        "text": "[{\"id\": \"a1\", \"title\": \"T\", \"created\": \"\\u0661.\\u0665\", \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "deviation": "D7: a numeral in another script",
+      "python_row_count": 1
+    },
+    {
+      "name": "turns_in_a_script_newer_than_python",
+      "input": {
+        "text": "[{\"id\": \"kept\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": 2, \"pinned_provider\": \"auto\"}, {\"id\": \"z1\", \"title\": \"T\", \"created\": 1.5, \"updated\": 2.5, \"turns\": \"\\ud81b\\udd70\\ud81b\\udd71\", \"pinned_provider\": \"auto\"}]"
+      },
+      "python": "parses",
+      "rows": [
+        {"id": "kept", "title": "T", "created": "1.5", "updated": "2.5", "turns": "2", "pinned_provider": "auto"}
+      ]
+    }
+  ]
+}

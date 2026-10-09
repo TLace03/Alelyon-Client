@@ -1,0 +1,8 @@
+{
+  "seq": 14,
+  "at": 1790000103.5,
+  "type": "conflict",
+  "change": "ch_00112233445566bb",
+  "path": "Cargo.toml",
+  "reason": "The file changed outside Lattice."
+}

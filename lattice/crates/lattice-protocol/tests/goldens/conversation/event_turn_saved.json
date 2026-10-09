@@ -1,0 +1,29 @@
+{
+  "seq": 24,
+  "at": 1790000106.0,
+  "type": "turn_saved",
+  "turn": {
+    "id": "f6e5d4c3b2a1",
+    "ts": 1790000160.75,
+    "role": "assistant",
+    "text": "A missing import; it is staged for review.",
+    "tools": [],
+    "facts": [
+      {
+        "label": "",
+        "rendered": "",
+        "as_of": "",
+        "note": ""
+      }
+    ],
+    "unsupported": [],
+    "provider": "ollama:qwen3:8b",
+    "error": "",
+    "constrained": false,
+    "truncated": false,
+    "cancelled": false,
+    "prompt_tokens": 1200,
+    "completion_tokens": null
+  },
+  "saved": true
+}

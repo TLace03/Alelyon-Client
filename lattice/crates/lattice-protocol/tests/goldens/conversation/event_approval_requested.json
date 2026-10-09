@@ -1,0 +1,17 @@
+{
+  "seq": 8,
+  "at": 1790000102.0,
+  "type": "approval_requested",
+  "call_id": "call_3",
+  "kind": "command",
+  "detail": {
+    "type": "command",
+    "text": "cargo test -p lattice-core \\u{2013}quiet",
+    "cwd": "crates",
+    "mode": "powershell",
+    "timeout_s": 600,
+    "remote": null,
+    "staged_waiting": 0
+  },
+  "allow_always_offer": true
+}

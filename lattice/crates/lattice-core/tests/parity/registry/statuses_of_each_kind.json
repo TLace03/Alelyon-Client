@@ -1,0 +1,19 @@
+{
+  "kind": "case",
+  "name": "statuses_of_each_kind",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"openai\", \"enabled\": true}, {\"id\": \"cohere\", \"enabled\": true}, {\"id\": \"google\", \"enabled\": true, \"model\": \"\"}, {\"id\": \"xai\", \"enabled\": false}, {\"id\": \"s1\", \"label\": \"No URL\", \"kind\": \"openai-compatible\", \"base_url\": \"http://localhost:1/v1\", \"model\": \"\", \"enabled\": true}, {\"id\": \"hf2\", \"label\": \"Empty key\", \"base_url\": \"https://h.example.test/v1\", \"model\": \"m\", \"api_key_name\": \"EMPTY_API_KEY\", \"enabled\": true}, {\"id\": \"hf3\", \"label\": \"Quoted key\", \"base_url\": \"https://h.example.test/v1\", \"model\": \"m\", \"api_key_name\": \"QUOTED_API_KEY\", \"enabled\": true}, {\"id\": \"hf4\", \"label\": \"Missing key\", \"base_url\": \"https://h.example.test/v1\", \"model\": \"m\", \"api_key_name\": \"SOME_KEY\", \"enabled\": true}]}"
+  },
+  "complete": true,
+  "issues": [],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter", "s1", "hf2", "hf3", "hf4"],
+  "endpoints": [
+    {"id": "cohere", "label": "Cohere", "kind": "openai-compatible", "base_url": "https://api.cohere.ai/compatibility/v1", "model": "command-a-03-2025", "api_key_name": "COHERE_API_KEY", "enabled": true, "builtin": true, "note": "", "local": false, "needs_key": true, "ready": false, "status": "needs COHERE_API_KEY"},
+    {"id": "openai", "label": "OpenAI", "kind": "openai-compatible", "base_url": "https://api.openai.com/v1", "model": "gpt-4o", "api_key_name": "OPENAI_API_KEY", "enabled": true, "builtin": true, "note": "", "local": false, "needs_key": true, "ready": true, "status": "ready"},
+    {"id": "google", "label": "Google Gemini", "kind": "openai-compatible", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "", "api_key_name": "GEMINI_API_KEY", "enabled": true, "builtin": true, "note": "", "local": false, "needs_key": true, "ready": false, "status": "no model name set"},
+    {"id": "s1", "label": "No URL", "kind": "openai-compatible", "base_url": "http://localhost:1/v1", "model": "", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": false, "status": "no model name set"},
+    {"id": "hf2", "label": "Empty key", "kind": "openai-compatible", "base_url": "https://h.example.test/v1", "model": "m", "api_key_name": "EMPTY_API_KEY", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": true, "ready": false, "status": "needs EMPTY_API_KEY"},
+    {"id": "hf3", "label": "Quoted key", "kind": "openai-compatible", "base_url": "https://h.example.test/v1", "model": "m", "api_key_name": "QUOTED_API_KEY", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": true, "ready": true, "status": "ready"},
+    {"id": "hf4", "label": "Missing key", "kind": "openai-compatible", "base_url": "https://h.example.test/v1", "model": "m", "api_key_name": "SOME_KEY", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": true, "ready": false, "status": "needs SOME_KEY"}
+  ]
+}

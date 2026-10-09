@@ -1,0 +1,11 @@
+{
+  "kind": "case",
+  "name": "row_with_bad_ipv6",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"n20\", \"label\": \"L\", \"base_url\": \"http://[::1/v1\"}]}"
+  },
+  "complete": false,
+  "issues": ["invalid-row"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
+  "endpoints": []
+}

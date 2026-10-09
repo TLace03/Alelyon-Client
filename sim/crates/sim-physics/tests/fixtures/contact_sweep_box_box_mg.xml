@@ -1,0 +1,6 @@
+<mujoco model="sweep_box_box_mg">
+  <worldbody>
+    <body name="a"><freejoint/><geom name="ga" type="box" size="0.08 0.12 0.05" margin="0.02" gap="0.03" mass="1"/></body>
+    <body name="b"><freejoint/><geom name="gb" type="box" size="0.08 0.12 0.05" margin="0.02" gap="0.03" mass="1"/></body>
+  </worldbody>
+</mujoco>

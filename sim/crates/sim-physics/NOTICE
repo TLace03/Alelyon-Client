@@ -1,0 +1,171 @@
+Third-party material in this crate
+=================================
+
+The algorithms in `src/` are ported from MuJoCo and are derivative works of
+Apache-2.0 code. The licence is the file LICENSE-MuJoCo next to this one.
+
+  Project:   MuJoCo (https://github.com/google-deepmind/mujoco)
+  Version:   3.14.0
+  Commit:    9ecbb9d7 (the commit of the MuJoCo 3.14.0 build used as the oracle;
+             the abbreviated hash is the one the task records)
+  Copyright: DeepMind Technologies Limited (and, for the box colliders of
+             engine_collision_box.c, that is sphere-box, capsule-box and box-box
+             with their helpers, Svetoslav Kolev; see below)
+  Licence:   Apache License, Version 2.0 (LICENSE-MuJoCo, the file `LICENSE` of
+             the MuJoCo source tree, copied unmodified)
+
+Files ported from (all under src/engine/ of the MuJoCo tree), and where each
+Rust function that ports a MuJoCo function names it in its doc comment:
+
+  engine_core_smooth.c   mj_kinematics1, mj_kinematics2 (the body inertial frames
+                         only), mj_comPos, mj_crb, mj_factorI and mj_solveLD (as a
+                         dense factorisation), mj_comVel, mj_rne
+  engine_forward.c       mj_fwdPosition, mj_fwdVelocity, mj_fwdActuation (motor
+                         and position actuators), mj_fwdAcceleration, mj_Euler,
+                         mj_EulerSkip, mj_RungeKutta, mj_advance, mj_step; (phase
+                         1c-i) warmstart, fwdConstraint (monolithic, no islands;
+                         mj_discreteGyro, a no-op unless the integrator is
+                         discrete, is not ported)
+  engine_core_constraint.c
+                         (phase 1c-i) mj_makeConstraint (the friction-loss and
+                         limit rows), mj_addConstraint (the empty-row guard),
+                         mj_instantiateFriction, mj_instantiateLimit,
+                         mj_diagApprox, mj_makeImpedance with getsolparam and
+                         getimpedance, mj_referenceConstraint,
+                         mj_constraintUpdate_impl (friction and limit rows),
+                         mj_constraintUpdate
+  engine_solver.c        (phase 1c-i) mj_solPrimal (mj_solNewton, mj_solCG) with
+                         PrimalUpdateConstraint, PrimalUpdateGrad,
+                         PrimalUpdateMgrad, PrimalPrepare, PrimalEval,
+                         updateBracket, PrimalSearch, frictionCost,
+                         frictionCostDif, MakeHessian, FactorizeHessian,
+                         HessianIncremental (the dense branches)
+  engine_setconst.c      (phase 1c-i) the qpos0 part of mj_setConst (set0,
+                         setStat: body_invweight0, dof_invweight0,
+                         tendon_invweight0, meaninertia)
+  engine_core_smooth.c   (phase 1c-i, besides the above) mj_tendon (fixed tendons
+                         only)
+  engine_passive.c       mj_springdamper (joint springs and dof dampers only)
+  engine_sensor.c        mj_energyPos, mj_energyVel
+  engine_support.c       mj_fullM, mj_integratePos (mj_integratePosInd)
+  engine_util_spatial.c  mju_quatIntegrate, mju_subQuat, mju_quat2Vel,
+                         mju_axisAngle2Quat, mju_mulQuat, mju_rotVecQuat,
+                         mju_quat2Mat, mju_cross, mju_crossMotion,
+                         mju_crossForce, mju_inertCom, mju_mulInertVec,
+                         mju_dofCom, mju_mulDofVec, mju_transformSpatial
+  engine_core_util.c     mj_objectVelocity, mj_local2Global (inertial frame)
+  engine_inline.h        the mji_ twins of the vector and quaternion helpers
+  engine_util_blas.c     mju_normalize3, mju_normalize4; (phase 1c-i) mju_dot,
+                         mju_norm, mju_mulMatVec, mju_mulMatTVec,
+                         mju_sqrMatTD_impl
+  engine_util_solve.c    (phase 1c-i) mju_cholFactor, mju_cholSolve,
+                         mju_cholUpdate
+  engine_util_sparse.c   (phase 1c-i) mju_mulSymVecSparse, mju_addToSymSparse
+                         (on the sparse structure of M that mj_makeM builds,
+                         kept as rownnz, rowadr and colind)
+
+Phase 1c-ii (collision detection and contacts) ports these files and functions
+(src/engine/ of the same tree):
+
+  engine_collision_driver.c
+                         the rigid control flow of mj_collision, as a static
+                         candidate list (src/candidates.rs) and a two-pass step
+                         (src/collision.rs): filterCollisionPair, filterBodyPair,
+                         filterBitmask, mj_filterSphere with planeGeomDist,
+                         getMargin, getGap, pushGeomGeom (the orientation of a
+                         pair), contactcompare (as the static order), mj_maxContact,
+                         mj_contactParam, mj_setContact, addPairContacts, and the
+                         collision table mjCOLLISIONFUNC. The sweep-and-prune, the
+                         BVH midphase, the convex path (GJK and EPA), explicit
+                         pairs, flex and sleep are not ported (the module headers
+                         say why each is unreachable or deferred)
+  engine_collision_primitive.c   (Copyright 2021 DeepMind Technologies Limited)
+                         mjraw_PlaneSphere, mjc_PlaneSphere, mjc_PlaneCapsule,
+                         mjc_PlaneCylinder, mjc_PlaneBox, mjraw_SphereSphere,
+                         mjc_SphereSphere, mjraw_SphereCapsule, mjc_SphereCapsule,
+                         mjc_SphereCylinder, mjraw_CapsuleCapsule, mjc_CapsuleCapsule
+                         (src/collide_primitive.rs)
+  engine_collision_box.c (Copyright 2016 Svetoslav Kolev; Apache-2.0)
+                         mju_clampVec, mjraw_SphereBox, mjc_SphereBox,
+                         mjraw_CapsuleBox (without its dead block), mjc_CapsuleBox,
+                         clipHalfPlane, mjc_BoxBox (src/collide_box.rs). This file
+                         is not DeepMind's: it carries its author's own copyright
+                         line in MuJoCo, and keeps it here.
+  engine_core_constraint.c
+                         mj_instantiateContact with mj_contactJacobian (one body
+                         per side), the contact branches of mj_diagApprox,
+                         getsolparam (with solreffriction), getposdim,
+                         mj_makeImpedance (the contact passes: impratio, mu, Rpy),
+                         mj_constraintUpdate_impl (the elliptic cone zones and its
+                         Hessian), and mj_assignRef, mj_assignImp, mj_assignFriction
+                         and mj_assignMargin (the non-override branches)
+  engine_core_util.c     mj_jac, mj_jacDifPair (dense), mj_contactForce, and the
+                         geom part of mj_local2Global
+  engine_core_smooth.c   the geom loop of mj_kinematics2; (phase 1c-ii) mj_crb's
+                         copy of dof_M0 for a simple dof
+  engine_setconst.c      mj_setM0 (dof_M0)
+  engine_util_spatial.c  mju_makeFrame
+  engine_util_blas.c     mju_mulMatMat, mju_addScl, mju_addToScl, mju_mulMatTMat3
+  engine_util_misc.c     mju_decodePyramid
+  engine_solver.c        the elliptic parts of PrimalPrepare, PrimalEval and
+                         ellipticCostDif, PrimalUpdateConstraint and
+                         PrimalUpdateMgrad, plus HessianConeUpdate, HessianCone
+                         (dense) and HessianIncremental
+
+Phase 1c-ii review fixes (the same MuJoCo files; nothing new is copied): the body
+inertial frames now go through mj_local2Global with body_sameframe, as
+mj_kinematics2 does (engine_core_smooth.c, engine_core_util.c); the box-box
+overflow flag and the out-of-place second pass are ours, not MuJoCo's.
+
+Read but not copied: src/user/user_model.cc, the rules for body_sameframe and
+geom_sameframe (`mjCModel::CompileFull`, IsNullPose / IsSamePose: the pose
+comparison at kFrameEps = 1e-6 with the quaternion double cover); and, in
+src/engine/engine_solver.c, the termination tests of mj_solNewton (the Newton
+decrement `0.5 grad' H^-1 grad < tolerance`), which decide the tolerance of the
+converged reference in the golden files.
+
+The scale-aware f32 thresholds of the plane-cylinder, capsule-capsule and
+capsule-box colliders (`Real::AXIS_RESIDUAL_SQR`, `PARALLEL_DET_REL`, `TIE_REL`)
+are a deliberate difference from MuJoCo's absolute mjMINVAL tests in single
+precision; f64 keeps MuJoCo's tests bit for bit.
+
+The golden files for the contacts, tests/fixtures/*_contacts_golden.json and
+contact_pairs_golden.json, and the sweep models contact_sweep_*.xml, are values
+computed by MuJoCo 3.14.0 (the Python package `mujoco`) and models written by
+tools/sim_contacts_mujoco_golden.py, with the same provenance as the 1c-i files:
+MuJoCo's output on the models in the sim-scene fixtures directory (our own
+contact_sphere.xml, contact_box.xml, contact_stack.xml, contact_capsules.xml,
+contact_pile.xml and contact_zoo.xml, and MuJoCo's humanoid.xml, used by relative
+path), with islands disabled in MuJoCo and contacts and constraints on; and
+sameframe_inertial_golden.json, MuJoCo's body and geom frames, M and steps on our
+contact_sameframe.xml with contacts and constraints off (the inertial frames that
+MuJoCo snaps onto the body frame). They are
+derived from MuJoCo's output and carry the same licence (Apache-2.0). The orientations
+of contact_pile.xml are the first eight rows of the engine comparison's seeded draw
+(the comparison's benchmark script, PCG64 seed 12345).
+
+Other files the code reads to decide a convention (not copied): the compiler
+side that fixes the joint, dof and body index conventions (src/user/user_model.cc
+`mjCModel::CompileFull` dof_parentid and body_rootid), and engine_setconst.c
+(`body_subtreemass`); and, for phase 1c-i, the rules that decide MuJoCo's
+`body_simple` and the sparse structure of M (src/user/user_model.cc
+`mjCModel::CompileFull`). The compiled form of a body's inertial frame comes from
+the compiler's other source file (user_objects.cc), which is not in the source
+tree used here: that rule was taken from what the oracle (the Python wheel's
+compile) produces, and is held bit for bit by the tests.
+
+The golden files in tests/fixtures/*.json are values computed by MuJoCo 3.14.0
+(the Python package `mujoco`) from the models in the same directory by
+tools/sim_physics_mujoco_golden.py (the smooth dynamics) and
+tools/sim_constraints_mujoco_golden.py (the *_constraints_golden.json files:
+the constraint rows, the Newton and CG solutions, the converged optimum, steps
+and trajectories, with contacts and islands disabled in MuJoCo). They are
+derived from MuJoCo's output and from `humanoid.xml` (a copy of MuJoCo's
+model/humanoid/humanoid.xml, which lives in the sim-scene fixtures and is used
+from there by relative path); they carry the same licence (Apache-2.0).
+`constrained.xml`, the third model of the constraint golden files, is written
+for this project (not MuJoCo's; it is in the sim-scene fixtures too): only the
+values MuJoCo computed for it, in the golden files, are MuJoCo's output.
+
+Changes from the MuJoCo source are listed in the module headers of this crate
+(each says what it ports and every place it deliberately differs).

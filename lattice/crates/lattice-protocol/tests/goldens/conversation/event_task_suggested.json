@@ -1,0 +1,9 @@
+{
+  "seq": 27,
+  "at": 1790000106.75,
+  "type": "task_suggested",
+  "task": "task_0011223344556677",
+  "title": "Fix the stale README badge",
+  "summary": "The README's build badge still names the old workflow.",
+  "prompt": "In README.md, the build badge points at .github/workflows/ci.yml, which was renamed to build.yml. Point the badge at build.yml and check that nothing else names ci.yml."
+}

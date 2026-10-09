@@ -1,0 +1,45 @@
+<mujoco model="contact_pile">
+  <!--
+    Ours (not MuJoCo's): eight boxes with the parameters of the engine comparison's 1,000-box
+    pile: edge 0.2 m, mass 1 kg, friction 0.5, default solref and solimp,
+    timestep 1/240, Newton. They start on a 2 x 2 x 2 lattice of spacing 0.38 m from z = 0.5 m
+    with the first eight orientations of the comparison's seeded draw (PCG64 seed 12345,
+    `scene1_init` of the comparison's benchmark script; the generator checks them).
+  -->
+  <option timestep="0.004166666666666667"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="0 0 .05" friction="0.5 0.005 0.0001"/>
+    <body name="box0" pos="-0.19 -0.19 0.5" quat="0.6749949641742874 -0.5990977286401065 0.412755973223359 0.12286666124728744">
+      <freejoint/>
+      <geom type="box" size=".1 .1 .1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+    <body name="box1" pos="0.19 -0.19 0.5" quat="0.04465691015634409 0.43913149896355363 0.8107076556580483 -0.3846067914776624">
+      <freejoint/>
+      <geom type="box" size=".1 .1 .1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+    <body name="box2" pos="-0.19 0.19 0.5" quat="0.112000538809344 -0.6057798104234177 0.7281685041563228 0.30042857744317153">
+      <freejoint/>
+      <geom type="box" size=".1 .1 .1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+    <body name="box3" pos="0.19 0.19 0.5" quat="0.5980429496893866 -0.710511490084613 0.3677413318767544 0.047795037546501905">
+      <freejoint/>
+      <geom type="box" size=".1 .1 .1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+    <body name="box4" pos="-0.19 -0.19 0.88" quat="0.3722685357792042 -0.5930422258011213 0.2717565704705467 0.6602010467211832">
+      <freejoint/>
+      <geom type="box" size=".1 .1 .1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+    <body name="box5" pos="0.19 -0.19 0.88" quat="0.5752883126537927 -0.1303889480679735 0.39283045163284586 -0.705497211770262">
+      <freejoint/>
+      <geom type="box" size=".1 .1 .1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+    <body name="box6" pos="-0.19 0.19 0.88" quat="0.11078189044865856 -0.3147791418457169 0.9409404038048628 0.05720682734636871">
+      <freejoint/>
+      <geom type="box" size=".1 .1 .1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+    <body name="box7" pos="0.19 0.19 0.88" quat="0.5172055945148682 0.7851193546789917 0.2331108757008736 0.24848599868189164">
+      <freejoint/>
+      <geom type="box" size=".1 .1 .1" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+  </worldbody>
+</mujoco>

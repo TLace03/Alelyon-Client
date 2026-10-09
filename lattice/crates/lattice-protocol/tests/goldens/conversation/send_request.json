@@ -1,0 +1,12 @@
+{
+  "conversation": null,
+  "text": "Why does the build fail?",
+  "choice": "local",
+  "shown": {
+    "locality": "local",
+    "label": "Local"
+  },
+  "mode": "agent",
+  "workspace": "0f1e2d3c4b5a6978",
+  "edit_of": null
+}

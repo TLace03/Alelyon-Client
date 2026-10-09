@@ -1,0 +1,35 @@
+{
+  "results": [
+    {
+      "change": "ch_00112233445566aa",
+      "path": "src/lib.rs",
+      "result": {
+        "type": "partly_kept",
+        "remaining_hunks": 1
+      }
+    },
+    {
+      "change": "ch_00112233445566cc",
+      "path": ".github/workflows/ci.yml",
+      "result": {
+        "type": "skipped",
+        "reason": "Authority files are kept one at a time."
+      }
+    },
+    {
+      "change": "ch_00112233445566ee",
+      "path": "README.md",
+      "result": {
+        "type": "rebased"
+      }
+    },
+    {
+      "change": "ch_00112233445566ff",
+      "path": "big.bin",
+      "result": {
+        "type": "failed",
+        "reason": "That file is too large for Lattice to keep a copy of, so nothing was written."
+      }
+    }
+  ]
+}

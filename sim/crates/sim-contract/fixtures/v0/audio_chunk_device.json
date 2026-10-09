@@ -1,0 +1,10 @@
+{
+  "sample_rate_hz": 16000,
+  "first_sample_index": 16000,
+  "samples": {
+    "kind": "device",
+    "buffer": 11,
+    "byte_offset": 0,
+    "count": 320
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "seq": 15,
+  "at": 1790000103.75,
+  "type": "checkpoint",
+  "id": 3,
+  "kind": "git",
+  "reason": {
+    "type": "before_command",
+    "call_id": "call_3"
+  }
+}

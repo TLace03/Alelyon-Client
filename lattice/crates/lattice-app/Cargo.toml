@@ -1,0 +1,28 @@
+[package]
+name = "lattice-app"
+description = "The native Lattice window: iced on wgpu, drawn only when something changes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# The window is a library that is handed a `RunService` (`lattice_app::run`); it
+# does not use the runtime itself. `lattice` is the thin binary that wires one in:
+# the real service over `lattice-core` by default, the in-memory demonstration
+# service with `--demo`.
+[lib]
+name = "lattice_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lattice"
+path = "src/main.rs"
+
+[dependencies]
+lattice-protocol.workspace = true
+lattice-core.workspace = true
+futures.workspace = true
+iced.workspace = true
+png.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

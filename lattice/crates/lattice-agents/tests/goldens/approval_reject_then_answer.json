@@ -1,0 +1,231 @@
+{
+  "final_output": "Echoed, and a.txt was kept.",
+  "stream": [
+    "agent_updated_stream_event",
+    "tool_called",
+    "tool_output",
+    "tool_called",
+    "tool_output",
+    "raw_text_delta",
+    "message_output_created"
+  ],
+  "spans": [
+    {
+      "kind": "task",
+      "span_data": {
+        "type": "custom",
+        "name": "task",
+        "data": {
+          "sdk_span_type": "task",
+          "name": "Agent workflow",
+          "usage": {
+            "input_tokens": 90,
+            "output_tokens": 18,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "requests": 3,
+            "total_tokens": 108
+          }
+        }
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Assistant",
+            "handoffs": [],
+            "tools": [
+              "echo",
+              "delete_file"
+            ],
+            "output_type": "str"
+          },
+          "error": null,
+          "children": [
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 1,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 5,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "echo",
+                    "input": "{\"text\":\"hi\"}",
+                    "output": "echo:hi",
+                    "mcp_data": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 2,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 30,
+                    "output_tokens": 6,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "delete_file",
+                    "input": "{\"path\":\"a.txt\"}",
+                    "output": null,
+                    "mcp_data": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 3,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 40,
+                    "output_tokens": 7,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model_inputs": [
+    [
+      {
+        "role": "user",
+        "text": "Echo hi, then delete a.txt."
+      }
+    ],
+    [
+      {
+        "role": "user",
+        "text": "Echo hi, then delete a.txt."
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_e",
+        "name": "echo",
+        "arguments": "{\"text\":\"hi\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_e",
+        "output": "echo:hi"
+      }
+    ],
+    [
+      {
+        "role": "user",
+        "text": "Echo hi, then delete a.txt."
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_e",
+        "name": "echo",
+        "arguments": "{\"text\":\"hi\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_e",
+        "output": "echo:hi"
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_d",
+        "name": "delete_file",
+        "arguments": "{\"path\":\"a.txt\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_d",
+        "output": "Tool execution was not approved."
+      }
+    ]
+  ]
+}

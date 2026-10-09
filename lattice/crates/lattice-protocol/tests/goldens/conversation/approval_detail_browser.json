@@ -1,0 +1,7 @@
+{
+  "type": "browser",
+  "site": "x.com",
+  "action": "click at (612, 304)",
+  "what": "the Post button",
+  "effect": "share"
+}

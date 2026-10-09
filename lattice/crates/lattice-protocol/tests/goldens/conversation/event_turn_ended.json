@@ -1,0 +1,7 @@
+{
+  "seq": 26,
+  "at": 1790000106.5,
+  "type": "turn_ended",
+  "turn": "a1b2c3d4e5f6",
+  "status": "max_turns"
+}

@@ -1,0 +1,11 @@
+{
+  "kind": "case",
+  "name": "row_with_port_not_a_number",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"n14b\", \"label\": \"L\", \"base_url\": \"http://localhost:abc/v1\"}]}"
+  },
+  "complete": false,
+  "issues": ["invalid-row"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
+  "endpoints": []
+}

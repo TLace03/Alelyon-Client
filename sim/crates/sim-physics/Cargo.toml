@@ -1,0 +1,16 @@
+[package]
+name = "sim-physics"
+description = "The CPU reference of the dynamics of Sinai's physics core (ADR-0042, lane P, phases 1b, 1c-i and 1c-ii): MuJoCo's reduced-coordinate formulation (kinematics, composite rigid body inertia, Newton-Euler bias forces, springs, dampers, motors and position servos), soft constraints (joint limits, tendon limits, dry friction loss of joints and fixed tendons, and contacts: eleven primitive colliders in MuJoCo's contact order, frictionless, pyramidal and elliptic contact rows) solved by MuJoCo's Newton and conjugate-gradient primal solvers, with Euler and RK4 integration, generic over f64 and f32, ported from MuJoCo 3.14.0 and held to it by golden-file tests, bit for bit in f64 on the oracle platform. The collision step is two passes of independent units over a static candidate list, out of place and order-free (tested), so a GPU port is mechanical."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+sim-scene.workspace = true
+sim-world.workspace = true
+
+[dev-dependencies]
+# float_roundtrip: the golden files are read back bit for bit.
+serde_json = { workspace = true, features = ["float_roundtrip"] }

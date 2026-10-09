@@ -1,0 +1,58 @@
+<mujoco model="contact_sameframe">
+  <!--
+    Ours (not MuJoCo's): inertial frames within kFrameEps = 1e-6 of the body frame but not equal
+    to it, so that MuJoCo's compiler snaps them onto it (body_sameframe = BODY or BODYROT) and
+    mj_kinematics2 copies the body's pose instead of composing: xipos = xpos exactly, ximat = xmat
+    exactly. The geoms cover every geom_sameframe case against such a body and against a general
+    one. The oracle runs it with contacts and constraints off (the smooth dynamics only); the
+    geoms are not meant to be apart.
+      snap_pos   free, inertial pos 5e-7 off the origin, identity orientation       -> BODY
+      snap_rot   free, inertial pos 0.1 off, orientation 1e-7 / 2e-7 off identity    -> BODYROT
+      general    free, a general inertial frame, geoms at it, at its orientation     -> NONE
+      child      hinge child of `general`, inertial pos ~6e-7 off                    -> BODY
+      slider     slide joint, inertial pos 5e-7 off                                   -> BODY, simple
+      hinger     hinge joint, inertial pos and orientation ~6e-7 off                  -> BODY
+  -->
+  <option gravity="0 0 -9.81" timestep="0.002"/>
+
+  <worldbody>
+    <body name="snap_pos" pos="-1.2 0 1">
+      <freejoint name="f_snap_pos"/>
+      <inertial pos="5e-7 -4e-7 3e-7" mass="1.3" diaginertia="0.01 0.02 0.03"/>
+      <geom name="g_snap_pos_a" type="box" size="0.1 0.05 0.04"/>
+      <geom name="g_snap_pos_b" type="sphere" size="0.05" pos="0.1 0 0"/>
+    </body>
+
+    <body name="snap_rot" pos="-0.4 0 1">
+      <freejoint name="f_snap_rot"/>
+      <inertial pos="0.1 0.05 -0.02" quat="1 1e-7 -2e-7 0" mass="0.9" diaginertia="0.02 0.03 0.04"/>
+      <geom name="g_snap_rot_a" type="capsule" size="0.04 0.08" pos="0.1 0.05 -0.02" quat="1 1e-7 -2e-7 0"/>
+      <geom name="g_snap_rot_b" type="box" size="0.05 0.05 0.05" pos="-0.1 0 0.05" quat="0.9 0.3 -0.2 0.1"/>
+    </body>
+
+    <body name="general" pos="0.4 0 1">
+      <freejoint name="f_general"/>
+      <inertial pos="0.1 -0.05 0.02" quat="0.8 0.2 -0.3 0.4" mass="1.1" diaginertia="0.01 0.02 0.03"/>
+      <geom name="g_general_inertia" type="box" size="0.05 0.03 0.04" pos="0.1 -0.05 0.02" quat="0.8 0.2 -0.3 0.4"/>
+      <geom name="g_general_inertiarot" type="sphere" size="0.04" pos="-0.05 0.02 0" quat="0.8 0.2 -0.3 0.4"/>
+      <geom name="g_general_none" type="capsule" size="0.03 0.07" pos="0 0.1 0" quat="0.5 0.5 0.5 0.5"/>
+      <body name="child" pos="0.2 0 0">
+        <joint name="h_child" type="hinge" axis="0 1 0" pos="0 0 0"/>
+        <inertial pos="-6e-7 2e-7 0" mass="0.5" diaginertia="0.004 0.005 0.006"/>
+        <geom name="g_child" type="box" size="0.08 0.02 0.02" pos="0.06 0 0"/>
+      </body>
+    </body>
+
+    <body name="slider" pos="1.2 0 1">
+      <joint name="s_slider" type="slide" axis="1 0 0"/>
+      <inertial pos="5e-7 0 0" mass="0.7" diaginertia="0.002 0.002 0.002"/>
+      <geom name="g_slider" type="sphere" size="0.05"/>
+    </body>
+
+    <body name="hinger" pos="1.6 0 1">
+      <joint name="h_hinger" type="hinge" axis="0 0 1"/>
+      <inertial pos="0 6e-7 0" quat="1 0 0 5e-7" mass="0.6" diaginertia="0.003 0.004 0.005"/>
+      <geom name="g_hinger" type="capsule" size="0.03 0.1" pos="0.05 0 0" quat="0.7071067811865476 0 0.7071067811865476 0"/>
+    </body>
+  </worldbody>
+</mujoco>

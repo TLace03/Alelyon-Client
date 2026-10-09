@@ -1,0 +1,31 @@
+Third-party material in this directory
+======================================
+
+humanoid.xml and LICENSE are copied, unmodified, from the MuJoCo repository.
+
+  Project:   MuJoCo (https://github.com/google-deepmind/mujoco)
+  Commit:    a8373cc4ee51a2fe1c9e664401b8b8150647becf
+  Files:     model/humanoid/humanoid.xml   (git blob a2c4a16fb59c725253859a9093493524db888675)
+             LICENSE                       (git blob d645695673349e3947e8e5ae42332d0ac3164cd7)
+  Copyright: 2021 DeepMind Technologies Limited (humanoid.xml)
+  Licence:   Apache License, Version 2.0, in the file LICENSE next to this one.
+
+The bytes are the repository's own (line endings LF); `.gitattributes` here
+stops a Windows checkout from converting them, because the golden file below is
+checked against their length and hash.
+
+humanoid_golden.json is generated from humanoid.xml by
+tools/sim_scene_mujoco_golden.py with MuJoCo 3.14.0 (the Python package
+`mujoco`). It holds the values MuJoCo's compiler produces for that model; it is
+the reference the Rust MJCF importer in crates/sim-scene is held to by
+tests/mjcf_parity.rs. It is a derived work of humanoid.xml and carries the same
+licence (Apache-2.0).
+
+constrained.xml is not MuJoCo's: it was written for this project, to exercise every
+kind of soft constraint with non-default parameters, and is not covered by the
+MuJoCo licence above. Neither are mesh_case.xml, contact_zoo.xml and the other
+contact_*.xml models, nor cameras.xml (written for the camera import: cameras in the
+world and on moving bodies, sites, a room of walls); humanoid_golden.json holds
+MuJoCo's output for them (`mesh_case`, `contact_case` and `camera_case`). humanoid_golden.json also holds the values MuJoCo's
+compiler produces for it (the `constrained_case` record), which are MuJoCo's
+output.

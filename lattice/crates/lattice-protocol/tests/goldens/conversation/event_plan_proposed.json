@@ -1,0 +1,8 @@
+{
+  "seq": 31,
+  "at": 1790000107.75,
+  "type": "plan_proposed",
+  "plan": "plan_8899aabbccddeeff",
+  "title": "Natural sort in the explorer",
+  "text": "1. Compare digit runs by value in `tree::order`.\n2. Add a test: file2 before file10."
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "species": [
+    {
+      "pubchem_cid": 5234,
+      "name": "sodium chloride"
+    },
+    {
+      "pubchem_cid": 5988,
+      "name": "sucrose"
+    },
+    {
+      "pubchem_cid": 33032,
+      "name": "L-glutamic acid"
+    }
+  ]
+}

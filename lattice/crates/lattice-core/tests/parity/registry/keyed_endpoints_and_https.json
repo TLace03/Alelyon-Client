@@ -1,0 +1,18 @@
+{
+  "kind": "case",
+  "name": "keyed_endpoints_and_https",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"a\", \"label\": \"A\", \"base_url\": \"https://models.example.test/v1\", \"api_key_name\": \"SOME_KEY\", \"model\": \"m\"}, {\"id\": \"b\", \"label\": \"B\", \"base_url\": \"http://localhost:8000/v1\", \"api_key_name\": \"SOME_KEY\", \"model\": \"m\"}, {\"id\": \"c\", \"label\": \"C\", \"base_url\": \"http://[::1]:8000/v1\", \"api_key_name\": \"HOSTED_API_KEY\", \"model\": \"m\"}, {\"id\": \"d\", \"label\": \"D\", \"base_url\": \"http://models.example.test/v1\", \"model\": \"m\"}, {\"id\": \"e\", \"label\": \"E\", \"base_url\": \"http://127.0.0.1:8000/v1\", \"api_key_name\": \"EMPTY_API_KEY\", \"model\": \"m\"}, {\"id\": \"f\", \"label\": \"F\", \"base_url\": \"https://models.example.test/v1\", \"api_key_name\": \"QUOTED_API_KEY\", \"model\": \"m\"}]}"
+  },
+  "complete": true,
+  "issues": [],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter", "a", "b", "c", "d", "e", "f"],
+  "endpoints": [
+    {"id": "a", "label": "A", "kind": "openai-compatible", "base_url": "https://models.example.test/v1", "model": "m", "api_key_name": "SOME_KEY", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": true, "ready": false, "status": "needs SOME_KEY"},
+    {"id": "b", "label": "B", "kind": "openai-compatible", "base_url": "http://localhost:8000/v1", "model": "m", "api_key_name": "SOME_KEY", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": true, "ready": false, "status": "needs SOME_KEY"},
+    {"id": "c", "label": "C", "kind": "openai-compatible", "base_url": "http://[::1]:8000/v1", "model": "m", "api_key_name": "HOSTED_API_KEY", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": true, "ready": true, "status": "ready"},
+    {"id": "d", "label": "D", "kind": "openai-compatible", "base_url": "http://models.example.test/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "e", "label": "E", "kind": "openai-compatible", "base_url": "http://127.0.0.1:8000/v1", "model": "m", "api_key_name": "EMPTY_API_KEY", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": true, "ready": false, "status": "needs EMPTY_API_KEY"},
+    {"id": "f", "label": "F", "kind": "openai-compatible", "base_url": "https://models.example.test/v1", "model": "m", "api_key_name": "QUOTED_API_KEY", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": true, "ready": true, "status": "ready"}
+  ]
+}

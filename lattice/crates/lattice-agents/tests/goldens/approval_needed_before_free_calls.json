@@ -1,0 +1,327 @@
+{
+  "final_output": "Done, except secret.txt.",
+  "stream": [
+    "agent_updated_stream_event",
+    "tool_called",
+    "tool_called",
+    "tool_called",
+    "tool_called",
+    "tool_output",
+    "tool_output",
+    "tool_output",
+    "tool_output",
+    "raw_text_delta",
+    "message_output_created"
+  ],
+  "spans": [
+    {
+      "kind": "task",
+      "span_data": {
+        "type": "custom",
+        "name": "task",
+        "data": {
+          "sdk_span_type": "task",
+          "name": "Agent workflow",
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "requests": 2,
+            "total_tokens": 0
+          }
+        }
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Assistant",
+            "handoffs": [],
+            "tools": [
+              "delete_file",
+              "remove",
+              "echo"
+            ],
+            "output_type": "str"
+          },
+          "error": null,
+          "children": [
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 1,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "delete_file",
+                    "input": "{\"path\":\"a.txt\"}",
+                    "output": "deleted a.txt",
+                    "mcp_data": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "remove",
+                    "input": "{\"path\":\"notes.txt\"}",
+                    "output": "removed notes.txt",
+                    "mcp_data": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "remove",
+                    "input": "{\"path\":\"secret.txt\"}",
+                    "output": null,
+                    "mcp_data": null
+                  },
+                  "error": null,
+                  "children": []
+                },
+                {
+                  "kind": "function",
+                  "span_data": {
+                    "type": "function",
+                    "name": "echo",
+                    "input": "{\"text\":\"hi\"}",
+                    "output": "echo:hi",
+                    "mcp_data": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 2,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model_inputs": [
+    [
+      {
+        "role": "user",
+        "text": "Delete a.txt, remove notes.txt and secret.txt, and echo hi."
+      }
+    ],
+    [
+      {
+        "role": "user",
+        "text": "Delete a.txt, remove notes.txt and secret.txt, and echo hi."
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_d",
+        "name": "delete_file",
+        "arguments": "{\"path\":\"a.txt\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_n",
+        "name": "remove",
+        "arguments": "{\"path\":\"notes.txt\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_s",
+        "name": "remove",
+        "arguments": "{\"path\":\"secret.txt\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_e",
+        "name": "echo",
+        "arguments": "{\"text\":\"hi\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_n",
+        "output": "removed notes.txt"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_e",
+        "output": "echo:hi"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_d",
+        "output": "deleted a.txt"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_s",
+        "output": "Tool execution was not approved."
+      }
+    ]
+  ],
+  "session_add_items": [
+    [
+      {
+        "role": "user",
+        "text": "Delete a.txt, remove notes.txt and secret.txt, and echo hi."
+      }
+    ],
+    [
+      {
+        "type": "function_call",
+        "call_id": "call_d",
+        "name": "delete_file",
+        "arguments": "{\"path\":\"a.txt\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_n",
+        "name": "remove",
+        "arguments": "{\"path\":\"notes.txt\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_s",
+        "name": "remove",
+        "arguments": "{\"path\":\"secret.txt\"}"
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_e",
+        "name": "echo",
+        "arguments": "{\"text\":\"hi\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_n",
+        "output": "removed notes.txt"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_e",
+        "output": "echo:hi"
+      }
+    ],
+    [
+      {
+        "type": "function_call_output",
+        "call_id": "call_d",
+        "output": "deleted a.txt"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_s",
+        "output": "Tool execution was not approved."
+      }
+    ],
+    [
+      {
+        "role": "assistant",
+        "text": "Done, except secret.txt."
+      }
+    ]
+  ],
+  "tool_events": [
+    [
+      "tool_called",
+      "call_d"
+    ],
+    [
+      "tool_called",
+      "call_n"
+    ],
+    [
+      "tool_called",
+      "call_s"
+    ],
+    [
+      "tool_called",
+      "call_e"
+    ],
+    [
+      "tool_output",
+      "call_n"
+    ],
+    [
+      "tool_output",
+      "call_e"
+    ],
+    [
+      "tool_output",
+      "call_d"
+    ],
+    [
+      "tool_output",
+      "call_s"
+    ]
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "seq": 17,
+  "at": 1790000104.25,
+  "type": "command_progress",
+  "call_id": "call_3",
+  "bytes": 65536,
+  "lines": 812,
+  "tail_preview": "test result: ok."
+}

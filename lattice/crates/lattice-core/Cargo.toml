@@ -1,0 +1,78 @@
+[package]
+name = "lattice-core"
+description = "Lattice's client services: the model registry, keys, the state directory, the run store and the run manager behind the RunService contract."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+lattice-protocol.workspace = true
+lattice-agents.workspace = true
+lattice-sys.workspace = true
+futures.workspace = true
+# The read tools' matchers and the non-git walk (the chat core's spec §7.3,
+# row D1), reviewed in the chat core's review (D1).
+globset.workspace = true
+ignore.workspace = true
+regex.workspace = true
+# The local runtime's own client (the chat core's spec row C7, §22): loopback
+# only, no proxy, no redirect. Already locked through lattice-agents; the edge is
+# reviewed in the chat core's review (C7).
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+# The agent's browser's address policy (`browser::policy`); already locked.
+png.workspace = true
+url.workspace = true
+# The review's hunks and intraline marks (the chat core's spec §7.5, row
+# E1), reviewed in the chat core's review (E1).
+similar.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["net"] }
+uuid.workspace = true
+
+[dev-dependencies]
+# The junction maker and the ReplaceFileW fault seam, for this crate's tests
+# only (lattice-sys's `test-support` feature; no shipped build turns it on).
+lattice-sys = { workspace = true, features = ["test-support"] }
+
+[features]
+# The development host's parts (the chat core's spec §5.10, F1): the
+# transcript store in memory, which no shipped build may contain. It adds no
+# dependency. Off by default; a shipped build checks that it stays off.
+dev-host = []
+
+# The development host (the chat core's spec §10.5, §11.5; row F1): the
+# chat core with no window, driven by tools/lattice_egress_check.ps1 for the
+# idle reading and egress test E1. `required-features` keeps it out of every
+# build that does not turn `dev-host` on (cargo build, cargo test, a release
+# build); nothing packages it.
+[[example]]
+name = "lattice-chat-host"
+path = "examples/lattice_chat_host.rs"
+required-features = ["dev-host"]
+
+# A stand-in for llama.cpp's llama-server, for the local runtime's tests
+# (the chat core's spec §22.2, LF1-LF5): it serves /health, /props,
+# /v1/models and /v1/chat/completions on loopback and checks the launch token.
+# Test tooling only: the tests find it through CARGO_BIN_EXE_lattice-llama-stub;
+# nothing packages it, and it never runs a model.
+[[bin]]
+name = "lattice-llama-stub"
+path = "tests/stub/llama_stub.rs"
+test = false
+doc = false
+bench = false
+
+# A scripted MCP server on stdio, for the MCP client's tests
+# (the chat core's spec §12, "Tests"): the hub's tests start it as a
+# server is started, through lattice-sys. Test tooling only: the tests find it
+# beside their own binary; nothing packages it, and it reaches no network.
+[[bin]]
+name = "lattice-mcp-stub"
+path = "tests/stub/mcp_stub.rs"
+test = false
+doc = false
+bench = false

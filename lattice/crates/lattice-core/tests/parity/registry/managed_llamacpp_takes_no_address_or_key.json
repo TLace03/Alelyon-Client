@@ -1,0 +1,13 @@
+{
+  "kind": "case",
+  "name": "managed_llamacpp_takes_no_address_or_key",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"m1\", \"label\": \"Managed with a URL\", \"kind\": \"llamacpp\", \"base_url\": \"http://127.0.0.1:1/v1\", \"model\": \"m\"}, {\"id\": \"m2\", \"label\": \"Managed with a key\", \"kind\": \"llamacpp\", \"model\": \"m\", \"api_key_name\": \"SOME_KEY\"}, {\"id\": \"m3\", \"label\": \"Managed, plain\", \"kind\": \"llamacpp\", \"model\": \"m\"}]}"
+  },
+  "complete": false,
+  "issues": ["invalid-row"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter", "m3"],
+  "endpoints": [
+    {"id": "m3", "label": "Managed, plain", "kind": "llamacpp", "base_url": "", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"}
+  ]
+}

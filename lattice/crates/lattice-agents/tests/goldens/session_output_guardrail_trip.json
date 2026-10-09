@@ -1,0 +1,110 @@
+{
+  "error": "OutputGuardrailTripwireTriggered",
+  "stream": [
+    "agent_updated_stream_event",
+    "raw_text_delta",
+    "message_output_created"
+  ],
+  "spans": [
+    {
+      "kind": "task",
+      "span_data": {
+        "type": "custom",
+        "name": "task",
+        "data": {
+          "sdk_span_type": "task",
+          "name": "Agent workflow",
+          "usage": {
+            "input_tokens": 8,
+            "output_tokens": 2,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "requests": 1,
+            "total_tokens": 10
+          }
+        }
+      },
+      "error": null,
+      "children": [
+        {
+          "kind": "agent",
+          "span_data": {
+            "type": "agent",
+            "name": "Assistant",
+            "handoffs": [],
+            "tools": [],
+            "output_type": "str"
+          },
+          "error": {
+            "message": "Guardrail tripwire triggered",
+            "data": {
+              "guardrail": "no_output"
+            }
+          },
+          "children": [
+            {
+              "kind": "turn",
+              "span_data": {
+                "type": "custom",
+                "name": "turn",
+                "data": {
+                  "sdk_span_type": "turn",
+                  "turn": 1,
+                  "agent_name": "Assistant",
+                  "usage": {
+                    "input_tokens": 8,
+                    "output_tokens": 2,
+                    "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0
+                  }
+                }
+              },
+              "error": null,
+              "children": [
+                {
+                  "kind": "generation",
+                  "span_data": {
+                    "type": "generation",
+                    "input": null,
+                    "output": null,
+                    "model": null,
+                    "model_config": null,
+                    "usage": null
+                  },
+                  "error": null,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "kind": "guardrail",
+              "span_data": {
+                "type": "guardrail",
+                "name": "no_output",
+                "triggered": true
+              },
+              "error": null,
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model_inputs": [
+    [
+      {
+        "role": "user",
+        "text": "Say something."
+      }
+    ]
+  ],
+  "session_add_items": [
+    [
+      {
+        "role": "user",
+        "text": "Say something."
+      }
+    ]
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "conversation": null,
+  "text": "Draft the investor summary.",
+  "choice": "local",
+  "shown": {
+    "locality": "local",
+    "label": "Local"
+  },
+  "mode": "ask",
+  "workspace": null,
+  "edit_of": null,
+  "project": "p_1a2b3c4d5e6f"
+}

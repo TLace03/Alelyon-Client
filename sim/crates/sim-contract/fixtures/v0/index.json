@@ -1,0 +1,97 @@
+{
+  "fixtures": {
+    "action.json": {
+      "evaluation_only": false,
+      "type": "Action"
+    },
+    "action_look_at.json": {
+      "evaluation_only": false,
+      "type": "Action"
+    },
+    "audio_chunk_device.json": {
+      "evaluation_only": false,
+      "type": "AudioChunk"
+    },
+    "audio_chunk_host.json": {
+      "evaluation_only": false,
+      "type": "AudioChunk"
+    },
+    "bundle.json": {
+      "evaluation_only": false,
+      "type": "Bundle"
+    },
+    "bundle_minimal.json": {
+      "evaluation_only": false,
+      "type": "Bundle"
+    },
+    "capture_proprio.json": {
+      "evaluation_only": false,
+      "type": "Capture<Proprio>"
+    },
+    "frame_ref_depth.json": {
+      "evaluation_only": false,
+      "type": "FrameRef"
+    },
+    "frame_ref_rgb.json": {
+      "evaluation_only": false,
+      "type": "FrameRef"
+    },
+    "frame_ref_segmentation.json": {
+      "evaluation_only": true,
+      "type": "FrameRef"
+    },
+    "ground_truth.json": {
+      "evaluation_only": true,
+      "type": "GroundTruth"
+    },
+    "identity.json": {
+      "evaluation_only": false,
+      "type": "Identity"
+    },
+    "perturbation_delay.json": {
+      "evaluation_only": true,
+      "type": "Perturbation"
+    },
+    "perturbation_offset.json": {
+      "evaluation_only": true,
+      "type": "Perturbation"
+    },
+    "perturbation_render_from_perturbed_state.json": {
+      "evaluation_only": true,
+      "type": "Perturbation"
+    },
+    "proprio.json": {
+      "evaluation_only": false,
+      "type": "Proprio"
+    },
+    "rates.json": {
+      "evaluation_only": false,
+      "type": "Rates"
+    },
+    "reset.json": {
+      "evaluation_only": false,
+      "type": "Reset"
+    },
+    "species_table_smell.json": {
+      "evaluation_only": false,
+      "type": "SpeciesTable"
+    },
+    "species_table_taste.json": {
+      "evaluation_only": false,
+      "type": "SpeciesTable"
+    },
+    "species_vector_smell.json": {
+      "evaluation_only": false,
+      "type": "SpeciesVector"
+    },
+    "species_vector_taste.json": {
+      "evaluation_only": false,
+      "type": "SpeciesVector"
+    },
+    "touch_maps.json": {
+      "evaluation_only": false,
+      "type": "TouchMaps"
+    }
+  },
+  "schema_version": 0
+}

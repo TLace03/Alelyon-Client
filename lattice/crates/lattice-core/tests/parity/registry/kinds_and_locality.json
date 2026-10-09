@@ -1,0 +1,21 @@
+{
+  "kind": "case",
+  "name": "kinds_and_locality",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"k1\", \"label\": \"Ollama far\", \"kind\": \"ollama\", \"base_url\": \"http://gpu-box:11434\", \"model\": \"m\"}, {\"id\": \"k2\", \"label\": \"Ollama near\", \"kind\": \"ollama\", \"base_url\": \"http://127.0.0.1:11434\", \"model\": \"m\"}, {\"id\": \"k3\", \"label\": \"Ollama default\", \"kind\": \"ollama\", \"model\": \"m\"}, {\"id\": \"k4\", \"label\": \"Anthropic local url\", \"kind\": \"anthropic\", \"base_url\": \"http://localhost:9/v1\", \"model\": \"m\"}, {\"id\": \"k5\", \"label\": \"Ollama no model\", \"kind\": \"ollama\"}, {\"id\": \"k6\", \"label\": \"Ollama disabled\", \"kind\": \"ollama\", \"model\": \"m\", \"enabled\": false}, {\"id\": \"k7\", \"label\": \"Managed llama.cpp\", \"kind\": \"llamacpp\", \"model\": \"m\"}, {\"id\": \"k8\", \"label\": \"Managed, no model\", \"kind\": \"llamacpp\"}, {\"id\": \"k9\", \"label\": \"Managed, disabled\", \"kind\": \"llamacpp\", \"model\": \"m\", \"enabled\": false}]}"
+  },
+  "complete": true,
+  "issues": [],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter", "k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9"],
+  "endpoints": [
+    {"id": "k1", "label": "Ollama far", "kind": "ollama", "base_url": "http://gpu-box:11434", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": false, "ready": false, "status": "Ollama is retired (ADR-0041); use llama.cpp"},
+    {"id": "k2", "label": "Ollama near", "kind": "ollama", "base_url": "http://127.0.0.1:11434", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": false, "status": "Ollama is retired (ADR-0041); use llama.cpp"},
+    {"id": "k3", "label": "Ollama default", "kind": "ollama", "base_url": "", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": false, "status": "Ollama is retired (ADR-0041); use llama.cpp"},
+    {"id": "k4", "label": "Anthropic local url", "kind": "anthropic", "base_url": "http://localhost:9/v1", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": false, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "k5", "label": "Ollama no model", "kind": "ollama", "base_url": "", "model": "", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": false, "status": "Ollama is retired (ADR-0041); use llama.cpp"},
+    {"id": "k6", "label": "Ollama disabled", "kind": "ollama", "base_url": "", "model": "m", "api_key_name": "", "enabled": false, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": false, "status": "Ollama is retired (ADR-0041); use llama.cpp"},
+    {"id": "k7", "label": "Managed llama.cpp", "kind": "llamacpp", "base_url": "", "model": "m", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "ready"},
+    {"id": "k8", "label": "Managed, no model", "kind": "llamacpp", "base_url": "", "model": "", "api_key_name": "", "enabled": true, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": true, "status": "no model selected (put a GGUF file in ~/.alelyon/models)"},
+    {"id": "k9", "label": "Managed, disabled", "kind": "llamacpp", "base_url": "", "model": "m", "api_key_name": "", "enabled": false, "builtin": false, "note": "", "local": true, "needs_key": false, "ready": false, "status": "disabled"}
+  ]
+}

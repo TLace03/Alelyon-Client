@@ -1,0 +1,7 @@
+{
+  "type": "desktop",
+  "app": "Checkout - Amazon.com",
+  "action": "click at (980, 512)",
+  "what": "the Place your order button",
+  "effect": "buy"
+}

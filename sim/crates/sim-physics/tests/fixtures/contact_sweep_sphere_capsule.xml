@@ -1,0 +1,6 @@
+<mujoco model="sweep_sphere_capsule">
+  <worldbody>
+    <body name="a"><freejoint/><geom name="ga" type="sphere" size="0.1" mass="1"/></body>
+    <body name="b"><freejoint/><geom name="gb" type="capsule" size="0.05 0.12" mass="1"/></body>
+  </worldbody>
+</mujoco>

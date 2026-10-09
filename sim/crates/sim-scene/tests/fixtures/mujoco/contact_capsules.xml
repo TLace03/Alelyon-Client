@@ -1,0 +1,44 @@
+<mujoco model="contact_capsules">
+  <!--
+    Ours (not MuJoCo's): five capsules (radius 0.05, half-length 0.2) around a plane:
+      cap_a   lies along x on the plane (plane-capsule: two contacts, the tangent along the axis)
+      cap_b   crosses above cap_a along y (capsule-capsule, the general branch)
+      cap_c   lies beside cap_a with its axis yawed by 1e-3 rad (a near-parallel pair: the
+              determinant is small but above mjMINVAL, so the general branch with cancellation)
+      cap_d   lies on the line of cap_a, end to end (EXACTLY parallel: the parallel branch,
+              which keeps duplicates)
+      cap_e   stands upright on the plane (plane-capsule: one contact whose tangent is the axis,
+              which is the normal, so the contact frame takes mju_makeFrame's fallback)
+    Friction 0.5, MuJoCo's default solref and solimp, condim 3.
+  -->
+  <option timestep="0.002"/>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 .1" friction="0.5 0.005 0.0001"/>
+
+    <body name="cap_a" pos="0 0 .05">
+      <freejoint/>
+      <geom name="cap_a_geom" type="capsule" size=".05 .2" euler="0 90 0" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+
+    <body name="cap_b" pos="0 0 .15">
+      <freejoint/>
+      <geom name="cap_b_geom" type="capsule" size=".05 .2" euler="90 0 0" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+
+    <body name="cap_c" pos="0 .1 .05" quat="0.7071066927982018 -0.0003535533758618827 0.7071066927982018 0.0003535533758618827">
+      <freejoint/>
+      <geom name="cap_c_geom" type="capsule" size=".05 .2" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+
+    <body name="cap_d" pos=".5 0 .05">
+      <freejoint/>
+      <geom name="cap_d_geom" type="capsule" size=".05 .2" euler="0 90 0" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+
+    <body name="cap_e" pos="1 0 .25">
+      <freejoint/>
+      <geom name="cap_e_geom" type="capsule" size=".05 .2" mass="1" friction="0.5 0.005 0.0001"/>
+    </body>
+  </worldbody>
+</mujoco>

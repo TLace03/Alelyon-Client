@@ -1,0 +1,12 @@
+[package]
+name = "lattice-protocol"
+description = "The data contract between Lattice's agent runtime and its interface: runs, their events, and trace spans in the OpenAI Agents SDK's export shape."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true

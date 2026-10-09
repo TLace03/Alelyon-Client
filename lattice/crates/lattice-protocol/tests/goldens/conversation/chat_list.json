@@ -1,0 +1,29 @@
+{
+  "conversations": [
+    {
+      "id": "0123456789ab",
+      "title": "Fix the build",
+      "created": 1790000000.5,
+      "updated": 1790000100.25,
+      "turns": 4,
+      "pinned_provider": "local",
+      "workspace": {
+        "id": "0f1e2d3c4b5a6978",
+        "name": "project",
+        "path": "<workspace>",
+        "trusted": true
+      },
+      "mode": "agent",
+      "origin": "native",
+      "running": true,
+      "needs_you": true
+    }
+  ],
+  "archived": [],
+  "store_dir": "<globals>/lattice_chat",
+  "installed": false,
+  "index_unreadable": false,
+  "archive_unreadable": false,
+  "shared_writes": false,
+  "limit": 60
+}

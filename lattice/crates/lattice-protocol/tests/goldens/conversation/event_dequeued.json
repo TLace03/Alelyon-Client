@@ -1,0 +1,10 @@
+{
+  "seq": 22,
+  "at": 1790000105.5,
+  "type": "dequeued",
+  "queued_id": "q_1",
+  "outcome": {
+    "type": "sent",
+    "turn": "0a0b0c0d0e0f"
+  }
+}

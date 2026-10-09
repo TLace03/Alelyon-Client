@@ -1,0 +1,56 @@
+{
+  "changes": [
+    {
+      "id": "ch_00112233445566aa",
+      "path": "src/lib.rs",
+      "kind": "edit",
+      "authority": false,
+      "state": {
+        "type": "pending"
+      },
+      "origin": {
+        "type": "agent",
+        "turn": "a1b2c3d4e5f6",
+        "call": "call_7"
+      },
+      "added": 3,
+      "removed": 1,
+      "binary": false
+    },
+    {
+      "id": "ch_00112233445566cc",
+      "path": ".github/workflows/ci.yml",
+      "kind": "create",
+      "authority": true,
+      "state": {
+        "type": "conflict",
+        "reason": "The file appeared meanwhile."
+      },
+      "origin": {
+        "type": "restore",
+        "to": 2
+      },
+      "added": 20,
+      "removed": 0,
+      "binary": false
+    },
+    {
+      "id": "ch_00112233445566dd",
+      "path": "target/report.txt",
+      "kind": "command_undo",
+      "authority": false,
+      "state": {
+        "type": "on_disk"
+      },
+      "origin": {
+        "type": "command",
+        "call": "call_3"
+      },
+      "added": 0,
+      "removed": 0,
+      "binary": true
+    }
+  ],
+  "waiting": 2,
+  "command_running": false
+}

@@ -1,0 +1,95 @@
+# The native Lattice (ADR-0043): an agent runtime ported from the OpenAI Agents
+# SDK, and an interface drawn on the GPU with iced over wgpu. The lockfile is
+# committed and every check builds with --locked; dependency changes are
+# reviewed in the native Lattice's review, and the chat core's in
+# the chat core's review.
+[workspace]
+resolver = "3"
+members = [
+    "crates/lattice-protocol",
+    "crates/lattice-agents",
+    "crates/lattice-core",
+    "crates/lattice-app",
+    "crates/lattice-sys",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+lattice-protocol = { path = "crates/lattice-protocol" }
+lattice-agents = { path = "crates/lattice-agents" }
+lattice-core = { path = "crates/lattice-core" }
+lattice-sys = { path = "crates/lattice-sys" }
+
+futures = "0.3.34"
+serde = { version = "1.0", features = ["derive"] }
+# `float_roundtrip`: a float reads back as exactly the value its shortest text
+# names (the default parser can be one unit in the last place off, which
+# broke the sidecar's binding by `created`, row E11). No package enters.
+# Reviewed in the chat core's review (E11d).
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["formatting", "macros", "parsing"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-util = "0.7.19"
+uuid = { version = "1.26.1", features = ["v4"] }
+png = "0.18.1"
+# The operating system's TLS (SChannel on Windows): no C toolchain, and the
+# system certificate store. System proxies apply only to remote endpoints; the
+# model client turns proxies off for loopback ones.
+reqwest = { version = "0.13.5", default-features = false, features = ["native-tls", "http2", "stream", "charset", "system-proxy"] }
+# Conditional rendering is iced's default: a frame is drawn only when a message
+# or an input event changes something. `unconditional-rendering` stays off.
+iced = { version = "0.14.0", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "x11", "wayland", "tokio", "canvas", "markdown", "lazy", "advanced"] }
+# SHA-256 for the chat core: content-addressed blobs, hunk ids, workspace ids,
+# a moved file's verification and the expected-hash write. Reviewed in
+# the chat core's review (B2).
+sha2 = "0.10.9"
+# The chat core's read tools (the chat core's spec §7.3, row D1): `regex`
+# for grep (linear time, no back-references, a bounded compiled size),
+# `globset` for the glob tool, and `ignore` for the walk of a folder without
+# git (`.latticeignore` in gitignore syntax). Reviewed in
+# the chat core's review (D1).
+regex = "1.13.1"
+# Parsing the addresses the agent's browser may open (lattice-core's
+# `browser::policy`). Already locked through reqwest: no package enters.
+url = "2.5.8"
+globset = "0.4.20"
+ignore = "0.4.33"
+# The staged-edit review's line diff and intraline marks (the chat core's spec
+# §7.5, row E1): hunks with 3 lines of context, and word-level marks for line
+# pairs under 500 characters (`inline`, which adds no package). Reviewed in
+# the chat core's review (E1).
+similar = { version = "2.7.0", features = ["inline"] }
+# The Win32 bindings of `lattice-sys`, the one crate allowed `unsafe` (the chat
+# core's file identity, links, ReplaceFileW, Job Objects and process spawn).
+# 0.61.2 is already locked through tokio, mio, socket2, schannel and softbuffer;
+# the features are only the API families lattice-sys calls. Reviewed in
+# the chat core's review (B0).
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Credentials",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+lto = "thin"
+strip = true

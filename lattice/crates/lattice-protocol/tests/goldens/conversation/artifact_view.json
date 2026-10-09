@@ -1,0 +1,8 @@
+{
+  "name": "plan",
+  "title": "Plan: natural sort in the explorer",
+  "kind": "markdown",
+  "version": 2,
+  "versions": 2,
+  "text": "## Steps\n\n1. Compare digit runs by length first.\n"
+}

@@ -1,0 +1,11 @@
+{
+  "kind": "case",
+  "name": "row_with_query",
+  "input": {
+    "text": "{\"version\": 1, \"endpoints\": [{\"id\": \"n11\", \"label\": \"L\", \"base_url\": \"http://localhost/v1?x=1\"}]}"
+  },
+  "complete": false,
+  "issues": ["invalid-row"],
+  "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
+  "endpoints": []
+}

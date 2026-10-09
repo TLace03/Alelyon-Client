@@ -1,0 +1,14 @@
+{
+  "workspace": {
+    "id": "0f1e2d3c4b5a6978",
+    "name": "project",
+    "path": "<workspace>",
+    "trusted": true
+  },
+  "trust": "trusted",
+  "rules_found": [
+    "AGENTS.md",
+    ".lattice/rules/style.md"
+  ],
+  "git_top_level": "<workspace>"
+}
