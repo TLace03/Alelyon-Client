@@ -68,6 +68,9 @@ mod compute_tests;
 #[cfg(test)]
 mod connections_tests;
 pub mod follow;
+pub mod git_tools;
+#[cfg(test)]
+mod git_tools_tests;
 pub mod helpers;
 #[cfg(test)]
 mod helpers_tests;
@@ -77,6 +80,9 @@ pub mod images;
 #[cfg(test)]
 mod images_tests;
 pub mod item;
+pub(crate) mod lab_turns;
+#[cfg(test)]
+mod lab_turns_tests;
 pub mod log;
 #[cfg(test)]
 mod mcp_tests;

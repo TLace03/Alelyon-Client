@@ -89,6 +89,22 @@ pub enum ConfirmRequest {
     },
     /// One of the labs' agents (`crate::acp`) asks to act: what, as it says,
     /// and at most 2 KiB of the details it gives.
+    /// The agent's commit (`convo::git_tools`): the reader's own git, its
+    /// hooks run.
+    GitCommit {
+        branch: String,
+        message: String,
+        /// The files, at most 40 and then how many more.
+        files: Vec<String>,
+    },
+    /// The agent's push, and a pull request when GitHub's CLI is there.
+    GitPush {
+        branch: String,
+        remote: String,
+        base: String,
+        title: String,
+        pull_request: bool,
+    },
     AgentPermission {
         agent: String,
         action: String,
@@ -370,6 +386,39 @@ impl ConfirmRequest {
                 "Use it",
                 "Do not use it",
             ),
+            Self::GitCommit {
+                branch,
+                message,
+                files,
+            } => {
+                let mut lines = vec![format!("On branch {}, {} file(s):", e(branch), files.len())];
+                lines.extend(files.iter().map(|file| format!("  {}", e(file))));
+                lines.push("Message:".to_owned());
+                lines.extend(message.lines().take(12).map(|line| format!("  {}", e(line))));
+                lines.push("It runs your own git, as a commit by hand does: the repository's hooks run, with your identity and signing.".to_owned());
+                ("Commit these changes?".to_owned(), lines, "Commit", "Do not commit")
+            }
+            Self::GitPush {
+                branch,
+                remote,
+                base,
+                title,
+                pull_request,
+            } => {
+                let mut lines = vec![format!("Push branch {} to {}.", e(branch), e(remote))];
+                if *pull_request {
+                    lines.push(format!("Then open a pull request into {}: {}", e(base), e(title)));
+                    lines.push("It uses your own git and GitHub CLI sign-ins; the branch and the pull request are seen by everyone with access to the repository.".to_owned());
+                } else {
+                    lines.push("GitHub's CLI is not installed, so no pull request is opened.".to_owned());
+                }
+                (
+                    if *pull_request { "Push and open a pull request?".to_owned() } else { "Push this branch?".to_owned() },
+                    lines,
+                    "Push",
+                    "Do not push",
+                )
+            }
             Self::AgentPermission {
                 agent,
                 action,

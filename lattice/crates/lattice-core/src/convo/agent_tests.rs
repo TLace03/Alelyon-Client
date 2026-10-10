@@ -415,7 +415,7 @@ fn an_agent_turn_reads_answers_and_records_its_trail() {
         .iter()
         .map(|tool| tool.name.clone())
         .collect();
-    assert_eq!(tools.len(), 19, "Agent mode offers every tool: {tools:?}");
+    assert_eq!(tools.len(), 23, "Agent mode offers every tool: {tools:?}");
     assert!(
         matches!(&calls[1].input.last(), Some(InputItem::ToolResult { output, .. }) if output.contains("1\ta"))
     );
@@ -494,6 +494,7 @@ fn ask_mode_offers_no_staging_tool_and_no_command() {
             "read_file",
             "grep",
             "ask_question",
+            "git_status",
             "remember",
             "forget",
             "spawn_agent",

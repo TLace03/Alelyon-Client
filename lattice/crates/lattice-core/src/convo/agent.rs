@@ -2306,6 +2306,9 @@ fn check(inner: &Arc<Inner>, ask: &Ask) -> Result<Checked, Refusal> {
         .as_ref()
         .is_some_and(crate::projects::Project::leads);
     let kind = match &workspace {
+        // A lab agent works with its own tools, in its own session: always a
+        // plain turn of the chat, whatever the capabilities say.
+        _ if matches!(resolution.target, crate::chat::vocab::Target::Agent(_)) => TurnKind::Plain,
         // No folder: Agent mode is an agent turn of the agent's browser and
         // the reader's own MCP servers, when there is one of them to use; a
         // chat of a project with instructions or files is one in either mode,
@@ -2406,9 +2409,68 @@ fn check(inner: &Arc<Inner>, ask: &Ask) -> Result<Checked, Refusal> {
     })
 }
 
+/// Bind conversation `id` to `workspace` (its record, staging and
+/// checkpoints, and the folder in its state) in `mode`, as an agent turn's
+/// send does: the mode decides whether its changes may be kept. Blocking.
+fn bind_folder(inner: &Inner, id: &str, workspace: &Workspace, mode: Mode) -> Result<(), Refusal> {
+    let convo = inner.convo(id);
+    inner.bind(
+        &convo,
+        super::sidecar::NewMeta {
+            workspace: Some(super::sidecar::WorkspaceRef {
+                id: workspace.id.clone(),
+                path: workspace.root.to_string_lossy().into_owned(),
+            }),
+            mode,
+            origin: lattice_protocol::conversation::Origin::Native,
+        },
+    )?;
+    {
+        let mut state = convo.state();
+        if state.workspace.as_ref().is_none_or(|current| current.id != workspace.id) {
+            state.lease = Some(Arc::new(inner.lease_for(workspace)));
+            state.workspace = Some(workspace.clone());
+        }
+    }
+    if convo.state().mode != mode {
+        convo.state().mode = mode;
+        convo.record(&Item::ModeSwitch { mode, at: inner.now() });
+    }
+    Ok(())
+}
+
 /// A plain turn (§2.4 step 3): the plain chat's pipeline, unchanged; its
 /// events are forwarded into the conversation.
 async fn plain(inner: &Arc<Inner>, ask: &Ask, checked: &Checked) -> Result<Accepted, Refusal> {
+    // A lab agent's chat with a folder works in that folder: an existing
+    // conversation is bound to it before the send; a new one's first session
+    // is told the folder (`acp::pool`), and the conversation is bound to it as
+    // soon as the send has made it.
+    let agent_folder = match (&checked.resolution.target, &checked.workspace) {
+        (crate::chat::vocab::Target::Agent(agent), Some(workspace)) => Some((*agent, workspace.clone())),
+        _ => None,
+    };
+    if let Some((agent, workspace)) = &agent_folder {
+        let existing = match ask {
+            Ask::Send(request) => request.conversation.clone(),
+            Ask::Regenerate(request) => Some(request.conversation.clone()),
+            Ask::Continue { .. } => None,
+        };
+        match existing {
+            Some(id) => {
+                let (bind_inner, bind_workspace) = (inner.clone(), workspace.clone());
+                let mode = ask.mode(inner.convo(&id).state().mode);
+                inner
+                    .handle
+                    .spawn_blocking(move || bind_folder(&bind_inner, &id, &bind_workspace, mode))
+                    .await
+                    .map_err(|_| refuse(RefusalKind::Unavailable, words::NOT_OPEN))??;
+            }
+            None => inner
+                .agent_pool
+                .next_folder(*agent, Some(workspace.root.clone())),
+        }
+    }
     let accepted = match ask {
         Ask::Send(request) => {
             inner
@@ -2437,6 +2499,20 @@ async fn plain(inner: &Arc<Inner>, ask: &Ask, checked: &Checked) -> Result<Accep
         }
     };
     let id = accepted.thread.id.clone();
+    if let Some((agent, workspace)) = &agent_folder {
+        let (bind_inner, bind_id, bind_workspace) = (inner.clone(), id.clone(), workspace.clone());
+        let mode = ask.mode(inner.convo(&id).state().mode);
+        let bound = inner
+            .handle
+            .spawn_blocking(move || bind_folder(&bind_inner, &bind_id, &bind_workspace, mode))
+            .await;
+        inner.agent_pool.next_folder(*agent, None);
+        if !matches!(bound, Ok(Ok(()))) {
+            inner.convo(&id).log.push(ConversationEventKind::Notice {
+                text: "Lattice could not record this chat's folder, so what the agent changes is not listed.".to_owned(),
+            });
+        }
+    }
     // A new chat joins the project its send names, as an agent turn's does.
     if let Ask::Send(request) = ask
         && request.conversation.is_none()
@@ -2499,12 +2575,37 @@ async fn plain(inner: &Arc<Inner>, ask: &Ask, checked: &Checked) -> Result<Accep
             text: words::PROJECT_PLAIN.to_owned(),
         });
     }
+    // A lab agent's turn in a folder is watched as a command is: what it
+    // changed is listed, and undoable (`super::lab_turns`).
+    let watch = match &checked.resolution.target {
+        crate::chat::vocab::Target::Agent(agent) => {
+            let (watch_inner, watch_convo) = (inner.clone(), convo.clone());
+            let (turn, label) = (turn_id.clone(), agent.label().to_owned());
+            match inner
+                .handle
+                .spawn_blocking(move || super::lab_turns::begin(&watch_inner, &watch_convo, &turn, &label))
+                .await
+            {
+                Ok(Some(Ok(watch))) => Some(watch),
+                Ok(Some(Err(text))) => {
+                    convo.log.push(ConversationEventKind::Notice { text });
+                    None
+                }
+                Ok(None) | Err(_) => None,
+            }
+        }
+        _ => None,
+    };
     let stream = inner.chat.follow(&accepted.job, 0)?;
     let pump_inner = inner.clone();
     let pump_convo = convo.clone();
-    inner
-        .handle
-        .spawn(pump_plain(pump_inner, pump_convo, stream, turn_id.clone()));
+    inner.handle.spawn(pump_plain(
+        pump_inner,
+        pump_convo,
+        stream,
+        turn_id.clone(),
+        watch,
+    ));
     inner.note_changed(&id);
     Ok(Accepted::Started {
         conversation: Box::new(
@@ -2524,6 +2625,7 @@ async fn pump_plain(
     convo: Arc<Convo>,
     mut stream: BoxStream<'static, Vec<lattice_protocol::chat::ChatEvent>>,
     turn: String,
+    watch: Option<super::lab_turns::Watch>,
 ) {
     let mut status = TurnStatus::Completed;
     while let Some(batch) = stream.next().await {
@@ -2563,6 +2665,14 @@ async fn pump_plain(
                 ChatEventKind::Done => {}
             }
         }
+    }
+    // What a lab agent's turn changed, before the turn is said to end.
+    if let Some(watch) = watch {
+        let (end_inner, end_convo) = (inner.clone(), convo.clone());
+        let _ = inner
+            .handle
+            .spawn_blocking(move || super::lab_turns::end(&end_inner, &end_convo, watch))
+            .await;
     }
     convo.log.finish_turn();
     convo.state().running = None;

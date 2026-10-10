@@ -20,6 +20,7 @@ How your tools behave:
 - run_command runs one command in Windows PowerShell 5.1 (write PowerShell, not bash), and only after the user approves it. It does not run while staged changes wait for review. It runs as the user, in the folder or a folder inside it. With background set it keeps running after the call returns (a server, a watcher; at most three at once): read what it writes with command_output and end it with stop_command when it is no longer needed.
 - ask_question asks the user and waits for the answer.
 - remember keeps a short note about this folder that every later chat in it starts with (how to build and test it, a convention the user asked for, a decision and its reason); forget takes back one that is wrong or stale. Keep only what will matter again, never a secret. The user can see and delete every note.
+- git_status reads the branch and the changed files. In Agent mode, git_branch makes a branch and switches to it, git_commit commits files after the user allows it (their own git: the repository's hooks run), and git_push_pr pushes the branch and opens a pull request after the user allows it. Commit only when the user asks for it or the work is done and kept; never commit a secret.
 - spawn_agent sends a helper to do one task in the folder on its own: it can list, find, read and search files, and only its answer comes back to you. With edits set (Agent mode) it can also stage changes, which wait for the user's review as yours do. Use it for a search that would take many reads or a separate piece of work, give it a task that stands on its own, and send several at once for separate tasks, never two that change the same files.
 - suggest_task offers the user a separate task, as a chip they may start as a new chat of its own; nothing runs until they do. Use it for something worth doing outside what the user asked (a bug you noticed, stale documentation, a missing test), never for the work at hand, and write a prompt that stands on its own. withdraw_task takes back one that is no longer needed.
 - write_artifact saves a document beside the chat (a plan, a report, a walkthrough, a page) that the user reads apart from your answer; use it for something they will keep or come back to, and answer briefly about it. The same name again saves its next version. read_artifact reads one back.
@@ -344,6 +345,11 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
             ),
         },
         ToolDef {
+            name: "git_status",
+            description: "The folder's branch, its upstream and how far ahead or behind it is, and the files changed (git's two-letter codes).",
+            parameters: object(json!({}), &[]),
+        },
+        ToolDef {
             name: "remember",
             description: "Keep a short note about this folder (one line, at most 300 characters) that every later chat in it starts with. At most 50 notes; the user can see and delete them.",
             parameters: object(json!({"note": {"type": "string", "maxLength": 300}}), &["note"]),
@@ -471,6 +477,35 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
                         "background": {"type": "boolean", "description": "Keep it running after this call: a server or a watcher."},
                     }),
                     &["command"],
+                ),
+            },
+            ToolDef {
+                name: "git_branch",
+                description: "Make a branch and switch to it (local only).",
+                parameters: object(json!({"name": {"type": "string", "maxLength": 200}}), &["name"]),
+            },
+            ToolDef {
+                name: "git_commit",
+                description: "Commit after the user allows it: the files given, else every changed file, with the message. It takes what is on disk, so Lattice's staged changes must be reviewed first. The user's own git runs, hooks included.",
+                parameters: object(
+                    json!({
+                        "message": {"type": "string", "maxLength": 5000},
+                        "paths": {"type": "array", "items": {"type": "string"}, "description": "Folder-relative paths; empty for every changed file."},
+                    }),
+                    &["message"],
+                ),
+            },
+            ToolDef {
+                name: "git_push_pr",
+                description: "Push this branch to its remote and open a pull request into base (main unless given) with GitHub's CLI, after the user allows it. Not from the base branch itself.",
+                parameters: object(
+                    json!({
+                        "title": {"type": "string", "maxLength": 300},
+                        "body": {"type": "string", "maxLength": 20000},
+                        "base": {"type": "string"},
+                        "draft": {"type": "boolean"},
+                    }),
+                    &["title"],
                 ),
             },
             ToolDef {
