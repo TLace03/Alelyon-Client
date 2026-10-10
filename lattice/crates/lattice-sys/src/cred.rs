@@ -14,19 +14,52 @@
 //!
 //! The value is handed back as bytes and the copies this module makes are
 //! zeroed before they are dropped; the caller decides how long it lives.
+//!
+//! **`ALELYON_NO_CREDENTIALS`.** Set to anything but empty or `0`, this process
+//! never reaches Credential Manager: a read finds nothing, and a write or a
+//! removal is refused by name. Test and screenshot runs set it, so a scratch
+//! profile cannot read (or spend) a real key kept for the person signed in to
+//! Windows, which no profile folder can redirect. Every Credential Manager call
+//! of Lattice and of the Alelyon desktop app goes through this module.
 
+use std::ffi::OsStr;
 use std::io;
 
 /// The largest value a generic credential holds (`CRED_MAX_CREDENTIAL_BLOB_SIZE`).
 pub const MAX_BLOB: usize = 5 * 512;
 
-/// The value stored under `target`, or `None` when there is none.
+/// The environment switch that turns Credential Manager off for this process.
+pub const NO_CREDENTIALS_ENV: &str = "ALELYON_NO_CREDENTIALS";
+
+/// Whether [`NO_CREDENTIALS_ENV`] turns Credential Manager off for this process.
+pub fn credentials_off() -> bool {
+    switch_is_on(std::env::var_os(NO_CREDENTIALS_ENV).as_deref())
+}
+
+/// The switch's rule: on for any value but an empty one or `0`.
+fn switch_is_on(value: Option<&OsStr>) -> bool {
+    value.is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+fn turned_off() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "Credential Manager is turned off for this run (ALELYON_NO_CREDENTIALS)",
+    )
+}
+
+/// The value stored under `target`, or `None` when there is none (or when
+/// [`credentials_off`]).
 pub fn read_generic(target: &str) -> io::Result<Option<Vec<u8>>> {
+    if credentials_off() {
+        return Ok(None);
+    }
     imp::read_generic(target)
 }
 
 /// Store `blob` under `target` (replacing any earlier value), for `user`, a
-/// name shown beside it in Credential Manager.
+/// name shown beside it in Credential Manager. Refused when
+/// [`credentials_off`].
 pub fn write_generic(target: &str, user: &str, blob: &[u8]) -> io::Result<()> {
     if blob.len() > MAX_BLOB {
         return Err(io::Error::new(
@@ -34,11 +67,18 @@ pub fn write_generic(target: &str, user: &str, blob: &[u8]) -> io::Result<()> {
             "a credential holds at most 2,560 bytes",
         ));
     }
+    if credentials_off() {
+        return Err(turned_off());
+    }
     imp::write_generic(target, user, blob)
 }
 
-/// Remove the credential under `target`. `Ok(false)` when there was none.
+/// Remove the credential under `target`. `Ok(false)` when there was none;
+/// refused when [`credentials_off`].
 pub fn delete_generic(target: &str) -> io::Result<bool> {
+    if credentials_off() {
+        return Err(turned_off());
+    }
     imp::delete_generic(target)
 }
 
@@ -165,14 +205,51 @@ mod imp {
     }
 }
 
+#[cfg(test)]
+mod switch_tests {
+    use super::*;
+
+    #[test]
+    fn the_switch_is_on_for_any_value_but_empty_or_zero() {
+        assert!(!switch_is_on(None));
+        assert!(!switch_is_on(Some(OsStr::new(""))));
+        assert!(!switch_is_on(Some(OsStr::new("0"))));
+        for on in ["1", "yes", "true", " "] {
+            assert!(switch_is_on(Some(OsStr::new(on))), "{on:?}");
+        }
+        assert_eq!(NO_CREDENTIALS_ENV, "ALELYON_NO_CREDENTIALS");
+    }
+
+    /// With the switch on (as the test runs that set it have it), nothing is
+    /// read and a write or removal is refused before Windows is asked.
+    #[test]
+    fn with_the_switch_on_nothing_is_read_written_or_removed() {
+        if !credentials_off() {
+            eprintln!("SKIPPED: ALELYON_NO_CREDENTIALS is not set for this run");
+            return;
+        }
+        assert_eq!(read_generic("Alelyon/OPENALEX_API_KEY").unwrap(), None);
+        let refused = write_generic("lattice-sys-test/never", "t", b"x").unwrap_err();
+        assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied);
+        assert!(refused.to_string().contains("ALELYON_NO_CREDENTIALS"));
+        let refused = delete_generic("lattice-sys-test/never").unwrap_err();
+        assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied);
+    }
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
     /// Writes, reads and removes one credential of its own, under a target no
-    /// real key uses, and leaves none behind.
+    /// real key uses, and leaves none behind. Skipped while the switch keeps
+    /// this run away from Credential Manager.
     #[test]
     fn a_credential_round_trips_and_is_removed() {
+        if credentials_off() {
+            eprintln!("SKIPPED: ALELYON_NO_CREDENTIALS keeps this run away from Credential Manager");
+            return;
+        }
         let target = format!(
             "lattice-sys-test/{}-{:?}",
             std::process::id(),

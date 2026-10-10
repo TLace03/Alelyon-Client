@@ -1,8 +1,9 @@
 # Sinai's simulator: the CPU crates. The observation contract (`sim-contract`, contract v0
 # with the Sinai session), the one scene description with its MJCF importer (`sim-scene`),
-# the world-state layout and render view (`sim-world`), and the CPU reference of the
-# physics core (`sim-physics`: smooth dynamics, constraints and contacts, ported from
-# MuJoCo 3.14.0). None of them opens a GPU device.
+# the world-state layout and render view (`sim-world`), the CPU reference of the physics
+# core (`sim-physics`: smooth dynamics, constraints and contacts, ported from MuJoCo
+# 3.14.0), and the renderer's CPU ray caster (`sim-raycast`). None of them opens a GPU
+# device.
 #
 # The lockfile is committed and every check builds with --locked. Dependencies are serde
 # and serde_json, and `roxmltree` (MIT or Apache-2.0, no dependencies of its own) for the
@@ -12,6 +13,7 @@ resolver = "3"
 members = [
     "crates/sim-contract",
     "crates/sim-physics",
+    "crates/sim-raycast",
     "crates/sim-scene",
     "crates/sim-world",
 ]
@@ -25,6 +27,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 sim-contract = { path = "crates/sim-contract" }
 sim-physics = { path = "crates/sim-physics" }
+sim-raycast = { path = "crates/sim-raycast" }
 sim-scene = { path = "crates/sim-scene" }
 sim-world = { path = "crates/sim-world" }
 

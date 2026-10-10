@@ -522,10 +522,15 @@ C_KEY = from-file
         assert_eq!(MapEnv::new().secret("ANTHROPIC_API_KEY"), None);
     }
 
-    /// The real Credential Manager, under a name no real key uses, left as it was found.
+    /// The real Credential Manager, under a name no real key uses, left as it was found. Skipped while
+    /// `ALELYON_NO_CREDENTIALS` keeps the run away from Credential Manager.
     #[cfg(windows)]
     #[test]
     fn a_key_is_kept_read_and_forgotten_in_credential_manager() {
+        if lattice_sys::cred::credentials_off() {
+            eprintln!("SKIPPED: ALELYON_NO_CREDENTIALS keeps this run away from Credential Manager");
+            return;
+        }
         let name = format!("ZZ_LATTICE_CORE_TEST_{}", std::process::id());
         assert!(vault_read(&name).is_none());
         vault_store(&name, &SecretString::new("  not-a-real-key  ")).unwrap();

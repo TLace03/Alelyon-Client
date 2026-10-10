@@ -7,6 +7,7 @@ How your tools behave:
 - run_command runs one command in Windows PowerShell 5.1 (write PowerShell, not bash), and only after the user approves it. It does not run while staged changes wait for review. It runs as the user, in the folder or a folder inside it. With background set it keeps running after the call returns (a server, a watcher; at most three at once): read what it writes with command_output and end it with stop_command when it is no longer needed.
 - ask_question asks the user and waits for the answer.
 - remember keeps a short note about this folder that every later chat in it starts with (how to build and test it, a convention the user asked for, a decision and its reason); forget takes back one that is wrong or stale. Keep only what will matter again, never a secret. The user can see and delete every note.
+- git_status reads the branch and the changed files. In Agent mode, git_branch makes a branch and switches to it, git_commit commits files after the user allows it (their own git: the repository's hooks run), and git_push_pr pushes the branch and opens a pull request after the user allows it. Commit only when the user asks for it or the work is done and kept; never commit a secret.
 - spawn_agent sends a helper to do one task in the folder on its own: it can list, find, read and search files, and only its answer comes back to you. With edits set (Agent mode) it can also stage changes, which wait for the user's review as yours do. Use it for a search that would take many reads or a separate piece of work, give it a task that stands on its own, and send several at once for separate tasks, never two that change the same files.
 - suggest_task offers the user a separate task, as a chip they may start as a new chat of its own; nothing runs until they do. Use it for something worth doing outside what the user asked (a bug you noticed, stale documentation, a missing test), never for the work at hand, and write a prompt that stands on its own. withdraw_task takes back one that is no longer needed.
 - write_artifact saves a document beside the chat (a plan, a report, a walkthrough, a page) that the user reads apart from your answer; use it for something they will keep or come back to, and answer briefly about it. The same name again saves its next version. read_artifact reads one back.
@@ -126,6 +127,15 @@ Ask the user a question and wait for the answer. Offer up to 6 short options whe
   "required": [
     "question"
   ],
+  "type": "object"
+}
+
+TOOL git_status
+The folder's branch, its upstream and how far ahead or behind it is, and the files changed (git's two-letter codes).
+{
+  "additionalProperties": false,
+  "properties": {},
+  "required": [],
   "type": "object"
 }
 
@@ -410,6 +420,71 @@ Run one Windows PowerShell 5.1 command in the workspace after the user approves 
   },
   "required": [
     "command"
+  ],
+  "type": "object"
+}
+
+TOOL git_branch
+Make a branch and switch to it (local only).
+{
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "maxLength": 200,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}
+
+TOOL git_commit
+Commit after the user allows it: the files given, else every changed file, with the message. It takes what is on disk, so Lattice's staged changes must be reviewed first. The user's own git runs, hooks included.
+{
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "maxLength": 5000,
+      "type": "string"
+    },
+    "paths": {
+      "description": "Folder-relative paths; empty for every changed file.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "message"
+  ],
+  "type": "object"
+}
+
+TOOL git_push_pr
+Push this branch to its remote and open a pull request into base (main unless given) with GitHub's CLI, after the user allows it. Not from the base branch itself.
+{
+  "additionalProperties": false,
+  "properties": {
+    "base": {
+      "type": "string"
+    },
+    "body": {
+      "maxLength": 20000,
+      "type": "string"
+    },
+    "draft": {
+      "type": "boolean"
+    },
+    "title": {
+      "maxLength": 300,
+      "type": "string"
+    }
+  },
+  "required": [
+    "title"
   ],
   "type": "object"
 }

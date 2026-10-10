@@ -99,6 +99,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sim-raycast"
+version = "0.1.0"
+dependencies = [
+ "sim-contract",
+ "sim-scene",
+]
+
+[[package]]
 name = "sim-scene"
 version = "0.1.0"
 dependencies = [

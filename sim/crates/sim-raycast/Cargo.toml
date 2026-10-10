@@ -1,0 +1,12 @@
+[package]
+name = "sim-raycast"
+description = "The CPU ray caster of Sinai's simulator: the scene description and its packing, the pinhole camera, and the host reference renderer that writes RGB, depth and segmentation frames on the processor."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+sim-contract.workspace = true
+sim-scene.workspace = true

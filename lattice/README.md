@@ -16,7 +16,7 @@ GPU. It is written in Rust.
 | `lattice-protocol` | The contract between the runtime and a window: runs, their events and trace spans in the SDK's export shape; chat threads, turns and answer events; agent conversations, staged changes, approvals and checkpoints. Neither service trait has a delete. |
 | `lattice-agents` | The SDK port: agents, tools, handoffs, guardrails, streamed runs, cancellation, an OpenAI-compatible Chat Completions model, a scripted test model, local-only tracing and the agent graph. |
 | `lattice-core` | The client services: the state folder, keys and the model registry, the run store and manager, the plain chat core and the agent chat (staged edits with a review, a policy that allows, asks or refuses each tool call, checkpoints, commands, skills, plug-ins, projects, MCP servers, a local llama.cpp server it manages, and the agent's browser). Files are never deleted: a file is moved aside instead. |
-| `lattice-sys` | The only crate allowed `unsafe`: thin Win32 calls (file identity, opening without following links, `ReplaceFileW`, Job Objects and process spawn, Credential Manager, and the desktop for auto mode). |
+| `lattice-sys` | The only crate allowed `unsafe`: thin Win32 calls (file identity, opening without following links, `ReplaceFileW`, Job Objects and process spawn, Credential Manager, and the desktop for auto mode). `ALELYON_NO_CREDENTIALS=1` keeps a run (tests, screenshots) away from Credential Manager: a read finds nothing, a write or removal is refused. |
 | `lattice-app` | The native window over a `RunService`: the run list, a timeline of each run's spans, the agent graph and span detail. The `lattice` binary wires in the real runtime, or demonstration data with `--demo`. |
 
 ## Build, run, test

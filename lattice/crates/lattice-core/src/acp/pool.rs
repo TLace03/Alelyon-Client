@@ -154,6 +154,9 @@ pub struct Pool {
     permissions: Permissions,
     folders: Folders,
     live: tokio::sync::Mutex<HashMap<(Agent, String), Arc<Live>>>,
+    /// The folder of a new chat about to be sent to `agent`, before its
+    /// conversation is known by id (`Pool::next_folder`).
+    next: Mutex<HashMap<Agent, PathBuf>>,
 }
 
 impl Pool {
@@ -173,6 +176,7 @@ impl Pool {
             permissions,
             folders,
             live: tokio::sync::Mutex::new(HashMap::new()),
+            next: Mutex::default(),
         }
     }
 
@@ -187,8 +191,25 @@ impl Pool {
 
     /// The folder an agent works in for `thread`: the conversation's, else one
     /// of its own under Lattice's state.
-    fn folder(&self, thread: &str) -> PathBuf {
-        (self.folders)(thread).unwrap_or_else(|| agents_dir(&self.state).join("work").join(thread))
+    fn folder(&self, agent: Agent, thread: &str) -> PathBuf {
+        (self.folders)(thread)
+            .or_else(|| lock(&self.next).get(&agent).cloned())
+            .unwrap_or_else(|| agents_dir(&self.state).join("work").join(thread))
+    }
+
+    /// A new chat with a folder is about to be sent to `agent`: its first
+    /// session works there even if it opens before the conversation is bound
+    /// to the folder. `None` clears it once the conversation is bound.
+    pub fn next_folder(&self, agent: Agent, folder: Option<PathBuf>) {
+        let mut next = lock(&self.next);
+        match folder {
+            Some(folder) => {
+                next.insert(agent, folder);
+            }
+            None => {
+                next.remove(&agent);
+            }
+        }
     }
 
     async fn session(&self, agent: Agent, thread: &str) -> Result<Arc<Live>, String> {
@@ -197,7 +218,7 @@ impl Pool {
         if let Some(found) = live.get(&key) {
             return Ok(found.clone());
         }
-        let made = Arc::new(self.open(agent, self.folder(thread)).await?);
+        let made = Arc::new(self.open(agent, self.folder(agent, thread)).await?);
         live.insert(key, made.clone());
         Ok(made)
     }

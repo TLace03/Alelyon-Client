@@ -1523,6 +1523,9 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                         }
                         "ask_question" => ask_tool(tools, call, args),
                         "spawn_agent" => super::helpers::spawn_agent(tools, call, args),
+                        "git_status" | "git_branch" | "git_commit" | "git_push_pr" => {
+                            super::git_tools::tool(tools, call, name, args)
+                        }
                         "remember" | "forget" => blocking_tool(tools, move |tools| {
                             super::memory::tool(tools, name, &args)
                         }),
