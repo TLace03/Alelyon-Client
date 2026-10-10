@@ -351,6 +351,11 @@ Stage an edit: replace old_string, which must occur exactly once (or every time,
     },
     "replace_all": {
       "type": "boolean"
+    },
+    "why": {
+      "description": "One or two sentences on why: shown beside the lines this writes, never written into the file.",
+      "maxLength": 400,
+      "type": "string"
     }
   },
   "required": [
@@ -370,6 +375,11 @@ Stage a new file, or the whole new content of a file you have read. Nothing is w
       "type": "string"
     },
     "path": {
+      "type": "string"
+    },
+    "why": {
+      "description": "One or two sentences on why: shown beside the lines this writes, never written into the file.",
+      "maxLength": 400,
       "type": "string"
     }
   },

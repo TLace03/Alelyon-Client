@@ -786,7 +786,7 @@ async fn start_retrying(inner: &Arc<Inner>, model: LocalModel) -> Result<Server,
     }
 }
 
-async fn open(inner: Arc<Inner>, model: LocalModel) -> Result<Opened, LlamaError> {
+async fn open(inner: Arc<Inner>, model: LocalModel, switch: bool) -> Result<Opened, LlamaError> {
     let _one_at_a_time = inner.start.lock().await;
     let previous = {
         let mut slot = inner.lock();
@@ -799,6 +799,9 @@ async fn open(inner: Arc<Inner>, model: LocalModel) -> Result<Opened, LlamaError
             .is_some_and(|server| server.model.path == model.path && server.alive());
         if reusable {
             return inner.lease(&mut slot).ok_or(LlamaError::Closed);
+        }
+        if !switch && slot.server.as_ref().is_some_and(Server::alive) {
+            return Err(LlamaError::Serving);
         }
         // Another model (a switch), or a server that died: it stops first.
         if let Some((_, timer)) = slot.timer.take() {
@@ -856,12 +859,22 @@ impl LlamaRuntime {
 
     /// A server running `model`, and a lease that keeps it in use.
     pub fn open(&self, model: LocalModel) -> BoxFuture<'static, Result<Opened, LlamaError>> {
+        self.open_with(model, true)
+    }
+
+    /// As [`open`](Self::open), but refused with [`LlamaError::Serving`] while
+    /// a live server runs another model: nothing is stopped.
+    pub fn open_unswitched(&self, model: LocalModel) -> BoxFuture<'static, Result<Opened, LlamaError>> {
+        self.open_with(model, false)
+    }
+
+    fn open_with(&self, model: LocalModel, switch: bool) -> BoxFuture<'static, Result<Opened, LlamaError>> {
         let inner = self.inner.clone();
         let handle = inner.handle.clone();
         // On the runtime's own handle, whose timers its sleeps need.
         async move {
             handle
-                .spawn(open(inner, model))
+                .spawn(open(inner, model, switch))
                 .await
                 .unwrap_or(Err(LlamaError::Closed))
         }
@@ -937,6 +950,10 @@ impl ManagedRuntime for LlamaRuntime {
 
     fn open(&self, model: LocalModel) -> BoxFuture<'static, Result<Opened, LlamaError>> {
         LlamaRuntime::open(self, model)
+    }
+
+    fn open_unswitched(&self, model: LocalModel) -> BoxFuture<'static, Result<Opened, LlamaError>> {
+        LlamaRuntime::open_unswitched(self, model)
     }
 
     fn props(&self, endpoint: &ManagedEndpoint) -> BoxFuture<'static, Option<Props>> {

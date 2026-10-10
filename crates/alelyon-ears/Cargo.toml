@@ -1,0 +1,57 @@
+# The ears: real-time transcription of the microphone, the computer's own audio and audio files, on this PC.
+# The library is the engine; its program, `angel-ears`, is the speech engine the Alelyon window's Words page and
+# Sinai's hearing connect to (`angel-ears serve`), and a command line for files and live captions.
+#
+# Its own workspace and lockfile, so it builds and tests on its own. Windows audio is reached through WASAPI and
+# Media Foundation directly rather than through an audio crate, and the recogniser is whisper.cpp's own
+# `whisper-server`, a separate program spoken to over loopback HTTP: no C or C++ is compiled or vendored here, and
+# neither that program nor a speech model is part of this crate (see README.md, Setup).
+[workspace]
+resolver = "2"
+
+[package]
+name = "alelyon-ears"
+description = "Real-time transcription of the microphone, the computer's audio and audio files, served on a loopback socket."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "alelyon_ears"
+path = "src/lib.rs"
+
+# The program keeps the name the window and Sinai's hearing look for (`angel-ears.exe` beside the window).
+[[bin]]
+name = "angel-ears"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1.0"
+# The event stream to the window and to Sinai's hearing. Blocking, one thread a connection, no TLS: it is
+# loopback only.
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.61"
+features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_MediaFoundation",
+    "Win32_Media_Multimedia",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_UI_Shell_PropertiesSystem",
+]
+
+[profile.release]
+opt-level = 3
+lto = "thin"

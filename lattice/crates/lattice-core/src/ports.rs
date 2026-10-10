@@ -79,6 +79,16 @@ pub enum ConfirmRequest {
         cwd: String,
         env_names: Vec<String>,
     },
+    /// A hook the reader set (`crate::hooks`), the first time it would run:
+    /// where it is from, its event, which tools, its exact command, its file.
+    RunHook {
+        source: String,
+        event: String,
+        matcher: String,
+        command: String,
+        file: String,
+        folder: Option<String>,
+    },
     /// Every approval of an MCP tool's call that is not allowed always
     /// (§12), as for `run_command`.
     McpCall {
@@ -372,6 +382,28 @@ impl ConfirmRequest {
                     "Enable",
                     "Do not enable",
                 )
+            }
+            Self::RunHook {
+                source,
+                event,
+                matcher,
+                command,
+                file,
+                folder,
+            } => {
+                let mut lines = vec![
+                    format!("From: {} ({})", e(source), e(file)),
+                    format!("When: {}", e(event)),
+                ];
+                if matcher != "*" {
+                    lines.push(format!("For tools: {}", e(matcher)));
+                }
+                lines.push(format!("Command: {}", e(command)));
+                if let Some(folder) = folder {
+                    lines.push(format!("In: {}", e(folder)));
+                }
+                lines.push("It runs as you, each time its event comes, and can stop or change what the agent does. Allowed, it runs until its text changes, which asks again.".to_owned());
+                ("Run this hook?".to_owned(), lines, "Run it", "Do not run it")
             }
             Self::McpCall {
                 server,

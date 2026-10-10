@@ -67,7 +67,7 @@ fn p(id: &str) -> &'static Provider {
 }
 
 #[test]
-fn the_providers_are_the_owners_seven_and_agree_with_the_registrys_catalogue() {
+fn the_providers_are_the_seven_supported_and_agree_with_the_registrys_catalogue() {
     let ids: Vec<&str> = PROVIDERS.iter().map(|p| p.id).collect();
     assert_eq!(
         ids,

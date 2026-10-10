@@ -294,6 +294,8 @@ pub(crate) struct Running {
 
 /// One conversation's state in this process.
 pub(crate) struct State {
+    /// Messages Stop hooks sent in a row (`super::hooked`).
+    pub hook_follow_ups: u32,
     pub sidecar: Option<Arc<Sidecar>>,
     pub staging: Option<Arc<Staging>>,
     pub checkpoints: Option<Arc<Checkpoints>>,
@@ -364,6 +366,7 @@ impl Convo {
                 last: None,
                 last_choice: None,
                 save_failed: false,
+                hook_follow_ups: 0,
             }),
         })
     }
@@ -437,6 +440,8 @@ pub(crate) struct Inner {
     pub desktop: Arc<crate::desktop::Desktop>,
     /// The reader's projects.
     pub projects: Arc<crate::projects::Projects>,
+    /// The notes beside folders' files, an agent's among them.
+    pub notes: Arc<crate::notes::Notes>,
     /// Held while a task the agent suggested is suggested or settled, and
     /// naming the tasks being started (`<conversation>/<task>`): a task
     /// settles once (`super::tasks`).
@@ -941,6 +946,28 @@ impl AgentChat {
         super::memory::remove(&super::memory::file(&self.inner.config.state, workspace), id)
     }
 
+    /// The reader's hooks as a turn in the folder `workspace` (its id) would
+    /// read them, and each one's allowance (`crate::hooks`): what CENTCOM's view
+    /// of them shows. Blocking (it reads files).
+    pub fn hooks(&self, workspace: Option<&str>) -> (crate::hooks::Found, Vec<bool>) {
+        let inner = &self.inner;
+        let folder = workspace.and_then(|id| lock(&inner.workspaces).get(id).cloned());
+        let trusted = folder.as_ref().is_none_or(|w| {
+            inner.trust.state(w) == lattice_protocol::conversation::TrustState::Trusted
+        });
+        let path = folder.as_ref().map(super::hooked::folder_of);
+        let found = crate::hooks::sources::discover(inner.config.env.as_ref(), &inner.config.state, path.as_deref(), trusted);
+        let file = crate::hooks::approvals::file(&inner.config.state);
+        let allowed = found.hooks.iter().map(|hook| crate::hooks::approvals::allowed(&file, hook)).collect();
+        (found, allowed)
+    }
+
+    /// Take back the reader's allowance of a hook (by its digest): it asks
+    /// again before it next runs. `Ok(false)` when none had that digest.
+    pub fn revoke_hook(&self, digest: &str) -> Result<bool, String> {
+        crate::hooks::approvals::revoke(&crate::hooks::approvals::file(&self.inner.config.state), digest)
+    }
+
     /// Build the service on the runtime it is given; it builds none.
     pub fn new(config: AgentConfig, handle: Handle) -> Self {
         let keys = KeyStore::new(config.env.clone(), &config.state);
@@ -1062,6 +1089,7 @@ impl AgentChat {
                     &config.state,
                     config.clock.clone(),
                 )),
+                notes: Arc::new(crate::notes::Notes::new(&config.state, config.clock.clone())),
                 tasks: Mutex::default(),
                 plans: Mutex::default(),
                 artifacts: Mutex::default(),
@@ -1633,8 +1661,8 @@ impl AgentChat {
         crate::acp::models::pick(&crate::acp::agents_dir(&self.inner.config.state), agent, model)
     }
 
-    /// Install `agent`'s adapter with npm (the reader's action; a download the
-    /// owner approved).
+    /// Install `agent`'s adapter with npm (the reader's action: a download that
+    /// runs only when the person asks for it).
     pub fn agent_install(&self, agent: crate::acp::Agent) -> BoxFuture<'static, Result<(), Refusal>> {
         self.blocking(move |inner| {
             crate::acp::install(agent, &inner.config.state, inner.config.env.as_ref())

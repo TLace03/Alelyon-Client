@@ -357,6 +357,17 @@ fn chat(args: &Args) -> Result<Value, String> {
     let state = StateRoot::at(root.join("state"));
     std::fs::create_dir_all(&state.globals).map_err(|e| e.to_string())?;
     let paths = LlamaPaths::from_env(&env);
+    // The stand-ins go under this run's root and nowhere else: never over a
+    // real install in the reader's own `~/.alelyon`.
+    for path in [&paths.binary, &paths.models_dir] {
+        if !path.starts_with(root) {
+            return Err(format!(
+                "refused: {} is outside the scratch root {}",
+                path.display(),
+                root.display()
+            ));
+        }
+    }
     write(&paths.binary, b"MZ")?;
     // The smallest GGUF header: the magic, version 3, no tensors, no keys.
     let mut gguf = b"GGUF".to_vec();
@@ -459,6 +470,7 @@ fn chat(args: &Args) -> Result<Value, String> {
             workspace: Some(workspace),
             edit_of: None,
             project: None,
+            images: Vec::new(),
         }))
         .map_err(|r| format!("send: {r:?}"))?;
     let id = match accepted {

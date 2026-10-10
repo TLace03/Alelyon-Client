@@ -147,6 +147,8 @@ pub(crate) struct TurnTools {
     helper_model: std::sync::OnceLock<Arc<dyn Model>>,
     /// Helpers running now.
     helpers: std::sync::atomic::AtomicUsize,
+    /// The reader's hooks, as read when the turn began (`super::hooked`).
+    pub hooks: Arc<crate::hooks::Found>,
 }
 
 /// A picture for the next model call: the browser's page or the screen.
@@ -309,6 +311,38 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
     // No folder: an agent turn of the browser and the reader's own MCP
     // servers only (`check` allows it in Agent mode).
     let workspace = checked.workspace.clone();
+    // The reader's hooks, and the message's own, before anything is written.
+    let hook_folder = workspace.as_ref().map(super::hooked::folder_of);
+    let hooks = Arc::new(crate::hooks::sources::discover(
+        inner.config.env.as_ref(),
+        &inner.config.state,
+        hook_folder.as_deref(),
+        workspace.as_ref().is_none_or(|w| {
+            inner.trust.state(w) == lattice_protocol::conversation::TrustState::Trusted
+        }),
+    ));
+    let mut hook_notes = Vec::new();
+    let mut prompt_words = Vec::new();
+    if let Ask::Send(request) = ask {
+        let session = request.conversation.clone().unwrap_or_default();
+        let what = super::hooked::Owned { prompt: Some(request.text.clone()), ..Default::default() };
+        let verdict = inner.handle.block_on(super::hooked::fire(
+            inner,
+            &hooks,
+            &session,
+            hook_folder.clone(),
+            crate::hooks::Event::UserPromptSubmit,
+            what,
+        ));
+        if let Some(reason) = verdict.block.or(verdict.halt) {
+            return Err(refuse(
+                RefusalKind::Invalid,
+                &format!("A hook stopped this message, so it was not sent: {reason}"),
+            ));
+        }
+        prompt_words = verdict.context;
+        hook_notes = verdict.notes;
+    }
     // (d) Write: the user turn (not for Continue), with the answer lock.
     let mut held = None;
     let mut take_lock = |id: &str| -> Result<(), Refusal> {
@@ -596,6 +630,25 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         (Some(rules), Some(kept)) => Some(format!("{rules}\n\n{kept}")),
         (rules, kept) => rules.or(kept),
     };
+    let rules = if new && !hooks.hooks.is_empty() {
+        let verdict = inner.handle.block_on(super::hooked::fire(
+            inner,
+            &hooks,
+            &id,
+            hook_folder.clone(),
+            crate::hooks::Event::SessionStart,
+            super::hooked::Owned::default(),
+        ));
+        hook_notes.extend(verdict.notes);
+        match (rules, verdict.context.is_empty()) {
+            (rules, true) => rules,
+            (Some(rules), false) => Some(format!("{rules}\n\n{}", verdict.context.join("\n\n"))),
+            (None, false) => Some(verdict.context.join("\n\n")),
+        }
+    } else {
+        rules
+    };
+    super::hooked::tell(&convo, &hook_notes);
     let lead = replay::lead_item(rules.as_deref(), replayed.left_out, &notes);
     let mut session_items: Vec<InputItem> = lead.into_iter().map(InputItem::User).collect();
     let (session, input) = if continuing {
@@ -646,6 +699,9 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
                     .log
                     .push(ConversationEventKind::Notice { text: notice });
             }
+        }
+        for words in &prompt_words {
+            input.push(InputItem::User(format!("[A hook adds, for this message] {words}")));
         }
         input.push(message);
         (Some(Arc::new(SidecarSession::new(session_items))), input)
@@ -731,6 +787,7 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         skills,
         helper_model: std::sync::OnceLock::new(),
         helpers: std::sync::atomic::AtomicUsize::new(0),
+        hooks,
     });
     let plan = Plan {
         tools,
@@ -996,7 +1053,8 @@ fn skill_function_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                 def.description,
                 def.parameters,
                 move |_context: ToolContext, args: Value| {
-                    let work = skill_tool(owner.clone(), name, args);
+                    let tools = owner.clone();
+                    let work = super::hooked::around(tools.clone(), name, args, true, move |args| skill_tool(tools, name, args));
                     async move { work.await.map_err(agent_error) }
                 },
             )
@@ -1028,9 +1086,16 @@ pub(crate) fn stage_tool(
             "write_file" => edit::write_file(&ctx, &parse_args(&args)?),
             _ => edit::delete_file(&ctx, &parse_args(&args)?),
         }?;
+        // The edit's reason, when the agent gave one, becomes a note on the lines it wrote.
+        let why = args.get("why").and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty());
         for change in tools.staging.changes() {
             if before.contains(&change) {
                 continue;
+            }
+            if let Some(why) = why
+                && name != "delete_file"
+            {
+                note_the_change(tools, &change, &args, why);
             }
             let (added, removed) = views::added_removed(&tools.staging, &change.id);
             tools.convo.log.push(ConversationEventKind::Staged {
@@ -1043,6 +1108,32 @@ pub(crate) fn stage_tool(
         }
         Ok(result)
     })
+}
+
+/// Leave `why` as an agent's note on the lines a staged change wrote: those holding `edit_file`'s `new_string`, else
+/// those that differ from the file on disk. A change whose lines cannot be told (an edit that only removed text) or
+/// a note the store refuses leaves no note; the staging stands either way.
+fn note_the_change(tools: &TurnTools, change: &super::item::StagedChange, args: &Value, why: &str) {
+    use crate::tools::read::{Overlay, Staged};
+    let Ok(workspace) = tools.folder() else { return };
+    let Some(Staged::Bytes(bytes)) = tools.staging.staged(&change.path) else { return };
+    let text = String::from_utf8_lossy(&bytes);
+    let written = args.get("new_string").and_then(Value::as_str).and_then(|new| crate::notes::lines_holding(&text, new));
+    let lines = written.or_else(|| {
+        let disk = std::fs::read(workspace.root.join(&change.path)).unwrap_or_default();
+        crate::notes::changed_lines(&String::from_utf8_lossy(&disk), &text)
+    });
+    let Some((start, end)) = lines else { return };
+    let new = crate::notes::NewNote {
+        path: change.path.clone(),
+        start,
+        end,
+        text: why.to_owned(),
+        author: crate::notes::Author::Agent,
+        chat: Some(tools.convo.id.to_string()),
+        change: Some(change.id.clone()),
+    };
+    let _ = tools.inner.notes.add(&workspace.id, &text, new);
 }
 
 fn ask_tool(
@@ -1353,7 +1444,7 @@ fn browser_function_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                 move |context: ToolContext, args: Value| {
                     let tools = owner.clone();
                     let call = tools.core_id(&context.call_id);
-                    let work = browser_tool(tools, call, name, args);
+                    let work = super::hooked::around(tools.clone(), name, args, true, move |args| browser_tool(tools, call, name, args));
                     async move { work.await.map_err(agent_error) }
                 },
             )
@@ -1442,7 +1533,7 @@ fn desktop_function_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                 move |context: ToolContext, args: Value| {
                     let tools = owner.clone();
                     let call = tools.core_id(&context.call_id);
-                    let work = desktop_tool(tools, call, name, args);
+                    let work = super::hooked::around(tools.clone(), name, args, true, move |args| desktop_tool(tools, call, name, args));
                     async move { work.await.map_err(agent_error) }
                 },
             )
@@ -1487,7 +1578,10 @@ fn function_tools(
             move |context: ToolContext, args: Value| {
                 let tools = owner.clone();
                 let call = tools.core_id(&context.call_id);
-                let work = mcp_tool(tools, call, model_name.clone(), args);
+                let model_name = model_name.clone();
+                let work = super::hooked::around(tools.clone(), &model_name.clone(), args, false, move |args| {
+                    mcp_tool(tools, call, model_name, args)
+                });
                 async move { work.await.map_err(agent_error) }
             },
         )
@@ -1516,7 +1610,8 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                 move |context: ToolContext, args: Value| {
                     let tools = owner.clone();
                     let call = tools.core_id(&context.call_id);
-                    let work: BoxFuture<'static, Result<String, ToolError>> = match name {
+                    let hooked_tools = tools.clone();
+                    let run = move |args: Value| -> BoxFuture<'static, Result<String, ToolError>> { match name {
                         "list_dir" | "glob" | "read_file" | "grep" => read_tool(tools, name, args),
                         "edit_file" | "write_file" | "delete_file" => {
                             stage_tool(tools, name, call, args)
@@ -1545,7 +1640,8 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                             super::plans::tool(tools, &call, &args)
                         }),
                         _ => command_tool(tools, call, args),
-                    };
+                    } };
+                    let work = super::hooked::around(hooked_tools, name, args, name != "run_command", run);
                     async move { work.await.map_err(agent_error) }
                 },
             )
@@ -2364,10 +2460,11 @@ fn turn_tools_for(
         outputs: Mutex::default(),
         mcp: Mutex::default(),
         shots: Arc::default(),
-        // A pending call's decision reads no skill.
+        // A pending call's decision reads no skill, and runs no hook.
         skills: crate::skills::Skills::default(),
         helper_model: std::sync::OnceLock::new(),
         helpers: std::sync::atomic::AtomicUsize::new(0),
+        hooks: Arc::default(),
     })
 }
 
@@ -3178,9 +3275,51 @@ async fn run(plan: Plan) {
                 Ok(result)
             }
         };
+    let went_well = matches!(&outcome, Ok(Ok(_)));
     finish(&inner, &tools, &resolution, &sink, &calls, outcome, run_id).await;
+    if went_well {
+        stop_hooks(&tools, &task, resolution.shown.clone()).await;
+    } else {
+        convo.state().hook_follow_ups = 0;
+    }
     drop(held);
     next_queued(inner, convo).await;
+}
+
+/// The Stop hooks of a turn that ended well: one that has the agent go on
+/// queues its reason as the next message (at most `MAX_FOLLOW_UPS` in a row).
+async fn stop_hooks(tools: &Arc<TurnTools>, task: &str, shown: lattice_protocol::Shown) {
+    let convo = &tools.convo;
+    let active = task.starts_with(super::hooked::FOLLOW_UP);
+    if !active {
+        convo.state().hook_follow_ups = 0;
+    }
+    if tools.hooks.hooks.is_empty() {
+        return;
+    }
+    let folder = tools.workspace.as_ref().map(super::hooked::folder_of);
+    let what = super::hooked::Owned { stop_active: active, ..Default::default() };
+    let verdict = super::hooked::fire(&tools.inner, &tools.hooks, &convo.id, folder, crate::hooks::Event::Stop, what).await;
+    super::hooked::tell(convo, &verdict.notes);
+    let Some(reason) = verdict.block.filter(|_| verdict.halt.is_none()) else { return };
+    let sent = {
+        let mut state = convo.state();
+        if state.hook_follow_ups >= super::hooked::MAX_FOLLOW_UPS {
+            None
+        } else {
+            state.hook_follow_ups += 1;
+            Some(())
+        }
+    };
+    match sent {
+        // Sent as this turn was: the model it ran on (the turn has ended, so
+        // nothing is running to read it from).
+        Some(()) => queue_message(&tools.inner, convo, format!("{}{reason}", super::hooked::FOLLOW_UP), Some(shown)),
+        None => super::hooked::tell(
+            convo,
+            &[format!("Stop hooks asked {} times in a row to go on; this time the agent stops.", super::hooked::MAX_FOLLOW_UPS)],
+        ),
+    }
 }
 
 /// End the turn: save, record, tell (§2.4 step 5).

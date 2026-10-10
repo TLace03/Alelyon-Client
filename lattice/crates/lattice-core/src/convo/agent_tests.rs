@@ -33,11 +33,12 @@ use crate::chat::vocab::Target;
 use crate::clock::Clock;
 use crate::env::MapEnv;
 use crate::git::tests::Scratch;
-use crate::llama::files::LlamaPaths;
+use crate::llama::files::{BINARY_ENV, LlamaPaths, MODELS_ENV};
 use crate::models::ModelFactory;
 use crate::ports::AttentionPort;
 use crate::ports::fake::RecordingConfirm;
 use crate::state::StateRoot;
+use crate::testkit;
 
 /// A string the detector takes for a key, assembled so no source holds one.
 pub(crate) fn secret() -> String {
@@ -117,13 +118,30 @@ impl H {
         for (name, value) in extra {
             env.set(name, *value);
         }
+        // Hooks are read from the scratch's home even when an extra hands the
+        // chat the reader's own: no test runs the reader's own hooks.
+        env.set(crate::hooks::sources::HOME_ENV, scratch.path().join("home").as_os_str());
         let state = StateRoot::at(scratch.path().join("state"));
         std::fs::create_dir_all(&state.globals).unwrap();
         std::fs::write(state.globals.join("model_endpoints.json"), HOSTED).unwrap();
+        // An extra may hand the chat the reader's own home (the labs' agents
+        // find their sign-ins there). The stand-in server and model still
+        // belong to the scratch: name them by the variables that outrank the
+        // home, so nothing is written into the reader's own `~/.alelyon`.
+        let own = LlamaPaths::from_env(&scratch.env());
+        if !testkit::is_within(scratch.path(), &LlamaPaths::from_env(&env).binary) {
+            env.set(BINARY_ENV, own.binary.as_os_str());
+        }
+        if !testkit::is_within(scratch.path(), &LlamaPaths::from_env(&env).models_dir) {
+            env.set(MODELS_ENV, own.models_dir.as_os_str());
+        }
         let paths = LlamaPaths::from_env(&env);
-        std::fs::create_dir_all(&paths.llama_dir).unwrap();
+        let model = paths.models_dir.join("qwen3-8b.gguf");
+        testkit::assert_within(scratch.path(), &paths.binary);
+        testkit::assert_within(scratch.path(), &model);
+        std::fs::create_dir_all(paths.binary.parent().unwrap()).unwrap();
         std::fs::write(&paths.binary, b"MZ").unwrap();
-        crate::llama::files::tests::gguf(&paths.models_dir.join("qwen3-8b.gguf"));
+        crate::llama::files::tests::gguf(&model);
         std::fs::write(
             state.globals.join("analyst_model.json"),
             "{\"model\": \"qwen3-8b\"}",
@@ -381,6 +399,44 @@ pub(crate) fn files(root: &Path) -> BTreeMap<String, Vec<u8>> {
 /// tokens are the sums (D10).
 /// Mutants: rules placed in the system prompt (TF9); the replay including
 /// the current user record (AF8, E11b's m3).
+/// A harness handed a home of the reader's (as the by-hand tests of the labs'
+/// agents hand it theirs) writes its stand-in server and model into its own
+/// scratch, never into that home's `.alelyon`, and the chat is still given
+/// that home and finds the stand-ins.
+#[test]
+fn a_harness_given_the_readers_home_writes_nothing_into_it() {
+    let reader = testkit::TempDir::new("agent-readers-home");
+    let home = reader.path().to_str().unwrap();
+    let h = H::with(
+        "agent-readers-home",
+        &[("USERPROFILE", home), ("HOME", home)],
+        |_| {},
+    );
+    let written: Vec<_> = std::fs::read_dir(reader.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert!(
+        written.is_empty(),
+        "written into the reader's home: {written:?}"
+    );
+    assert_eq!(
+        crate::env::text(&h.env, "USERPROFILE").as_deref(),
+        Some(home),
+        "the chat still sees the reader's home"
+    );
+    let paths = LlamaPaths::from_env(&h.env);
+    let model = paths.models_dir.join("qwen3-8b.gguf");
+    for file in [&paths.binary, &model] {
+        assert!(
+            testkit::is_within(h.scratch.path(), file),
+            "{}",
+            file.display()
+        );
+        assert!(file.is_file(), "{}", file.display());
+    }
+}
+
 #[test]
 fn an_agent_turn_reads_answers_and_records_its_trail() {
     let h = H::new("agent-turn");
@@ -887,6 +943,57 @@ fn a_review_note_reaches_the_agent_at_its_next_turn() {
         b"a\n",
         "nothing written"
     );
+}
+
+/// An edit's `why` becomes the agent's note on the lines it wrote, tied to its
+/// chat and change; an edit without one leaves none, and nothing is written
+/// to the folder.
+#[test]
+fn an_edits_reason_becomes_the_agents_note_on_the_lines_it_wrote() {
+    let h = H::new("agent-edit-notes");
+    let ws = h.workspace();
+    h.script(vec![
+        call(
+            "edit_file",
+            json!({"path": "a.txt", "old_string": "a", "new_string": "b", "why": " B reads better. "}),
+            "e1",
+        ),
+        call(
+            "write_file",
+            json!({"path": "n.txt", "content": "one\ntwo\n", "why": "A new file."}),
+            "e2",
+        ),
+        call(
+            "write_file",
+            json!({"path": "m.txt", "content": "quiet\n"}),
+            "e3",
+        ),
+        say("staged"),
+    ]);
+    let id = h.agent(None, "change a.txt", &ws);
+    let events = h.turns_end(&id, 1);
+    let staged: Vec<String> = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            ConversationEventKind::Staged { change, .. } => Some(change.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(staged.len(), 3);
+    let clock: crate::clock::Clock = Arc::new(|| 0.0);
+    let notes = crate::notes::Notes::new(&h.state, clock).of_folder(&ws).unwrap();
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    let (a, n) = (&notes[0], &notes[1]);
+    assert_eq!((a.path.as_str(), a.start, a.end, a.quote.as_str()), ("a.txt", 1, 1, "b"));
+    assert_eq!(a.text, "B reads better.");
+    assert_eq!(a.author, crate::notes::Author::Agent);
+    assert_eq!(a.chat.as_deref(), Some(id.as_str()));
+    assert_eq!(a.change.as_ref(), Some(&staged[0]));
+    assert_eq!((n.path.as_str(), n.start, n.end, n.quote.as_str()), ("n.txt", 1, 2, "one\ntwo"));
+    // Not kept: the folder is as it was, so the note reads as stale against it.
+    assert_eq!(std::fs::read(h.folder.join("a.txt")).unwrap(), b"a\n");
+    assert_eq!(crate::notes::place(a, "a\n"), crate::notes::Place::Stale);
+    assert!(!h.folder.join("n.txt").exists());
 }
 
 /// §4.6 and AF9: Lattice closing while a call waits on its approval leaves

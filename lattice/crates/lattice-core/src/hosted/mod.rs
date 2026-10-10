@@ -154,7 +154,8 @@ pub struct HostedModel {
     pub name: String,
     /// Its context window in tokens, when said.
     pub context: Option<u64>,
-    /// US dollars per million input and output tokens, when said (OpenRouter).
+    /// US dollars per million input and output tokens, when said (OpenRouter,
+    /// Together).
     pub price: Option<(f64, f64)>,
 }
 
@@ -231,6 +232,27 @@ impl Http for Web {
     }
 }
 
+impl Web {
+    /// POST `body` as JSON with the reader's key, waiting at most `wait` for
+    /// the whole answer (the editor's completions, which go stale quickly).
+    pub fn post_keyed(
+        &self,
+        url: String,
+        key: SecretString,
+        body: Value,
+        wait: Duration,
+    ) -> BoxFuture<'static, Reply> {
+        let request = self
+            .client
+            .post(url)
+            .timeout(wait)
+            .bearer_auth(key.expose())
+            .header("Content-Type", "application/json")
+            .body(body.to_string());
+        async move { read(request.send().await).await }.boxed()
+    }
+}
+
 /// What a status says, in the reader's words.
 pub(crate) fn status_sentence(provider: &str, status: u16) -> String {
     match status {
@@ -272,6 +294,15 @@ pub async fn list_models(
 /// The models of a `/models` answer (`{data: [...]}`, or a bare list as
 /// Together answers), kept to open-weight chat models and sorted by name.
 pub fn parse_models(provider: &Provider, value: &Value) -> Option<Vec<HostedModel>> {
+    parse_models_where(provider, value, open_weight_chat)
+}
+
+/// The models of a `/models` answer that `keep` keeps, sorted by name.
+pub fn parse_models_where(
+    provider: &Provider,
+    value: &Value,
+    keep: impl Fn(&Provider, &Value) -> bool,
+) -> Option<Vec<HostedModel>> {
     let rows = match value {
         Value::Array(rows) => rows,
         Value::Object(map) => map.get("data")?.as_array()?,
@@ -279,7 +310,7 @@ pub fn parse_models(provider: &Provider, value: &Value) -> Option<Vec<HostedMode
     };
     let mut models: Vec<HostedModel> = rows
         .iter()
-        .filter(|row| open_weight_chat(provider, row))
+        .filter(|row| keep(provider, row))
         .filter_map(|row| {
             let id = row.get("id")?.as_str()?.trim();
             if id.is_empty() {
@@ -313,19 +344,24 @@ pub fn parse_models(provider: &Provider, value: &Value) -> Option<Vec<HostedMode
     Some(models)
 }
 
-/// OpenRouter's prices (US dollars per token, as text) per million tokens.
+/// A row's prices per million input and output tokens: OpenRouter's
+/// `pricing.prompt` and `pricing.completion` (US dollars per token, as text),
+/// or Together's `pricing.input` and `pricing.output` (per million tokens).
 fn price(row: &Value) -> Option<(f64, f64)> {
     let pricing = row.get("pricing")?;
-    let per = |k: &str| -> Option<f64> {
+    let per = |k: &str, scale: f64| -> Option<f64> {
         let v = pricing.get(k)?;
         let n = v.as_f64().or_else(|| v.as_str()?.trim().parse().ok())?;
-        (n.is_finite() && n >= 0.0).then_some(n * 1_000_000.0)
+        (n.is_finite() && n >= 0.0).then_some(n * scale)
     };
-    Some((per("prompt")?, per("completion")?))
+    if pricing.get("prompt").is_some() {
+        return Some((per("prompt", 1_000_000.0)?, per("completion", 1_000_000.0)?));
+    }
+    Some((per("input", 1.0)?, per("output", 1.0)?))
 }
 
 /// Words in an id that name a model that is not a chat model.
-const NOT_CHAT: &[&str] = &[
+pub(crate) const NOT_CHAT: &[&str] = &[
     "whisper",
     "tts",
     "embed",

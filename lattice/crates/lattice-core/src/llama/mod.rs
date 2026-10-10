@@ -94,6 +94,9 @@ pub enum LlamaError {
     /// Another process listened on the port chosen for the server, twice
     /// (LR7a): nothing was sent to it.
     PortTaken,
+    /// The server runs another model, and this request may not switch it
+    /// (an editor's completion never stops a chat's answer).
+    Serving,
 }
 
 impl LlamaError {
@@ -114,6 +117,7 @@ impl LlamaError {
             Self::NotReady => {
                 "The local model is offline: llama.cpp's server did not become ready in time."
             }
+            Self::Serving => "The local model server is running another model now.",
         }
     }
 }
@@ -186,6 +190,15 @@ pub trait ManagedRuntime: Send + Sync {
     fn failed(&self) -> Option<String>;
     /// A server running `model`, started or restarted as needed, and a lease.
     fn open(&self, model: LocalModel) -> BoxFuture<'static, Result<Opened, LlamaError>>;
+    /// As [`open`](Self::open), but never a switch: refused with
+    /// [`LlamaError::Serving`] while the server runs another model. A runtime
+    /// that cannot tell answers from what [`running`](Self::running) says.
+    fn open_unswitched(&self, model: LocalModel) -> BoxFuture<'static, Result<Opened, LlamaError>> {
+        match self.running() {
+            Some(name) if name != model.name => Box::pin(async { Err(LlamaError::Serving) }),
+            _ => self.open(model),
+        }
+    }
     /// What the running server's `/props` says (LR8), read with its token;
     /// `None` when it cannot be read, or by a runtime that cannot read it.
     fn props(&self, endpoint: &ManagedEndpoint) -> BoxFuture<'static, Option<server::Props>> {
