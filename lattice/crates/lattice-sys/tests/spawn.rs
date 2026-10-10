@@ -115,7 +115,9 @@ fn role_grandchild() {
         .current_dir(&dir)
         .spawn()
         .unwrap();
-    std::fs::write(dir.join("grandchild.txt"), grandchild.id().to_string()).unwrap();
+    // Written aside and renamed into place, so the file appears with its id.
+    std::fs::write(dir.join("grandchild.tmp"), grandchild.id().to_string()).unwrap();
+    std::fs::rename(dir.join("grandchild.tmp"), dir.join("grandchild.txt")).unwrap();
     std::thread::sleep(Duration::from_secs(30));
     // Not reached in these tests: the Job ends both first.
     let _ = grandchild.wait();
@@ -230,6 +232,19 @@ fn wait_for(what: &str, seconds: u64, mut condition: impl FnMut() -> bool) {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// The grandchild's process id, once `role_grandchild` has written it. The file
+/// can exist before its contents do, so this waits for a number, not a file.
+fn grandchild_pid(dir: &Path) -> u32 {
+    let mut pid = None;
+    wait_for("the grandchild", 30, || {
+        pid = std::fs::read_to_string(dir.join("grandchild.txt"))
+            .ok()
+            .and_then(|text| text.trim().parse().ok());
+        pid.is_some()
+    });
+    pid.unwrap()
 }
 
 // ------------------------------------------------------------------ the tests
@@ -423,14 +438,7 @@ fn the_jobs_process_list_names_the_child_and_its_grandchild() {
     // The grandchild sleeps a minute, far past the checks below.
     std::fs::write(scratch.path().join("sleep_ms.txt"), "60000").unwrap();
     let child = start_role(scratch.path(), "role_grandchild", &[], &base_env());
-    wait_for("the grandchild", 30, || {
-        scratch.path().join("grandchild.txt").is_file()
-    });
-    let grandchild: u32 = std::fs::read_to_string(scratch.path().join("grandchild.txt"))
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let grandchild = grandchild_pid(scratch.path());
     let ids = child.process_ids().unwrap();
     assert!(
         ids.contains(&child.pid()) && ids.contains(&grandchild),
@@ -555,14 +563,7 @@ fn the_job_has_its_limits_and_closing_it_ends_the_tree() {
     std::fs::write(scratch.path().join("sleep_ms.txt"), "60000").unwrap();
     let child = start_role(scratch.path(), "role_grandchild", &[], &base_env());
     assert_eq!(child.job_limits().unwrap(), JobLimits::default());
-    wait_for("the grandchild", 30, || {
-        scratch.path().join("grandchild.txt").is_file()
-    });
-    let pid: u32 = std::fs::read_to_string(scratch.path().join("grandchild.txt"))
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let pid = grandchild_pid(scratch.path());
     let grandchild = win::open_for_wait(pid);
     drop(child);
     assert!(

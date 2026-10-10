@@ -449,6 +449,7 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
                         "old_string": {"type": "string"},
                         "new_string": {"type": "string"},
                         "replace_all": {"type": "boolean"},
+                        "why": {"type": "string", "maxLength": 400, "description": "One or two sentences on why: shown beside the lines this writes, never written into the file."},
                     }),
                     &["path", "old_string", "new_string"],
                 ),
@@ -457,7 +458,11 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
                 name: "write_file",
                 description: "Stage a new file, or the whole new content of a file you have read. Nothing is written until the user keeps it.",
                 parameters: object(
-                    json!({"path": {"type": "string"}, "content": {"type": "string"}}),
+                    json!({
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                        "why": {"type": "string", "maxLength": 400, "description": "One or two sentences on why: shown beside the lines this writes, never written into the file."},
+                    }),
                     &["path", "content"],
                 ),
             },

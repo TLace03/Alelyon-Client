@@ -1170,6 +1170,59 @@ fn props_and_the_probe_record_decide_the_capabilities() {
     rt.block_on(runtime.shutdown());
 }
 
+/// The editor's completions on the real runtime and client, against the stub:
+/// a completion asks `/infill` over loopback with the launch's token, and
+/// never switches the server from the model a chat is using; nothing about
+/// the running server changes when it is refused.
+#[test]
+fn a_completion_asks_infill_and_never_switches_the_model() {
+    use lattice_core::complete::settings::Choice;
+    use lattice_core::complete::{Completer, Net, Request};
+    use lattice_core::llama::ManagedRuntime;
+
+    let setup = Setup::new("complete");
+    let chat_model = setup.model("chat-model", json!({}));
+    let coder = setup.model("qwen-coder", json!({"text": "1 + 2;"}));
+    let rt = tokio();
+    let runtime = Arc::new(setup.runtime(rt.handle().clone()));
+    let completer = Completer::new(
+        setup.env.clone(),
+        setup.state.clone(),
+        runtime.clone(),
+        Arc::new(Net::new().unwrap()),
+    );
+    let request = Request { prefix: "let x = ".into(), suffix: "\n".into() };
+
+    let held = rt.block_on(runtime.open(chat_model.clone())).unwrap();
+    let pid = runtime.pid().unwrap();
+    let refused = rt.block_on(completer.complete(&Choice::Local { model: "qwen-coder".into() }, &request));
+    assert_eq!(refused, Err(LlamaError::Serving.sentence().to_owned()));
+    let unswitched = rt.block_on(ManagedRuntime::open_unswitched(runtime.as_ref(), coder.clone()));
+    assert_eq!(unswitched.err(), Some(LlamaError::Serving));
+    assert_eq!(runtime.pid(), Some(pid), "the chat's server was not stopped");
+    assert_eq!(runtime.running().as_deref(), Some("chat-model"));
+    drop(held);
+    rt.block_on(runtime.shutdown());
+
+    let runtime = Arc::new(setup.runtime(rt.handle().clone()));
+    let completer = Completer::new(
+        setup.env.clone(),
+        setup.state.clone(),
+        runtime.clone(),
+        Arc::new(Net::new().unwrap()),
+    );
+    let answer = rt.block_on(completer.complete(&Choice::Local { model: "qwen-coder".into() }, &request));
+    assert_eq!(answer, Ok(Some("1 + 2;".to_owned())), "with nothing running, the coder starts");
+    let mut asked = coder.path.clone().into_os_string();
+    asked.push(".stub-infill.json");
+    let body: Value = serde_json::from_slice(&std::fs::read(asked).unwrap()).unwrap();
+    assert_eq!(body["input_prefix"], "let x = ");
+    assert_eq!(body["input_suffix"], "\n");
+    let log = std::fs::read_to_string(coder.path.with_file_name("qwen-coder.gguf.stub-requests.log")).unwrap();
+    assert!(log.lines().any(|l| l.ends_with("POST /infill token")), "{log}");
+    rt.block_on(runtime.shutdown());
+}
+
 static UNPARKS: AtomicUsize = AtomicUsize::new(0);
 
 /// CB1 for the runtime: with a server running and idle, the core's runtime

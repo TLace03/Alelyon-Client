@@ -10,8 +10,10 @@
 //! the host and port it is given:
 //! - `GET /health`, without a token (as llama.cpp serves it): 503 while it
 //!   "loads", then 200;
-//! - `GET /props`, `GET /v1/models` and `POST /v1/chat/completions` with
-//!   `Authorization: Bearer <token>` only; anything else is 401.
+//! - `GET /props`, `GET /v1/models`, `POST /v1/chat/completions` and
+//!   `POST /infill` (answered with `text`, its body kept beside the model as
+//!   `<model>.stub-infill.json`) with `Authorization: Bearer <token>` only;
+//!   anything else is 401.
 //!
 //! What it records, next to the model file: `<model>.stub-<pid>.json`
 //! (its argv, its whole environment and the wall-clock millisecond it
@@ -351,6 +353,10 @@ fn serve(server: &Server, mut stream: TcpStream) {
                 "usage": {"prompt_tokens": 5, "completion_tokens": 3}});
             let _ = stream.write_all(format!("data: {end}\n\ndata: [DONE]\n\n").as_bytes());
             let _ = stream.flush();
+        }
+        ("POST", "/infill") => {
+            let _ = std::fs::write(sibling(&server.config.model, ".stub-infill.json"), &request.body);
+            respond(&mut stream, 200, &json!({"content": server.behaviour.text}));
         }
         _ => respond(
             &mut stream,

@@ -747,10 +747,19 @@ pub(crate) mod tests {
         /// A binary file where the paths say, and a model chosen.
         pub(crate) fn install(&self, model: &str) {
             let paths = self.paths();
+            let file = paths.models_dir.join(format!("{model}.gguf"));
+            self.within(&paths.binary);
+            self.within(&file);
             std::fs::create_dir_all(&paths.llama_dir).unwrap();
             std::fs::write(&paths.binary, b"MZ").unwrap();
-            crate::llama::files::tests::gguf(&paths.models_dir.join(format!("{model}.gguf")));
+            crate::llama::files::tests::gguf(&file);
             self.choose(model);
+        }
+
+        /// Refuse a stand-in outside the fixture's own directory.
+        #[track_caller]
+        pub(crate) fn within(&self, path: &std::path::Path) {
+            crate::testkit::assert_within(self._dir.path(), path);
         }
 
         pub(crate) fn choose(&self, model: &str) {
@@ -947,6 +956,7 @@ pub(crate) mod tests {
             "still Local: nothing is sent"
         );
         let paths = f.paths();
+        f.within(&paths.binary);
         std::fs::create_dir_all(&paths.llama_dir).unwrap();
         std::fs::write(&paths.binary, b"MZ").unwrap();
         assert_eq!(

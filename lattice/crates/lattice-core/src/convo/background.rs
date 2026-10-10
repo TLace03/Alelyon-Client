@@ -253,16 +253,19 @@ pub(crate) fn start(
                 rejected: false,
             }),
         };
+        // It is marked ended before its end is told, so whoever sees the
+        // event finds it ended (a Stop then reaches nothing).
+        let mut told = Vec::new();
         let how = match result {
             Ok(outcome) => {
-                work.convo.log.push(ConversationEventKind::CommandExited {
+                told.push(ConversationEventKind::CommandExited {
                     call_id: run_call.clone(),
                     code: outcome.code,
                     duration_ms: outcome.duration_ms,
                     reason: outcome.reason,
                 });
                 if let Some(effect) = &outcome.after.effect {
-                    work.convo.log.push(ConversationEventKind::CommandEffect {
+                    told.push(ConversationEventKind::CommandEffect {
                         call_id: run_call.clone(),
                         before: effect.before,
                         after: effect.after,
@@ -281,7 +284,7 @@ pub(crate) fn start(
                 how
             }
             Err(refused) => {
-                work.convo.log.push(ConversationEventKind::CommandExited {
+                told.push(ConversationEventKind::CommandExited {
                     call_id: run_call.clone(),
                     code: None,
                     duration_ms: 0,
@@ -291,6 +294,9 @@ pub(crate) fn start(
             }
         };
         work.inner.background.end(&run_call, how);
+        for event in told {
+            work.convo.log.push(event);
+        }
         // The lease goes back once nothing of this folder runs, when no turn
         // of the conversation runs now.
         if let (Some(lease), Some(workspace)) = (&work.lease, &work.workspace)

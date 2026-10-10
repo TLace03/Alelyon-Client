@@ -8,10 +8,14 @@ The client of Alelyon's identity service, as the Alelyon desktop app uses it, wi
   answered on a loopback port (RFC 8252) with PKCE S256 (RFC 7636);
 - **QR pairing**: a code shown on the desktop and approved on a phone that is already signed in;
 - **stay signed in**: the refresh token sealed with Windows' DPAPI for the signed-in Windows user;
-- **friends**: profile and username, exact-username search, friend requests, presence, and one-to-one chat.
+- **friends**: profile and username, exact-username search, friend requests, presence, and one-to-one chat;
+- **pages**: a public page with a title and the organizations a person chooses to show, organizations with
+  unique tickers (members, roles, confirmed titles), and posts, articles, replies, reposts, likes, follows, blocks
+  and reports.
 
 An application draws its own screens over these calls. The HTTP contracts are in [`docs/`](docs/):
-[native sign-in](docs/native-sign-in-contract.md) and [social](docs/social-contract.md).
+[native sign-in](docs/native-sign-in-contract.md), [social](docs/social-contract.md) and
+[pages](docs/pages-contract.md).
 
 ## Quick start
 

@@ -38,6 +38,25 @@ impl Drop for TempDir {
     }
 }
 
+/// Whether `path` lies inside `root`, compared after `.` and `..` are folded
+/// away, nothing read from the disk.
+pub(crate) fn is_within(root: &Path, path: &Path) -> bool {
+    crate::state::tidy(path).starts_with(crate::state::tidy(root))
+}
+
+/// Refuse a test's write outside its own directory: a fixture handed the
+/// reader's own home (as the by-hand tests of the labs' agents are) must
+/// still never write a stand-in into the reader's real `~/.alelyon`.
+#[track_caller]
+pub(crate) fn assert_within(root: &Path, path: &Path) {
+    assert!(
+        is_within(root, path),
+        "a test wrote outside its own directory: {} is not under {}",
+        path.display(),
+        root.display()
+    );
+}
+
 /// Run `work` on a thread and wait for its answer for at most `seconds`:
 /// a hang is a failed test with a name, not a stuck run.
 pub(crate) fn within<T: Send + 'static>(
@@ -141,5 +160,26 @@ mod tests {
         drop(turn);
         // Another run's test may take the turn first; this waits for it.
         other.lock().unwrap();
+    }
+
+    /// A path is inside a root only below it, and `..` cannot climb out.
+    #[test]
+    fn a_path_is_within_a_root_only_below_it() {
+        let root = std::env::temp_dir().join("lattice-core-within");
+        assert!(super::is_within(&root, &root.join("home").join(".alelyon")));
+        assert!(super::is_within(&root, &root));
+        assert!(!super::is_within(&root, &root.join("..").join("elsewhere")));
+        assert!(!super::is_within(
+            &root,
+            &std::env::temp_dir().join("lattice-core-within-not")
+        ));
+        assert!(!super::is_within(&root.join("home"), &root));
+    }
+
+    #[test]
+    #[should_panic(expected = "a test wrote outside its own directory")]
+    fn a_write_outside_the_tests_directory_is_refused() {
+        let root = std::env::temp_dir().join("lattice-core-within");
+        super::assert_within(&root, &root.join("..").join(".alelyon"));
     }
 }
