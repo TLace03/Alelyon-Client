@@ -213,6 +213,7 @@ fn a_plugins_commands_and_skills_join_the_lists_while_it_is_on() {
     let named: Vec<(&str, &str)> = commands
         .commands
         .iter()
+        .filter(|command| command.source != crate::commands::Source::BuiltIn)
         .map(|command| (command.name.as_str(), command.path.as_str()))
         .collect();
     assert_eq!(
@@ -229,7 +230,7 @@ fn a_plugins_commands_and_skills_join_the_lists_while_it_is_on() {
         commands
             .commands
             .iter()
-            .all(|command| command.source == crate::commands::Source::Plugin)
+            .all(|command| matches!(command.source, crate::commands::Source::Plugin | crate::commands::Source::BuiltIn))
     );
     assert!(
         commands
@@ -266,6 +267,12 @@ fn a_plugins_commands_and_skills_join_the_lists_while_it_is_on() {
     );
     plugins.set_on("alelyon", false).unwrap();
     plugins.set_on("linked", false).unwrap();
-    assert!(crate::commands::load(&state, None).commands.is_empty());
+    assert!(
+        crate::commands::load(&state, None)
+            .commands
+            .iter()
+            .all(|command| command.source == crate::commands::Source::BuiltIn),
+        "only Lattice's own are left"
+    );
     assert!(crate::skills::load(&state, None).skills.is_empty());
 }

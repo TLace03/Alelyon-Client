@@ -130,6 +130,8 @@ fn a_chat_with_no_folder_in_a_project_is_an_agent_turn_in_either_mode() {
             "withdraw_task",
             "write_artifact",
             "read_artifact",
+            "give_steps",
+            "read_steps",
             "update_todos"
         ]
     );

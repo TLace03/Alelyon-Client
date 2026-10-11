@@ -648,6 +648,17 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
     } else {
         rules
     };
+    if replayed.left_out > 0 && !hooks.hooks.is_empty() {
+        let verdict = inner.handle.block_on(super::hooked::fire(
+            inner,
+            &hooks,
+            &id,
+            hook_folder.clone(),
+            crate::hooks::Event::PreCompact,
+            super::hooked::Owned::default(),
+        ));
+        hook_notes.extend(verdict.notes);
+    }
     super::hooked::tell(&convo, &hook_notes);
     let lead = replay::lead_item(rules.as_deref(), replayed.left_out, &notes);
     let mut session_items: Vec<InputItem> = lead.into_iter().map(InputItem::User).collect();
@@ -718,6 +729,7 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         }
         state.last_choice = Some(choice.clone());
         state.save_failed = false;
+        state.hooks_seen = Some((hooks.clone(), hook_folder.clone()));
         state.running = Some(Running {
             turn: user_turn.id.clone(),
             control: None,
@@ -1143,6 +1155,11 @@ fn ask_tool(
 ) -> BoxFuture<'static, Result<String, ToolError>> {
     async move {
         let args: crate::tools::ask::AskQuestionArgs = parse_args(&args)?;
+        super::hooked::soon(
+            &tools,
+            crate::hooks::Event::Notification,
+            super::hooked::Owned { message: Some("The agent asks you a question.".to_owned()), ..Default::default() },
+        );
         let convo = tools.convo.clone();
         let turn = tools.turn.clone();
         let now = tools.inner.now();
@@ -1618,7 +1635,7 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                         }
                         "ask_question" => ask_tool(tools, call, args),
                         "spawn_agent" => super::helpers::spawn_agent(tools, call, args),
-                        "git_status" | "git_branch" | "git_commit" | "git_push_pr" => {
+                        "git_status" | "git_diff" | "git_branch" | "git_commit" | "git_push_pr" => {
                             super::git_tools::tool(tools, call, name, args)
                         }
                         "remember" | "forget" => blocking_tool(tools, move |tools| {
@@ -1632,6 +1649,9 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                         }),
                         "command_output" | "stop_command" => blocking_tool(tools, move |tools| {
                             super::background::tool(tools, name, &args)
+                        }),
+                        "give_steps" | "read_steps" => blocking_tool(tools, move |tools| {
+                            super::steps::tool(tools, name, &call, &args)
                         }),
                         "update_todos" => blocking_tool(tools, move |tools| {
                             super::todos::tool(tools, &call, &args)
@@ -2013,6 +2033,14 @@ async fn desktop_request(tools: Arc<TurnTools>, request: ApprovalRequest) -> App
 impl ApprovalPort for TurnApprovals {
     fn request(&self, request: ApprovalRequest) -> BoxFuture<'static, ApprovalDecision> {
         let tools = self.tools.clone();
+        super::hooked::soon(
+            &tools,
+            crate::hooks::Event::Notification,
+            super::hooked::Owned {
+                message: Some(format!("Lattice asks you about the agent's {} call.", request.tool)),
+                ..Default::default()
+            },
+        );
         async move {
             if crate::mcp::names::is_model_name(&request.tool) {
                 return mcp_request(tools, request).await;
@@ -3275,9 +3303,18 @@ async fn run(plan: Plan) {
                 Ok(result)
             }
         };
-    let went_well = matches!(&outcome, Ok(Ok(_)));
+    let answer = match &outcome {
+        Ok(Ok(done)) => Some(done.final_output.clone()),
+        _ => None,
+    };
     finish(&inner, &tools, &resolution, &sink, &calls, outcome, run_id).await;
-    if went_well {
+    if let Some(answer) = answer {
+        if !tools.hooks.hooks.is_empty() {
+            let folder = tools.workspace.as_ref().map(super::hooked::folder_of);
+            let what = super::hooked::Owned { output: Some(answer), ..Default::default() };
+            let verdict = super::hooked::fire(&inner, &tools.hooks, &convo.id, folder, crate::hooks::Event::AfterResponse, what).await;
+            super::hooked::tell(&convo, &verdict.notes);
+        }
         stop_hooks(&tools, &task, resolution.shown.clone()).await;
     } else {
         convo.state().hook_follow_ups = 0;

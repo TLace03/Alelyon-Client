@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::run::{self, Happening};
+use super::run::{self, Happening, Verdict};
 use super::*;
 use crate::env::MapEnv;
 use crate::state::StateRoot;
@@ -19,7 +19,7 @@ fn claude_codes_hooks_are_read_with_their_matchers_and_timeouts() {
         json!({"hooks": {
             "PreToolUse": [{"matcher": "Bash|Edit", "hooks": [{"type": "command", "command": "check.sh", "timeout": 5}]}],
             "PostToolUse": [{"hooks": [{"type": "command", "command": "fmt.sh"}]}],
-            "Notification": [{"hooks": [{"type": "command", "command": "n.sh"}]}],
+            "BeforeModel": [{"hooks": [{"type": "command", "command": "n.sh"}]}],
             "Stop": [{"hooks": [{"type": "prompt", "prompt": "done?"}]}]
         }, "permissions": {"allow": ["Bash"]}, "env": {"KEY": "secret-value"}}),
         Source::ClaudeCode,
@@ -34,7 +34,7 @@ fn claude_codes_hooks_are_read_with_their_matchers_and_timeouts() {
     assert_eq!(post.timeout, formats::DEFAULT_TIMEOUT);
     assert!(post.applies("anything"));
     let said: Vec<&str> = problems.iter().map(|p| p.sentence.as_str()).collect();
-    assert!(said.iter().any(|s| s.contains("Notification hooks are not run")), "{said:?}");
+    assert!(said.iter().any(|s| s.contains("BeforeModel hooks are not run")), "{said:?}");
     assert!(said.iter().any(|s| s.contains("type \"prompt\" is not run")), "{said:?}");
 }
 
@@ -235,4 +235,115 @@ fn a_hook_runs_with_its_event_on_its_standard_input() {
     let ran = run::execute(&env, &globals, &slow, dir.path(), None, &json!({})).unwrap();
     assert_eq!(ran.code, None);
     assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+
+#[test]
+fn every_tools_other_events_map_onto_lattices_and_the_rest_say_why_not() {
+    let (hooks, problems) = read(
+        json!({"version": 1, "hooks": {
+            "subagentStart": [{"command": "a"}], "subagentStop": [{"command": "b"}],
+            "preCompact": [{"command": "c"}], "sessionEnd": [{"command": "d"}],
+            "afterAgentResponse": [{"command": "e"}], "postToolUseFailure": [{"command": "f"}],
+            "beforeTabFileRead": [{"command": "g"}], "afterTabFileEdit": [{"command": "h"}],
+            "workspaceOpen": [{"command": "i"}], "afterAgentThought": [{"command": "j"}]
+        }}),
+        Source::Cursor,
+        Family::Cursor,
+    );
+    let events: std::collections::BTreeSet<Event> = hooks.iter().map(|h| h.event).collect();
+    for event in [
+        Event::SubagentStart, Event::SubagentStop, Event::PreCompact, Event::SessionEnd, Event::AfterResponse,
+        Event::PostToolUseFailure, Event::TabRead, Event::TabEdit, Event::WorkspaceOpen,
+    ] {
+        assert!(events.contains(&event), "{event:?}");
+    }
+    assert!(problems.iter().any(|p| p.sentence.contains("afterAgentThought hooks are not run: Lattice does not keep the model's thinking")));
+    let (claude, _) = read(
+        json!({"hooks": {"Notification": [{"hooks": [{"command": "n"}]}], "SubagentStop": [{"hooks": [{"command": "s"}]}],
+                         "PreCompact": [{"matcher": "manual", "hooks": [{"command": "p"}]}], "SessionEnd": [{"hooks": [{"command": "e"}]}],
+                         "SessionStart": [{"matcher": "resume", "hooks": [{"command": "r"}]}, {"matcher": "startup", "hooks": [{"command": "u"}]}]}}),
+        Source::ClaudeCode,
+        Family::Claude,
+    );
+    let found = Found { hooks: claude, problems: Vec::new() };
+    let what = run::What::default();
+    let start: Vec<&str> = found.for_event(Event::SessionStart, what.subject(Event::SessionStart)).iter().map(|h| h.command.as_str()).collect();
+    assert_eq!(start, ["u"], "a chat's start is `startup`, not `resume`");
+    assert!(found.for_event(Event::PreCompact, what.subject(Event::PreCompact)).is_empty(), "turns left out are `auto`, not `manual`");
+    assert_eq!(found.for_event(Event::Notification, what.subject(Event::Notification)).len(), 1);
+    let (gemini, problems) = read(
+        json!({"hooks": {"PreCompress": [{"hooks": [{"command": "c"}]}], "BeforeModel": [{"hooks": [{"command": "m"}]}]}}),
+        Source::GeminiCli,
+        Family::Gemini,
+    );
+    assert_eq!(gemini[0].event, Event::PreCompact);
+    assert!(problems[0].sentence.contains("BeforeModel hooks are not run: Lattice does not let a hook rewrite"));
+    assert!(Event::TabRead.background() && Event::SessionEnd.background() && !Event::PreToolUse.background());
+}
+
+#[test]
+fn antigravitys_named_hooks_are_read_as_its_documentation_gives_them() {
+    let (hooks, _) = read(
+        json!({
+            "guard": {"PreToolUse": [{"matcher": "run_command|view_file", "hooks": [{"type": "command", "command": "g.sh", "timeout": 5}]}]},
+            "nudge": {"PreInvocation": [{"command": "p.sh"}], "Stop": [{"command": "s.sh"}], "PostInvocation": [{"command": "i.sh"}]},
+            "off": {"enabled": false, "PostToolUse": [{"matcher": "*", "hooks": [{"command": "o.sh"}]}]}
+        }),
+        Source::Antigravity,
+        Family::Antigravity,
+    );
+    let by = |c: &str| hooks.iter().find(|h| h.command == c).unwrap();
+    assert_eq!(hooks.len(), 4, "the switched-off hook is not read");
+    assert_eq!(by("g.sh").timeout, Duration::from_secs(5), "seconds");
+    assert_eq!(by("p.sh").timeout, formats::ANTIGRAVITY_TIMEOUT);
+    assert!(by("g.sh").applies("read_file"), "Antigravity's view_file is Lattice's read_file");
+    assert_eq!(by("p.sh").event, Event::UserPromptSubmit);
+    assert_eq!((by("s.sh").event, by("i.sh").event), (Event::Stop, Event::Stop));
+
+    // Its JSON in, and its answers read.
+    let input = json!({"command": "ls"});
+    let what = Happening { session: "c1", folder: Some(Path::new("C:/work")), tool: Some("run_command"), input: Some(&input), ..Happening::default() };
+    let given = run::payload(by("g.sh"), &what);
+    assert_eq!(given["conversationId"], "c1");
+    assert_eq!(given["workspacePaths"][0], "C:/work");
+    assert_eq!(given["toolCall"]["name"], "run_command");
+    assert_eq!(given["toolCall"]["args"]["command"], "ls");
+    let deny = json!({"decision": "deny", "reason": "not here"}).to_string();
+    assert_eq!(run::verdict(by("g.sh"), Some(0), &deny, "").block.as_deref(), Some("not here"));
+    let go_on = json!({"decision": "continue", "reason": "tests first"}).to_string();
+    assert_eq!(run::verdict(by("s.sh"), Some(0), &go_on, "").block.as_deref(), Some("tests first"));
+    let forced = json!({"terminationBehavior": "force_continue", "injectSteps": [{"userMessage": "check the logs"}]}).to_string();
+    assert_eq!(run::verdict(by("i.sh"), Some(0), &forced, "").block.as_deref(), Some("check the logs"));
+    let told = json!({"injectSteps": [{"ephemeralMessage": "the build is red"}]}).to_string();
+    assert_eq!(run::verdict(by("p.sh"), Some(0), &told, "").context, vec!["the build is red"]);
+}
+
+#[test]
+fn only_hooks_already_allowed_run_for_an_event_that_does_not_ask() {
+    let dir = TempDir::new("hooks-allowed-only");
+    let env = crate::env::ProcessEnv;
+    let state = StateRoot::at(dir.path().join("state"));
+    std::fs::create_dir_all(&state.globals).unwrap();
+    let Some((shell, _)) = run::shell(&env, &state.globals) else {
+        eprintln!("UNMEASURED: no shell on this machine");
+        return;
+    };
+    let bash = shell.file_name().is_some_and(|n| n.eq_ignore_ascii_case("bash.exe"));
+    let mut h = hook(Family::Cursor, Event::TabRead, "beforeTabFileRead");
+    h.command = if bash {
+        r#"grep -q 'API_KEY' && echo '{"permission": "deny"}' || echo '{"permission": "allow"}'"#.into()
+    } else {
+        "echo {\"permission\": \"deny\"}".into()
+    };
+    let found = Found { hooks: vec![h.clone()], problems: Vec::new() };
+    let what = run::What { file: Some(".env".into()), content: Some("API_KEY=1".into()), ..Default::default() };
+    let before = run::run_allowed(&env, &state, &found, Event::TabRead, "", Some(dir.path()), &what);
+    assert_eq!(before, Verdict::default(), "not allowed: it did not run");
+    approvals::allow(&approvals::file(&state), &h, 1.0).unwrap();
+    let after = run::run_allowed(&env, &state, &found, Event::TabRead, "", Some(dir.path()), &what);
+    assert!(after.block.is_some(), "allowed, it ran and refused: {after:?}");
+    let given = run::payload(&h, &Happening { file: Some(".env"), content: Some("API_KEY=1"), folder: Some(dir.path()), ..Happening::default() });
+    assert!(given["file_path"].as_str().unwrap().ends_with(".env"));
+    assert_eq!(given["content"], "API_KEY=1");
 }

@@ -235,6 +235,35 @@ pub enum Item {
         bytes: u64,
         at: f64,
     },
+    /// A checklist the agent gave the reader ([`super::steps`]). A new kind:
+    /// an earlier reader skips the line.
+    StepsGiven {
+        turn: TurnId,
+        call_id: CallId,
+        list: String,
+        title: String,
+        steps: Vec<String>,
+        notify: bool,
+        at: f64,
+    },
+    /// The reader checked or unchecked a step of a checklist.
+    StepChecked {
+        list: String,
+        step: u32,
+        done: bool,
+        at: f64,
+    },
+    /// Whether finishing a checklist tells the agent by itself.
+    StepsNotify {
+        list: String,
+        notify: bool,
+        at: f64,
+    },
+    /// The agent was told a checklist is done.
+    StepsDone {
+        list: String,
+        at: f64,
+    },
     /// The agent's to-do list as it now stands ([`super::todos`]); the latest
     /// one is the list. A new kind: an earlier reader skips the line.
     TodosUpdated {
@@ -350,6 +379,7 @@ impl Item {
             | Item::TaskSuggested { turn, .. }
             | Item::ArtifactSaved { turn, .. }
             | Item::TodosUpdated { turn, .. }
+            | Item::StepsGiven { turn, .. }
             | Item::PlanProposed { turn, .. }
             | Item::ImagesAttached { turn, .. }
             | Item::Staged { turn, .. }
@@ -358,6 +388,9 @@ impl Item {
             Item::Reviewed { .. }
             | Item::TaskSettled { .. }
             | Item::PlanSettled { .. }
+            | Item::StepChecked { .. }
+            | Item::StepsNotify { .. }
+            | Item::StepsDone { .. }
             | Item::Checkpoint { .. }
             | Item::CommandEffect { .. }
             | Item::MovedAside { .. }

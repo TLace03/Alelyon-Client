@@ -7,12 +7,14 @@
 //! - [`vault`]: "stay signed in": the refresh token sealed with Windows' DPAPI for the signed-in Windows user.
 //! - [`social`]: friends, presence and one-to-one chat (`/identity/native/social/*`).
 //! - [`pages`]: public pages, organizations with tickers, titles and posts (`/identity/native/pages/*`).
+//! - [`billing`]: the account's plan, and the web addresses to pay for one or manage it (`/identity/native/billing/*`).
 //!
 //! The contracts these follow are in `docs/` beside this crate. Nothing here logs a token: `Session`'s `Debug`
 //! leaves it out, and a transport error is reported in a few words, never with the request or its URL.
 
 #![deny(unsafe_code)]
 
+pub mod billing;
 pub mod client;
 pub mod loopback;
 pub mod pages;

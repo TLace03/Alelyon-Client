@@ -151,6 +151,22 @@ pub(crate) fn seed(convo: &Convo, items: &[Item]) {
             Item::TodosUpdated { items, .. } => ConversationEventKind::TodosUpdated {
                 items: items.clone(),
             },
+            Item::StepsGiven { list, title, steps, notify, .. } => ConversationEventKind::StepsGiven {
+                list: list.clone(),
+                title: title.clone(),
+                steps: steps.clone(),
+                notify: *notify,
+            },
+            Item::StepChecked { list, step, done, .. } => ConversationEventKind::StepChecked {
+                list: list.clone(),
+                step: *step,
+                done: *done,
+            },
+            Item::StepsNotify { list, notify, .. } => ConversationEventKind::StepsNotify {
+                list: list.clone(),
+                notify: *notify,
+            },
+            Item::StepsDone { list, .. } => ConversationEventKind::StepsDone { list: list.clone() },
             Item::TaskSettled { task, outcome, .. } => ConversationEventKind::TaskSettled {
                 task: task.clone(),
                 outcome: outcome.clone(),

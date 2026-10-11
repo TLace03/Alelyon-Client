@@ -1,12 +1,14 @@
 //! `angel-ears`: the ears from the command line.
 //!
-//!     angel-ears serve [--port 8186] [--attach <host:port> | --model <path> --whisper-exe <path> --whisper-port 8187 [--cpu] [--threads N]] [--language <code|auto>]
+//!     angel-ears serve [--port 8186] [--attach <host:port> | --model <path> --whisper-exe <path> --whisper-port 8187 [--cpu] [--threads N] | --cloud groq [--cloud-model <id>] [--cloud-paused-until <unix time>]] [--language <code|auto>]
 //!     angel-ears transcribe <file> [--format txt|srt|vtt|json] [--out <path>] [--server <host:port>] [--language <code|auto>]
 //!     angel-ears listen [--source mic|pc] [--device <name>] [--seconds N] [--start-rms X] [--server <host:port>] [--language <code|auto>]
 //!     angel-ears devices
 //!
 //! `serve` is the service the window and Sinai's hearing connect to (`server`). It starts its own whisper-server
-//! with the speech model unless `--attach` names one already running; where it looks for both, and what it says when
+//! with the speech model unless `--attach` names one already running, or `--cloud` reads with a provider's
+//! speech-to-text model on the person's own account (`cloud`; its key from the provider's environment variable,
+//! such as `GROQ_API_KEY`); where it looks for both, and what it says when
 //! one is missing, is `setup` (the model `~/.alelyon/angel/models/ggml-large-v3-turbo-q5_0.bin`, the program beside
 //! this one). `transcribe` reads WAV and anything Windows can decode (MP3, M4A/AAC, WMA, FLAC); progress
 //! goes to stderr, the transcript to stdout or `--out`. `listen` prints live captions from the microphone or
@@ -65,7 +67,7 @@ impl Args {
 
 fn usage() -> String {
     [
-        "usage: angel-ears serve [--port 8186] [--attach <host:port> | --model <path> --whisper-exe <path> --whisper-port 8187 [--cpu] [--threads N]] [--language <code|auto>]",
+        "usage: angel-ears serve [--port 8186] [--attach <host:port> | --model <path> --whisper-exe <path> --whisper-port 8187 [--cpu] [--threads N] | --cloud groq [--cloud-model <id>]] [--language <code|auto>]",
         "       angel-ears transcribe <file> [--format txt|srt|vtt|json] [--out <path>] [--server <host:port>] [--language <code|auto>]",
         "       angel-ears listen [--source mic|pc] [--device <name>] [--seconds N] [--start-rms X] [--server <host:port>] [--language <code|auto>]",
         "       angel-ears devices",
@@ -225,22 +227,35 @@ fn home() -> Result<PathBuf, String> {
 
 fn serve(args: &Args) -> Result<(), String> {
     use alelyon_ears::recognizer::{RecognizerProcess, Spec};
-    use alelyon_ears::server::{self, Service, Settings};
+    use alelyon_ears::server::{self, Backend, Service, Settings};
     use alelyon_ears::setup;
 
     let port: u16 = args.opt("port").unwrap_or("8186").parse().map_err(|e| format!("--port: {e}"))?;
     let bind: SocketAddr = SocketAddr::from(([127, 0, 0, 1], port));
     let language = Some(args.opt("language").unwrap_or("auto").to_string());
     let home = home()?;
-    let (recognizer, model, process) = match args.opt("attach") {
-        Some(addr) => {
+    let cloud_provider = args.opt("cloud");
+    let (recognizer, model, process) = match (cloud_provider, args.opt("attach")) {
+        (Some(id), _) => {
+            use alelyon_ears::cloud;
+            let provider = cloud::provider(id).ok_or_else(|| format!("--cloud: {id} is not a provider the ears can read with"))?;
+            let key = cloud::Key::new(std::env::var(provider.key_env).unwrap_or_default());
+            // a stub on this machine stands in for the provider in a debug build only
+            let stub = if cfg!(debug_assertions) { std::env::var(cloud::STUB_ENV).ok().filter(|s| !s.trim().is_empty()) } else { None };
+            let mut spec = cloud::Spec::new(provider, args.opt("cloud-model"), key, stub.as_deref())?;
+            spec.language = language.clone();
+            let name = spec.name();
+            eprintln!("[ears] reading in the cloud: {name}; nothing starts on this PC's card");
+            (Backend::Cloud(std::sync::Arc::new(spec)), name, None)
+        }
+        (None, Some(addr)) => {
             let addr: SocketAddr = addr.parse().map_err(|e| format!("--attach: {e}"))?;
             if !WhisperServer::new(addr).alive() {
                 return Err(format!("no whisper-server answers at {addr}"));
             }
-            (addr, format!("whisper-server at {addr}"), None)
+            (Backend::Whisper(addr), format!("whisper-server at {addr}"), None)
         }
-        None => {
+        (None, None) => {
             let mut given = setup::Given::from_env(None);
             given.model = args.opt("model").map(PathBuf::from);
             given.server = args.opt("whisper-exe").map(PathBuf::from);
@@ -262,7 +277,7 @@ fn serve(args: &Args) -> Result<(), String> {
             let name = model.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             eprintln!("[ears] starting whisper-server with {name}{} ...", if spec.cpu_only { " on the processor" } else { "" });
             let p = RecognizerProcess::start(&spec, Duration::from_secs(180))?;
-            (p.addr, name, Some(p))
+            (Backend::Whisper(p.addr), name, Some(p))
         }
     };
     let listener = std::net::TcpListener::bind(bind).map_err(|e| format!("cannot listen on {bind} (is another ears service running?): {e}"))?;
@@ -282,6 +297,8 @@ fn serve(args: &Args) -> Result<(), String> {
         mic_prompt: Some("Hey Sinai, can you help me? Thank you, Sinai.".to_string()),
         token,
         model,
+        // the window passes a free limit it already knows, so the engine sends nothing into it
+        paused_until: args.opt("cloud-paused-until").map(|t| t.parse().map_err(|e| format!("--cloud-paused-until: {e}"))).transpose()?,
     });
     if let Some(mut process) = process {
         // The recogniser is watched: if it exits, every client is told, rather than readings failing quietly.

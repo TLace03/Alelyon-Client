@@ -23,7 +23,9 @@
 //! or OpenRouter's answer to their approval. A key is never logged, shown or
 //! put in an error.
 
+pub mod meter;
 pub mod openrouter;
+pub mod parts;
 #[cfg(test)]
 mod tests;
 

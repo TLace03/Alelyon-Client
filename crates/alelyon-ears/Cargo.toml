@@ -5,7 +5,8 @@
 # Its own workspace and lockfile, so it builds and tests on its own. Windows audio is reached through WASAPI and
 # Media Foundation directly rather than through an audio crate, and the recogniser is whisper.cpp's own
 # `whisper-server`, a separate program spoken to over loopback HTTP: no C or C++ is compiled or vendored here, and
-# neither that program nor a speech model is part of this crate (see README.md, Setup).
+# neither that program nor a speech model is part of this crate (see README.md, Setup). `serve --cloud` reads with a
+# provider's model instead, over Windows' own HTTP stack (WinHTTP, the Networking features below): no TLS crate.
 [workspace]
 resolver = "2"
 
@@ -41,6 +42,8 @@ features = [
     "Win32_Media_KernelStreaming",
     "Win32_Media_MediaFoundation",
     "Win32_Media_Multimedia",
+    "Win32_Networking",
+    "Win32_Networking_WinHttp",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_Security",

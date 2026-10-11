@@ -20,7 +20,7 @@ How your tools behave:
 - run_command runs one command in Windows PowerShell 5.1 (write PowerShell, not bash), and only after the user approves it. It does not run while staged changes wait for review. It runs as the user, in the folder or a folder inside it. With background set it keeps running after the call returns (a server, a watcher; at most three at once): read what it writes with command_output and end it with stop_command when it is no longer needed.
 - ask_question asks the user and waits for the answer.
 - remember keeps a short note about this folder that every later chat in it starts with (how to build and test it, a convention the user asked for, a decision and its reason); forget takes back one that is wrong or stale. Keep only what will matter again, never a secret. The user can see and delete every note.
-- git_status reads the branch and the changed files. In Agent mode, git_branch makes a branch and switches to it, git_commit commits files after the user allows it (their own git: the repository's hooks run), and git_push_pr pushes the branch and opens a pull request after the user allows it. Commit only when the user asks for it or the work is done and kept; never commit a secret.
+- git_status reads the branch and the changed files; git_diff shows a change (the uncommitted one, everything since the branch left a base, or one commit), for a review. In Agent mode, git_branch makes a branch and switches to it, git_commit commits files after the user allows it (their own git: the repository's hooks run), and git_push_pr pushes the branch and opens a pull request after the user allows it. Commit only when the user asks for it or the work is done and kept; never commit a secret.
 - spawn_agent sends a helper to do one task in the folder on its own: it can list, find, read and search files, and only its answer comes back to you. With edits set (Agent mode) it can also stage changes, which wait for the user's review as yours do. Use it for a search that would take many reads or a separate piece of work, give it a task that stands on its own, and send several at once for separate tasks, never two that change the same files.
 - suggest_task offers the user a separate task, as a chip they may start as a new chat of its own; nothing runs until they do. Use it for something worth doing outside what the user asked (a bug you noticed, stale documentation, a missing test), never for the work at hand, and write a prompt that stands on its own. withdraw_task takes back one that is no longer needed.
 - write_artifact saves a document beside the chat (a plan, a report, a walkthrough, a page) that the user reads apart from your answer; use it for something they will keep or come back to, and answer briefly about it. The same name again saves its next version. read_artifact reads one back.
@@ -108,6 +108,8 @@ pub fn tools_without_folder() -> Vec<ToolDef> {
                     | "write_artifact"
                     | "read_artifact"
                     | "update_todos"
+                    | "give_steps"
+                    | "read_steps"
             )
         })
         .collect()
@@ -350,6 +352,18 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
             parameters: object(json!({}), &[]),
         },
         ToolDef {
+            name: "git_diff",
+            description: "A change as git shows it (a summary of the files, then the lines): with no argument, the uncommitted changes and the new files; with base (a branch), everything since this branch left it, committed and not; with commit, that commit. paths limits it to those files or folders. Read-only.",
+            parameters: object(
+                json!({
+                    "base": {"type": "string"},
+                    "commit": {"type": "string"},
+                    "paths": {"type": "array", "items": {"type": "string"}}
+                }),
+                &[],
+            ),
+        },
+        ToolDef {
             name: "remember",
             description: "Keep a short note about this folder (one line, at most 300 characters) that every later chat in it starts with. At most 50 notes; the user can see and delete them.",
             parameters: object(json!({"note": {"type": "string", "maxLength": 300}}), &["note"]),
@@ -416,6 +430,23 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
                 }),
                 &["name"],
             ),
+        },
+        ToolDef {
+            name: "give_steps",
+            description: "When the user has to do something themselves (sign in, restart a program, set a value), give it as a checklist instead of directions in your answer: the user sees it pinned above the composer and checks each step as it is done. Each step is one line, in order. With notify_when_done (the default), a message tells you when every step is done; meanwhile you hear each check as you work.",
+            parameters: object(
+                json!({
+                    "title": {"type": "string", "maxLength": 80},
+                    "steps": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 200}},
+                    "notify_when_done": {"type": "boolean"},
+                }),
+                &["title", "steps"],
+            ),
+        },
+        ToolDef {
+            name: "read_steps",
+            description: "Every checklist you gave the user in this conversation, with the steps they have checked.",
+            parameters: object(json!({}), &[]),
         },
         ToolDef {
             name: "update_todos",

@@ -5,6 +5,9 @@
 //!   is ahead or behind, and the files changed, through Lattice's own git
 //!   (`git::runner`: no hook, no network), so reading starts no code of the
 //!   repository's. Both modes.
+//! - `git_diff {base, commit, paths}` shows a change as git does, through the
+//!   same git: the uncommitted changes (and the new files), everything since
+//!   the branch left `base`, or one commit; for a review (`/review`). Both modes.
 //! - `git_branch {name}` makes a branch and switches to it (local only).
 //! - `git_commit {message, paths}` commits after the reader's yes in the core's
 //!   own dialog, which shows the branch, the message and the files. It runs
@@ -234,6 +237,150 @@ pub(crate) fn read_status(tools: &TurnTools) -> Result<Status, ToolError> {
     Ok(parse_status(&out.stdout))
 }
 
+/// The most of a diff the agent reads, in characters.
+pub const MAX_DIFF: usize = 60_000;
+
+/// A revision the agent may name (a branch, a tag, a commit id, `HEAD~2`):
+/// no option, no range, no space.
+pub fn revision_ok(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= 200
+        && !text.starts_with('-')
+        && !text.contains("..")
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._/~^@-".contains(c))
+}
+
+/// A path the agent may limit a diff to: inside the folder, as git names it.
+fn path_ok(text: &str) -> bool {
+    !text.is_empty()
+        && !text.starts_with('-')
+        && !text.starts_with('/')
+        && !text.contains(':')
+        && !text.split(['/', '\\']).any(|part| part == "..")
+}
+
+/// Cut a diff at [`MAX_DIFF`] characters, saying so.
+pub fn bounded(text: &str) -> String {
+    match text.char_indices().nth(MAX_DIFF) {
+        Some((at, _)) => format!(
+            "{}\n[... the diff goes on: name paths to read the rest]",
+            &text[..at]
+        ),
+        None => text.to_owned(),
+    }
+}
+
+/// `git_diff {base, commit, paths}`: a change as git shows it, through
+/// Lattice's own git (no hook, no network, no external diff or text
+/// conversion program): with `commit`, that commit; with `base`, everything
+/// since the branch left `base`, committed and not; else the uncommitted
+/// changes, and the new files git does not track yet.
+pub(crate) fn read_diff(
+    tools: &TurnTools,
+    base: &str,
+    commit: &str,
+    paths: &[String],
+) -> Result<String, ToolError> {
+    let workspace = tools.folder()?;
+    let Repo::Git(repo) = &workspace.repo else {
+        return Err(ToolError::new("This folder has no git, so there is no change to show."));
+    };
+    for name in [base, commit].into_iter().filter(|n| !n.is_empty()) {
+        if !revision_ok(name) {
+            return Err(ToolError::new(format!("{name} is not a branch, tag or commit git names.")));
+        }
+    }
+    if let Some(bad) = paths.iter().find(|p| !path_ok(p)) {
+        return Err(ToolError::new(format!("{bad} is not a path inside this folder.")));
+    }
+    let git = |args: &[&str]| -> Result<crate::git::runner::Output, ToolError> {
+        let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+        tools
+            .inner
+            .runner
+            .run(repo, &args, &Extra::default())
+            .map_err(|_| ToolError::new("git could not read this folder's changes."))
+    };
+    let shape = ["--no-color", "--no-ext-diff", "--no-textconv", "--stat", "--patch"];
+    let with_paths = |mut args: Vec<&'static str>, extra: &[String]| -> Vec<String> {
+        let mut all: Vec<String> = args.drain(..).map(str::to_owned).collect();
+        all.extend(extra.iter().cloned());
+        all
+    };
+    let run = |head: Vec<String>| -> Result<String, ToolError> {
+        let mut args = head;
+        args.push("--".to_owned());
+        args.extend(paths.iter().cloned());
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = git(&refs)?;
+        if out.status != 0 {
+            return Err(ToolError::new("git could not show that change."));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let (heading, body) = if !commit.is_empty() {
+        let mut head = vec!["show".to_owned(), "--format=fuller".to_owned()];
+        head.extend(shape.iter().map(|s| (*s).to_owned()));
+        head.push(commit.to_owned());
+        (format!("Commit {commit}:"), run(head)?)
+    } else if !base.is_empty() {
+        let found = git(&["merge-base", "HEAD", base])?;
+        let point = String::from_utf8_lossy(&found.stdout).trim().to_owned();
+        if found.status != 0 || point.is_empty() {
+            return Err(ToolError::new(format!("This branch has no commit in common with {base}.")));
+        }
+        let mut head = with_paths(vec!["diff"], &shape.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>());
+        head.push(point.clone());
+        let short: String = point.chars().take(12).collect();
+        (format!("Everything since this branch left {base} (at {short}), committed and not:"), run(head)?)
+    } else {
+        let has_head = git(&["rev-parse", "--verify", "--quiet", "HEAD"])?.status == 0;
+        let body = if has_head {
+            let mut head = with_paths(vec!["diff"], &shape.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>());
+            head.push("HEAD".to_owned());
+            run(head)?
+        } else {
+            String::new()
+        };
+        let status = read_status(tools)?;
+        let new: Vec<&str> = status
+            .files
+            .iter()
+            .filter(|(code, path)| code == "??" && (paths.is_empty() || paths.iter().any(|p| path.starts_with(p.as_str()))))
+            .map(|(_, path)| path.as_str())
+            .collect();
+        let mut body = body;
+        if !new.is_empty() {
+            body.push_str(&format!(
+                "\nNew files git does not track yet ({}; read them with read_file):\n{}\n",
+                new.len(),
+                new.iter().take(200).map(|p| format!("  {p}")).collect::<Vec<_>>().join("\n")
+            ));
+        }
+        let heading = if has_head {
+            "The uncommitted changes, against HEAD:"
+        } else {
+            "This repository has no commit yet:"
+        };
+        (heading.to_owned(), body)
+    };
+    let mut out = format!("{heading}\n");
+    if body.trim().is_empty() {
+        out.push_str("No change.");
+    } else {
+        out.push_str(&bounded(&body));
+    }
+    let waiting = tools.staging.waiting();
+    if waiting > 0 {
+        out.push_str(&format!(
+            "\n\n{waiting} change(s) Lattice staged wait for review in Changes and are not on disk yet, so git does not show them; read_file does."
+        ));
+    }
+    Ok(out)
+}
+
 /// `git_status`'s answer.
 pub fn status_text(status: &Status) -> String {
     let mut out = match (&status.branch, &status.upstream) {
@@ -318,6 +465,21 @@ pub(crate) fn tool(
                     .await
                     .map_err(|_| ToolError::new("The git step stopped unexpectedly."))??;
                 Ok(status_text(&status))
+            }
+            "git_diff" => {
+                let reading = tools.clone();
+                let (base, commit) = (text(&args, "base"), text(&args, "commit"));
+                let paths: Vec<String> = args
+                    .get("paths")
+                    .and_then(Value::as_array)
+                    .map(|all| all.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                    .unwrap_or_default();
+                tools
+                    .inner
+                    .handle
+                    .spawn_blocking(move || read_diff(&reading, &base, &commit, &paths))
+                    .await
+                    .map_err(|_| ToolError::new("The git step stopped unexpectedly."))?
             }
             "git_branch" => branch(tools, call, &text(&args, "name")).await,
             "git_commit" => {

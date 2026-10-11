@@ -200,6 +200,15 @@ pub(crate) fn spawn_agent(
             ));
         }
         let _running = Running(counter);
+        let folder = tools.workspace.as_ref().map(super::hooked::folder_of);
+        let asked = super::hooked::Owned { message: Some(task.clone()), ..Default::default() };
+        if !tools.hooks.hooks.is_empty() {
+            let start = super::hooked::fire(&tools.inner, &tools.hooks, &tools.convo.id, folder.clone(), crate::hooks::Event::SubagentStart, asked.clone()).await;
+            super::hooked::tell(&tools.convo, &start.notes);
+            if let Some(reason) = start.block.or(start.halt) {
+                return Err(ToolError::new(format!("A hook kept this helper from starting: {reason}")));
+            }
+        }
         let staged = edits.then(|| Arc::new(std::sync::Mutex::new(Vec::new())));
         let agent = Agent::builder("Lattice helper")
             .instructions(if edits {
@@ -224,7 +233,7 @@ pub(crate) fn spawn_agent(
                 .handle
                 .spawn(async move { while events.recv().await.is_ok() {} }),
         );
-        match handle.result.await {
+        let answered = match handle.result.await {
             Ok(Ok(result)) => {
                 let answer = result.final_output.trim();
                 if answer.is_empty() {
@@ -246,6 +255,25 @@ pub(crate) fn spawn_agent(
             Ok(Err(_)) | Err(_) => {
                 Err(ToolError::new("The helper stopped before it could answer."))
             }
+        };
+        if tools.hooks.hooks.is_empty() {
+            return answered;
+        }
+        let what = super::hooked::Owned {
+            output: Some(match &answered {
+                Ok(text) => text.clone(),
+                Err(error) => error.0.clone(),
+            }),
+            failed: answered.is_err(),
+            ..asked
+        };
+        let stop = super::hooked::fire(&tools.inner, &tools.hooks, &tools.convo.id, folder, crate::hooks::Event::SubagentStop, what).await;
+        super::hooked::tell(&tools.convo, &stop.notes);
+        let words: Vec<String> = stop.block.into_iter().chain(stop.context).collect();
+        match (answered, words.is_empty()) {
+            (answered, true) => answered,
+            (Ok(text), false) => Ok(format!("{text}\n\n[A hook adds] {}", words.join("\n"))),
+            (Err(error), false) => Err(ToolError(format!("{}\n\n[A hook adds] {}", error.0, words.join("\n")))),
         }
     }
     .boxed()

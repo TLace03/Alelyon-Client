@@ -10,10 +10,11 @@
 //! - **Gemini CLI:** Claude Code's shape under `hooks` in its settings, with its
 //!   own event names (`BeforeTool`, `AfterTool`, `BeforeAgent`, `AfterAgent`,
 //!   `SessionStart`) and timeouts in milliseconds.
-//! - **Antigravity:** the same, or hooks named by the reader, each holding its
-//!   events (`PreToolUse`, `PostToolUse`, `PreInvocation`) and an `enabled`
-//!   switch. Its documentation does not give every event; the names above are
-//!   read, and others are listed as not run.
+//! - **Antigravity:** hooks named by the reader at the top level (or under
+//!   `hooks` in its CLI's settings), each with an `enabled` switch and its
+//!   events: `PreToolUse` and `PostToolUse` (grouped by `matcher`),
+//!   `PreInvocation` (a message, here `UserPromptSubmit`), `PostInvocation` and
+//!   `Stop` (here `Stop`); timeouts in seconds, 30 by default.
 //!
 //! A hook of `"type": "prompt"` (a model judges, not a command) is listed as
 //! not run. An event Lattice has no equal of is listed as not run.
@@ -27,6 +28,8 @@ use super::{Event, Family, Hook, Matcher, Problem, Source};
 
 /// The default timeout, as Claude Code's.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+/// Antigravity's default timeout.
+pub const ANTIGRAVITY_TIMEOUT: Duration = Duration::from_secs(30);
 /// The longest a hook may be given.
 pub const MAX_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -38,6 +41,17 @@ fn event_of(name: &str) -> Option<(Event, Option<Matcher>)> {
         "UserPromptSubmit" | "BeforeAgent" | "beforeSubmitPrompt" | "PreInvocation" => (Event::UserPromptSubmit, None),
         "Stop" | "AfterAgent" | "stop" => (Event::Stop, None),
         "SessionStart" | "sessionStart" => (Event::SessionStart, None),
+        "Notification" => (Event::Notification, None),
+        "subagentStart" => (Event::SubagentStart, None),
+        "SubagentStop" | "subagentStop" => (Event::SubagentStop, None),
+        "PreCompact" | "preCompact" | "PreCompress" => (Event::PreCompact, None),
+        "SessionEnd" | "sessionEnd" => (Event::SessionEnd, None),
+        "afterAgentResponse" => (Event::AfterResponse, None),
+        "postToolUseFailure" => (Event::PostToolUseFailure, None),
+        "beforeTabFileRead" => (Event::TabRead, None),
+        "afterTabFileEdit" => (Event::TabEdit, None),
+        "workspaceOpen" => (Event::WorkspaceOpen, None),
+        "PostInvocation" => (Event::Stop, None),
         "beforeShellExecution" => (Event::PreToolUse, Some(Matcher::Shell)),
         "afterShellExecution" => (Event::PostToolUse, Some(Matcher::Shell)),
         "beforeMCPExecution" => (Event::PreToolUse, Some(Matcher::Mcp)),
@@ -48,11 +62,22 @@ fn event_of(name: &str) -> Option<(Event, Option<Matcher>)> {
     })
 }
 
-/// A timeout as written: seconds for Claude Code and Cursor, milliseconds for
-/// Gemini CLI and Antigravity.
+/// Why an event Lattice has no equal of is not run.
+fn not_run(native: &str) -> String {
+    match native {
+        "BeforeModel" | "AfterModel" | "BeforeToolSelection" => format!(
+            "{native} hooks are not run: Lattice does not let a hook rewrite what is sent to the model or what it answers."
+        ),
+        "afterAgentThought" => format!("{native} hooks are not run: Lattice does not keep the model's thinking."),
+        _ => format!("{native} hooks are not run: Lattice has no such event."),
+    }
+}
+
+/// A timeout as written: seconds for Claude Code, Cursor and Antigravity,
+/// milliseconds for Gemini CLI.
 fn timeout(value: Option<&Value>, family: Family) -> Duration {
     let Some(n) = value.and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0) else {
-        return DEFAULT_TIMEOUT;
+        return if family == Family::Antigravity { ANTIGRAVITY_TIMEOUT } else { DEFAULT_TIMEOUT };
     };
     let seconds = if family == Family::Gemini { n / 1000.0 } else { n };
     Duration::from_secs_f64(seconds).min(MAX_TIMEOUT)
@@ -103,7 +128,7 @@ impl Reader<'_> {
     /// `hooks`) or Cursor's flat one (the command entries themselves).
     fn event(&mut self, native: &str, list: &Value) {
         let Some((event, implied)) = event_of(native) else {
-            self.problem(format!("{native} hooks are not run: Lattice has no such event."));
+            self.problem(not_run(native));
             return;
         };
         let Some(groups) = list.as_array() else {
@@ -144,6 +169,17 @@ impl Reader<'_> {
 /// The hooks of one file's JSON, in `family`'s format.
 pub fn read(value: &Value, source: &Source, family: Family, file: &Path, plugin_root: Option<&Path>) -> (Vec<Hook>, Vec<Problem>) {
     let mut reader = Reader { source, family, file, plugin_root, out: Vec::new(), problems: Vec::new() };
+    // Antigravity's file is its named hooks themselves.
+    if family == Family::Antigravity && value.get("hooks").is_none() {
+        if let Some(named) = value.as_object() {
+            for hook in named.values().filter_map(Value::as_object) {
+                if hook.get("enabled").and_then(Value::as_bool) != Some(false) {
+                    reader.events(hook);
+                }
+            }
+        }
+        return (reader.out, reader.problems);
+    }
     match value.get("hooks").and_then(Value::as_object) {
         Some(map) => {
             reader.events(map);

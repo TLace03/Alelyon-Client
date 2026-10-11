@@ -296,6 +296,9 @@ pub(crate) struct Running {
 pub(crate) struct State {
     /// Messages Stop hooks sent in a row (`super::hooked`).
     pub hook_follow_ups: u32,
+    /// The hooks its last agent turn read, and its folder: its SessionEnd
+    /// hooks run from them when Lattice closes.
+    pub hooks_seen: Option<(Arc<crate::hooks::Found>, Option<std::path::PathBuf>)>,
     pub sidecar: Option<Arc<Sidecar>>,
     pub staging: Option<Arc<Staging>>,
     pub checkpoints: Option<Arc<Checkpoints>>,
@@ -367,6 +370,7 @@ impl Convo {
                 last_choice: None,
                 save_failed: false,
                 hook_follow_ups: 0,
+                hooks_seen: None,
             }),
         })
     }
@@ -962,6 +966,71 @@ impl AgentChat {
         (found, allowed)
     }
 
+    /// The Tab completions' hooks (`TabRead` before a completion sends a
+    /// file's text, `TabEdit` after one is taken): only those already allowed
+    /// run, as the reader types. `folder` is the editor's folder (its id and
+    /// path); its own hooks are read only when the chat's core trusts it.
+    /// Blocking.
+    pub fn tab_hook(
+        &self,
+        folder: Option<(&str, &std::path::Path)>,
+        event: crate::hooks::Event,
+        file: &str,
+        content: &str,
+    ) -> crate::hooks::run::Verdict {
+        let inner = &self.inner;
+        let trusted = folder.is_some_and(|(id, _)| {
+            lock(&inner.workspaces)
+                .get(id)
+                .is_some_and(|w| inner.trust.state(w) == lattice_protocol::conversation::TrustState::Trusted)
+        });
+        let path = folder.map(|(_, path)| path);
+        let found = crate::hooks::sources::discover(inner.config.env.as_ref(), &inner.config.state, path, trusted);
+        if found.for_event(event, None).is_empty() {
+            return crate::hooks::run::Verdict::default();
+        }
+        let what = crate::hooks::run::What {
+            file: Some(file.to_owned()),
+            content: Some(content.to_owned()),
+            ..Default::default()
+        };
+        crate::hooks::run::run_allowed(inner.config.env.as_ref(), &inner.config.state, &found, event, "", path, &what)
+    }
+
+    /// Allow a hook (by its digest) before it first runs, in the core's own
+    /// dialog: for events that only run hooks already allowed. `Ok(false)`
+    /// when the reader said no or no hook has that digest now.
+    pub fn allow_hook(&self, workspace: Option<String>, digest: String) -> BoxFuture<'static, Result<bool, String>> {
+        let chat = self.clone();
+        async move {
+            let inner = chat.inner.clone();
+            let (found, _) = inner
+                .handle
+                .spawn_blocking({
+                    let chat = chat.clone();
+                    move || chat.hooks(workspace.as_deref())
+                })
+                .await
+                .map_err(|_| "The hooks could not be read.".to_owned())?;
+            let Some(hook) = found.hooks.into_iter().find(|h| h.digest() == digest) else {
+                return Ok(false);
+            };
+            let request = crate::ports::ConfirmRequest::RunHook {
+                source: hook.source.label(),
+                event: format!("{} ({})", hook.native, hook.event.label()),
+                matcher: hook.matcher.text(),
+                command: hook.command.clone(),
+                file: hook.file.display().to_string(),
+                folder: None,
+            };
+            if !inner.confirmer.ask(&format!("hook:{digest}"), request, crate::ports::Initiated::Native).await {
+                return Ok(false);
+            }
+            crate::hooks::approvals::allow(&crate::hooks::approvals::file(&inner.config.state), &hook, inner.now()).map(|()| true)
+        }
+        .boxed()
+    }
+
     /// Take back the reader's allowance of a hook (by its digest): it asks
     /// again before it next runs. `Ok(false)` when none had that digest.
     pub fn revoke_hook(&self, digest: &str) -> Result<bool, String> {
@@ -1172,6 +1241,31 @@ impl AgentChat {
                     )
                     .map_err(|why| refuse(RefusalKind::Invalid, why.sentence()))?;
                     lock(&work.workspaces).insert(workspace.id.clone(), workspace.clone());
+                    // The reader's WorkspaceOpen hooks (those already allowed), not waited for.
+                    let (opened, trusted) = (
+                        super::hooked::folder_of(&workspace),
+                        work.trust.state(&workspace) == lattice_protocol::conversation::TrustState::Trusted,
+                    );
+                    let hooks_of = work.clone();
+                    drop(work.handle.spawn_blocking(move || {
+                        let found = crate::hooks::sources::discover(
+                            hooks_of.config.env.as_ref(),
+                            &hooks_of.config.state,
+                            Some(&opened),
+                            trusted,
+                        );
+                        if !found.for_event(crate::hooks::Event::WorkspaceOpen, None).is_empty() {
+                            crate::hooks::run::run_allowed(
+                                hooks_of.config.env.as_ref(),
+                                &hooks_of.config.state,
+                                &found,
+                                crate::hooks::Event::WorkspaceOpen,
+                                "",
+                                Some(&opened),
+                                &crate::hooks::run::What::default(),
+                            );
+                        }
+                    }));
                     if let Some(id) = &id {
                         let convo = work.load(id)?;
                         let origin = convo.state().origin;
@@ -1226,6 +1320,33 @@ impl AgentChat {
 
     /// Stop every running turn and wait for each to end (at most `wait`).
     pub async fn shutdown(&self, wait: Duration) {
+        // Each open chat's SessionEnd hooks (those already allowed), bounded by the wait.
+        let ending: Vec<(String, Arc<crate::hooks::Found>, Option<std::path::PathBuf>)> = lock(&self.inner.convos)
+            .values()
+            .filter_map(|convo| {
+                let seen = convo.state().hooks_seen.clone()?;
+                Some((convo.id.clone(), seen.0, seen.1))
+            })
+            .filter(|(_, found, _)| !found.for_event(crate::hooks::Event::SessionEnd, None).is_empty())
+            .collect();
+        if !ending.is_empty() {
+            let inner = self.inner.clone();
+            let ends = ending.into_iter().map(|(id, found, folder)| {
+                let inner = inner.clone();
+                inner.handle.clone().spawn_blocking(move || {
+                    crate::hooks::run::run_allowed(
+                        inner.config.env.as_ref(),
+                        &inner.config.state,
+                        &found,
+                        crate::hooks::Event::SessionEnd,
+                        &id,
+                        folder.as_deref(),
+                        &crate::hooks::run::What::default(),
+                    )
+                })
+            });
+            let _ = tokio::time::timeout(wait, futures::future::join_all(ends)).await;
+        }
         // Background commands end with Lattice.
         self.inner.background.stop_all();
         let ids: Vec<String> = lock(&self.inner.convos).keys().cloned().collect();
@@ -1552,6 +1673,51 @@ impl AgentChat {
             shown,
         )
         .boxed()
+    }
+
+    /// The reader checked (or unchecked) step `step` (from 0) of the checklist
+    /// `list` in conversation `id` (`super::steps`). When that finishes a list
+    /// that tells the agent by itself, the agent is told with `choice` and
+    /// `shown`, as the composer would send.
+    pub fn check_step(
+        &self,
+        id: &str,
+        list: &str,
+        step: u32,
+        done: bool,
+        choice: String,
+        shown: Shown,
+    ) -> BoxFuture<'static, Result<(), Refusal>> {
+        let inner = self.inner.clone();
+        let (id, list) = (id.to_owned(), list.to_owned());
+        async move {
+            let finished = {
+                let (inner, id, list) = (inner.clone(), id.clone(), list.clone());
+                inner
+                    .handle
+                    .clone()
+                    .spawn_blocking(move || super::steps::check(&inner, &id, &list, step, done))
+                    .await
+                    .unwrap_or_else(|_| Err(refuse(RefusalKind::Unavailable, refusals::RUNTIME)))?
+            };
+            if finished.is_some() {
+                super::steps::tell_done(inner, id, list, choice, shown).await?;
+            }
+            Ok(())
+        }
+        .boxed()
+    }
+
+    /// Whether finishing the checklist `list` tells the agent by itself.
+    pub fn set_steps_notify(&self, id: &str, list: &str, notify: bool) -> BoxFuture<'static, Result<(), Refusal>> {
+        let (id, list) = (id.to_owned(), list.to_owned());
+        self.blocking(move |inner| super::steps::set_notify(inner, &id, &list, notify))
+    }
+
+    /// The reader's Done on the checklist `list`: the agent is told, sent with
+    /// `choice` and `shown` as the composer sends.
+    pub fn steps_done(&self, id: &str, list: &str, choice: String, shown: Shown) -> BoxFuture<'static, Result<Accepted, Refusal>> {
+        super::steps::tell_done(self.inner.clone(), id.to_owned(), list.to_owned(), choice, shown).boxed()
     }
 
     /// Set aside the plan `plan` of conversation `id` for more planning.

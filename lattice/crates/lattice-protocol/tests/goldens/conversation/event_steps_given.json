@@ -1,0 +1,12 @@
+{
+  "seq": 34,
+  "at": 1790000108.5,
+  "type": "steps_given",
+  "list": "steps_0011223344556677",
+  "title": "Connect OpenRouter",
+  "steps": [
+    "Open the Models page.",
+    "Press Sign in with OpenRouter and approve the key."
+  ],
+  "notify": true
+}
