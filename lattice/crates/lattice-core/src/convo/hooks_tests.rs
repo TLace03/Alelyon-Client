@@ -146,3 +146,111 @@ fn a_stop_hook_has_the_agent_go_on_once() {
     );
     assert_eq!(model.calls().len(), 2, "one more turn, then the hook let it stop");
 }
+
+
+/// Bash's spelling of a Windows path, for a hook's `touch`.
+fn posix(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
+/// Cursor's own hooks file in the harness's home.
+fn cursor_hooks(h: &H, events: serde_json::Value) {
+    let file = h.scratch.path().join("home").join(".cursor").join("hooks.json");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, json!({"version": 1, "hooks": events}).to_string()).unwrap();
+}
+
+/// Allow every hook found now, as the Tools page's Allow does.
+fn allow_all(h: &H, workspace: Option<&str>) {
+    let (found, _) = h.chat.hooks(workspace);
+    let file = crate::hooks::approvals::file(&h.state);
+    for hook in &found.hooks {
+        crate::hooks::approvals::allow(&file, hook, 1.0).unwrap();
+    }
+}
+
+fn eventually(path: &Path) -> bool {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::time::Instant::now() < until {
+        if path.exists() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    false
+}
+
+#[test]
+fn a_helper_may_be_refused_and_a_failed_tool_has_its_own_hook() {
+    let h = H::new("hooks-helper-failure");
+    let ws = h.workspace();
+    let Some(()) = hooks(&h, json!({})) else { return };
+    cursor_hooks(
+        &h,
+        json!({
+            "subagentStart": [{"command": "echo '{\"permission\": \"deny\", \"user_message\": \"no helpers today\"}'"}],
+            "postToolUseFailure": [{"command": "echo '{\"additional_context\": \"that file was renamed to b.txt\"}'"}],
+            "afterAgentResponse": [{"command": format!("touch '{}'", posix(&h.folder.join("answered.mark")))}]
+        }),
+    );
+    let model = h.script(vec![
+        call("spawn_agent", json!({"task": "find the tests"}), "s1"),
+        call("read_file", json!({"path": "missing.txt"}), "r1"),
+        say("done"),
+    ]);
+    let id = h.agent(None, "look", &ws);
+    h.turns_end(&id, 1);
+    let calls = model.calls();
+    assert!(result_of(&calls, "s1").contains("A hook kept this helper from starting: no helpers today"));
+    let failed = result_of(&calls, "r1");
+    assert!(failed.contains("[A hook adds] that file was renamed to b.txt"), "{failed}");
+    assert!(eventually(&h.folder.join("answered.mark")), "the after-answer hook ran");
+}
+
+#[test]
+fn background_events_run_only_allowed_hooks_and_closing_runs_session_end() {
+    let h = H::new("hooks-background");
+    let Some(()) = hooks(
+        &h,
+        json!({
+            "Notification": hook(&format!("touch '{}'", posix(&h.folder.join("waiting.mark")))),
+            "SessionEnd": hook(&format!("touch '{}'", posix(&h.folder.join("ended.mark"))))
+        }),
+    ) else {
+        return;
+    };
+    cursor_hooks(
+        &h,
+        json!({
+            "workspaceOpen": [{"command": format!("touch '{}'", posix(&h.folder.join("opened.mark")))}],
+            "beforeTabFileRead": [{"command": "grep -q API_KEY && echo '{\"permission\": \"deny\"}' || echo '{\"permission\": \"allow\"}'"}]
+        }),
+    );
+    // Not yet allowed: attaching runs nothing and asks nothing.
+    let ws = h.workspace();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    assert!(!h.folder.join("opened.mark").exists());
+    assert_eq!(asked_hooks(&h), 0, "a background event never asks");
+    let tab = h.chat.tab_hook(None, crate::hooks::Event::TabRead, ".env", "API_KEY=1");
+    assert!(tab.block.is_none(), "not allowed: not run");
+
+    allow_all(&h, Some(&ws));
+    let tab = h.chat.tab_hook(None, crate::hooks::Event::TabRead, ".env", "API_KEY=1");
+    assert!(tab.block.is_some(), "allowed: it refused the file");
+    assert!(h.chat.tab_hook(None, crate::hooks::Event::TabRead, "a.txt", "plain").block.is_none());
+    h.attach();
+    assert!(eventually(&h.folder.join("opened.mark")), "attached again: the allowed hook ran");
+
+    // A command's approval is a wait for the reader: the Notification hook runs.
+    let _model = h.script(vec![call("run_command", json!({"command": "echo hi"}), "c1"), say("ok")]);
+    let id = h.agent(None, "run it", &ws);
+    h.events_until(&id, |events| {
+        events.iter().any(|e| matches!(e.kind, lattice_protocol::conversation::ConversationEventKind::ApprovalRequested { .. }))
+    });
+    assert!(eventually(&h.folder.join("waiting.mark")), "the Notification hook ran");
+    h.runtime.block_on(lattice_protocol::conversation::AgentChatService::decide(&h.chat, &id, "c1", lattice_protocol::conversation::Decision::Reject { note: None })).unwrap();
+    h.turns_end(&id, 1);
+
+    h.runtime.block_on(h.chat.shutdown(std::time::Duration::from_secs(30)));
+    assert!(h.folder.join("ended.mark").exists(), "closing ran the SessionEnd hook");
+}

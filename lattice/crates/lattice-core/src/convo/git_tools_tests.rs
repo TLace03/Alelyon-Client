@@ -240,3 +240,69 @@ fn a_branch_is_made_committed_and_pushed_after_the_readers_yes() {
             if branch == "feature-x" && remote == "origin" && title == "Add the feature"
     )));
 }
+
+/// `git_diff` (for `/review`): the uncommitted changes and the new files; the
+/// branch since it left its base; one commit; Lattice's staged changes named
+/// as not on disk; options, ranges and paths out of the folder refused.
+#[test]
+fn a_diff_shows_the_uncommitted_change_the_branch_or_a_commit() {
+    let h = H::new("git-diff");
+    let ws = h.workspace();
+    identity(&h.folder);
+    let base = git(&h.folder, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    std::fs::write(h.folder.join("a.txt"), "alpha\nchanged\n").unwrap();
+    std::fs::write(h.folder.join("new.txt"), "fresh\n").unwrap();
+    let model = h.script(vec![
+        call("git_diff", json!({}), "d1"),
+        call("git_diff", json!({"base": "--output=x.txt"}), "d2"),
+        call("git_diff", json!({"commit": "HEAD..HEAD~1"}), "d3"),
+        call("git_diff", json!({"paths": ["../outside"]}), "d4"),
+        call("write_file", json!({"path": "staged.txt", "content": "staged\n"}), "e1"),
+        call("git_diff", json!({"paths": ["a.txt"]}), "d5"),
+        say("reviewed"),
+    ]);
+    let id = h.agent(None, "review", &ws);
+    h.turns_end(&id, 1);
+    let calls = model.calls();
+    let d1 = result_of(&calls, "d1");
+    assert!(d1.starts_with("The uncommitted changes, against HEAD:"), "{d1}");
+    assert!(d1.contains("+changed") && d1.contains("a.txt"), "{d1}");
+    assert!(d1.contains("New files git does not track yet (1; read them with read_file):\n  new.txt"), "{d1}");
+    assert!(result_of(&calls, "d2").contains("is not a branch, tag or commit"));
+    assert!(result_of(&calls, "d3").contains("is not a branch, tag or commit"));
+    assert!(result_of(&calls, "d4").contains("is not a path inside this folder"));
+    assert!(!h.folder.join("x.txt").exists(), "no option reached git");
+    let d5 = result_of(&calls, "d5");
+    assert!(!d5.contains("new.txt"), "limited to its paths: {d5}");
+    assert!(d5.contains("1 change(s) Lattice staged wait for review"), "{d5}");
+
+    // A branch with a commit of its own, against its base; and that commit.
+    git(&h.folder, &["switch", "-q", "-c", "feature"]);
+    git(&h.folder, &["add", "a.txt"]);
+    git(&h.folder, &["commit", "-q", "-m", "Change a"]);
+    let sha = git(&h.folder, &["rev-parse", "HEAD"]);
+    let model = h.script(vec![
+        call("git_diff", json!({"base": base}), "b1"),
+        call("git_diff", json!({"commit": sha}), "c1"),
+        call("git_diff", json!({"base": "no-such-branch"}), "b2"),
+        say("done"),
+    ]);
+    h.agent(Some(&id), "review the branch", &ws);
+    h.turns_end(&id, 2);
+    let calls = model.calls();
+    let b1 = result_of(&calls, "b1");
+    assert!(b1.starts_with(&format!("Everything since this branch left {base}")), "{b1}");
+    assert!(b1.contains("+changed"), "{b1}");
+    let c1 = result_of(&calls, "c1");
+    assert!(c1.starts_with(&format!("Commit {sha}:")) && c1.contains("Change a") && c1.contains("+changed"), "{c1}");
+    assert!(result_of(&calls, "b2").contains("git could not read") || result_of(&calls, "b2").contains("no commit in common"));
+}
+
+#[test]
+fn a_long_diff_is_cut_and_says_so() {
+    let long = "x".repeat(super::git_tools::MAX_DIFF + 10);
+    let cut = super::git_tools::bounded(&long);
+    assert!(cut.ends_with("[... the diff goes on: name paths to read the rest]"));
+    assert!(super::git_tools::revision_ok("origin/main") && super::git_tools::revision_ok("HEAD~2"));
+    assert!(!super::git_tools::revision_ok("a b") && !super::git_tools::revision_ok("-p"));
+}

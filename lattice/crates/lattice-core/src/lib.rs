@@ -134,6 +134,7 @@ pub mod store;
 mod testkit;
 pub mod text;
 pub mod tools;
+pub mod user_steps;
 pub mod workspace;
 
 pub use catalog::Catalog;

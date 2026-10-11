@@ -27,7 +27,7 @@ use serde_json::Value;
 
 use super::agent::{Convo, Inner};
 use super::turn::TurnTools;
-use crate::hooks::run::{self, Happening, Verdict};
+use crate::hooks::run::{self, Verdict};
 use crate::hooks::{Event, Found, Hook, approvals};
 use crate::ports::{ConfirmRequest, Initiated};
 use crate::tools::read::ToolError;
@@ -39,14 +39,7 @@ pub const MAX_FOLLOW_UPS: u32 = 5;
 pub const FOLLOW_UP: &str = "A Stop hook asks you to go on: ";
 
 /// What happened, owned, for a hook run off the runtime.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Owned {
-    pub tool: Option<String>,
-    pub input: Option<Value>,
-    pub output: Option<String>,
-    pub prompt: Option<String>,
-    pub stop_active: bool,
-}
+pub(crate) use crate::hooks::run::What as Owned;
 
 /// Ask the reader for `hook` the first time; `true` when it may run.
 async fn may_run(inner: &Arc<Inner>, hook: &Hook, folder: Option<&std::path::Path>) -> bool {
@@ -66,31 +59,26 @@ async fn may_run(inner: &Arc<Inner>, hook: &Hook, folder: Option<&std::path::Pat
     yes && approvals::allow(&path, hook, inner.now()).is_ok()
 }
 
-/// Run the hooks of `event` (for a tool event, those for `what.tool`), each
-/// allowed by the reader, one after another; their verdicts together.
+/// Run the hooks of `event` (for a tool event, those for `what.tool`), one
+/// after another, each asked for the first time (or, for an event that comes
+/// while the reader waits, only those already allowed); their verdicts together.
 pub(crate) async fn fire(inner: &Arc<Inner>, found: &Arc<Found>, session: &str, folder: Option<PathBuf>, event: Event, what: Owned) -> Verdict {
-    let hooks: Vec<Hook> = found.for_event(event, what.tool.as_deref()).into_iter().cloned().collect();
+    let hooks: Vec<Hook> = found.for_event(event, what.subject(event)).into_iter().cloned().collect();
     let mut all = Verdict::default();
+    let file = approvals::file(&inner.config.state);
     for hook in hooks {
-        if !may_run(inner, &hook, folder.as_deref()).await {
+        let allowed = if event.background() {
+            approvals::allowed(&file, &hook)
+        } else {
+            may_run(inner, &hook, folder.as_deref()).await
+        };
+        if !allowed {
             continue;
         }
         let (env, globals) = (inner.config.env.clone(), inner.config.state.globals.clone());
         let (what, folder, session) = (what.clone(), folder.clone(), session.to_owned());
         let ran = tokio::task::spawn_blocking(move || {
-            let happening = Happening {
-                session: &session,
-                folder: folder.as_deref(),
-                tool: what.tool.as_deref(),
-                input: what.input.as_ref(),
-                output: what.output.as_deref(),
-                prompt: what.prompt.as_deref(),
-                stop_active: what.stop_active,
-            };
-            let input = run::payload(&hook, &happening);
-            let cwd = run::cwd_for(&hook, folder.as_deref());
-            run::execute(env.as_ref(), &globals, &hook, &cwd, folder.as_deref(), &input)
-                .map(|ran| run::verdict(&hook, ran.code, &ran.stdout, &ran.stderr))
+            run::run_one(env.as_ref(), &globals, &hook, &session, folder.as_deref(), &what)
         })
         .await;
         match ran {
@@ -100,6 +88,19 @@ pub(crate) async fn fire(inner: &Arc<Inner>, found: &Arc<Found>, session: &str, 
         }
     }
     all
+}
+
+/// Run `event`'s hooks without waiting for them (what failed is told).
+pub(crate) fn soon(tools: &Arc<TurnTools>, event: Event, what: Owned) {
+    if tools.hooks.hooks.is_empty() {
+        return;
+    }
+    let tools = tools.clone();
+    drop(tools.inner.handle.clone().spawn(async move {
+        let folder = tools.workspace.as_ref().map(folder_of);
+        let verdict = fire(&tools.inner, &tools.hooks, &tools.convo.id, folder, event, what).await;
+        tell(&tools.convo, &verdict.notes);
+    }));
 }
 
 /// The folder as hooks are given it: its path as people write it.
@@ -155,11 +156,18 @@ pub(crate) fn around(
             Ok(text) => text.clone(),
             Err(error) => error.0.clone(),
         };
-        let what = Owned { tool: Some(name), input: Some(args), output: Some(output), ..Owned::default() };
-        let post = fire(&tools.inner, &tools.hooks, &tools.convo.id, folder, Event::PostToolUse, what).await;
+        let failed = result.is_err();
+        let what = Owned { tool: Some(name), input: Some(args), output: Some(output), failed, ..Owned::default() };
+        let post = fire(&tools.inner, &tools.hooks, &tools.convo.id, folder.clone(), Event::PostToolUse, what.clone()).await;
         tell(&tools.convo, &post.notes);
         words.extend(post.block);
         words.extend(post.context);
+        if failed {
+            let after = fire(&tools.inner, &tools.hooks, &tools.convo.id, folder, Event::PostToolUseFailure, what).await;
+            tell(&tools.convo, &after.notes);
+            words.extend(after.block);
+            words.extend(after.context);
+        }
         if words.is_empty() {
             return result;
         }

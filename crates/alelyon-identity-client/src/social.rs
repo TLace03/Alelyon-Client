@@ -228,6 +228,29 @@ pub async fn set_username(client: &Client, token: &str, username: &str) -> Resul
     call(client, token, "/identity/native/social/profile", json!({"username": username})).await.map(|v| me(&v))
 }
 
+/// The longest display name, in characters, once white space is tidied (`tidy_display_name`).
+pub const DISPLAY_NAME_MAX_CHARS: usize = 64;
+/// The characters a name line keeps for a title and the tickers after a name, so a name may not carry them.
+pub const DISPLAY_NAME_RESERVED: &str = "[]()";
+
+/// A name as the service stores it: trimmed, each run of white space one space.
+pub fn tidy_display_name(name: &str) -> String {
+    name.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether the service takes `name` as a new display name: 1-64 characters once tidied, with no control character and
+/// none of `[ ] ( )`. A name holds a name; a title goes in a page's title.
+pub fn valid_display_name(name: &str) -> bool {
+    let tidy = tidy_display_name(name);
+    let chars = tidy.chars().count();
+    (1..=DISPLAY_NAME_MAX_CHARS).contains(&chars) && !tidy.chars().any(|c| c.is_control() || DISPLAY_NAME_RESERVED.contains(c))
+}
+
+/// Change the account's display name (`valid_display_name`); the service allows a few changes a day.
+pub async fn rename(client: &Client, token: &str, display_name: &str) -> Result<Person, Problem> {
+    call(client, token, "/identity/native/social/profile", json!({"display_name": display_name})).await.map(|v| me(&v))
+}
+
 /// Find someone by their exact username (any case). Never a prefix, never an email, never the caller: a query that
 /// is not a valid username finds nobody.
 pub async fn search(client: &Client, token: &str, query: &str) -> Result<Vec<Person>, Problem> {
@@ -286,6 +309,16 @@ pub async fn send(client: &Client, token: &str, friend_id: &str, text: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_name_holds_a_name_and_nothing_a_name_line_keeps_for_titles_and_tickers() {
+        assert_eq!(tidy_display_name("  Thomas   Lacy "), "Thomas Lacy");
+        assert!(valid_display_name("Thomas Lacy") && valid_display_name("Zoë Ångström"));
+        for bad in ["[ Founder | CEO ] Thomas Lacy", "Ada (LACE)", "", "   ", "Ada\u{0}"] {
+            assert!(!valid_display_name(bad), "{bad:?}");
+        }
+        assert!(valid_display_name(&"x".repeat(64)) && !valid_display_name(&"x".repeat(65)));
+    }
 
     #[test]
     fn the_friends_answer_reads_people_presence_and_requests_and_never_needs_an_email() {

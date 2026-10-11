@@ -9,6 +9,16 @@
 //!   ([`Event::Stop`]: have it go on, with a reason), and when a chat starts
 //!   ([`Event::SessionStart`]: add context). Each runs in Lattice's own agent
 //!   turns (Ask and Agent mode), not in plain answers or the labs' agents' turns.
+//!   Also: when the agent waits for the reader ([`Event::Notification`]), when
+//!   a helper starts (it may be refused) and stops, when earlier turns are left
+//!   out of the model's context ([`Event::PreCompact`]), when Lattice closes
+//!   ([`Event::SessionEnd`]), after an answer ([`Event::AfterResponse`]), after
+//!   a tool failed, before a Tab completion reads a file (it may be refused) and
+//!   after one is taken, and when a folder is attached.
+//! - **Asked, or allowed beforehand:** an event in a turn asks for a hook the
+//!   first time; one that comes while the reader types or waits, or as Lattice
+//!   closes ([`Event::background`]), runs only hooks already allowed (the Tools
+//!   page allows one), so no dialog appears there.
 //! - **Where they are read** ([`sources`]): Lattice's own file
 //!   (`<native>/hooks.json`), the plugins switched on, Claude Code's settings
 //!   (`~/.claude/settings.json`), Cursor's (`~/.cursor/hooks.json`), Gemini
@@ -51,6 +61,24 @@ pub enum Event {
     UserPromptSubmit,
     Stop,
     SessionStart,
+    /// The agent waits for the reader: a dialog or a question.
+    Notification,
+    /// A helper (`spawn_agent`) is about to start; it may be refused.
+    SubagentStart,
+    SubagentStop,
+    /// Earlier turns are left out of what the model is sent.
+    PreCompact,
+    /// Lattice closes with the chat open.
+    SessionEnd,
+    /// A turn ended with an answer.
+    AfterResponse,
+    PostToolUseFailure,
+    /// A Tab completion is about to send a file's text; it may be refused.
+    TabRead,
+    /// A Tab completion was taken.
+    TabEdit,
+    /// A folder was attached.
+    WorkspaceOpen,
 }
 
 impl Event {
@@ -61,7 +89,31 @@ impl Event {
             Event::UserPromptSubmit => "when you send a message",
             Event::Stop => "when the agent stops",
             Event::SessionStart => "when a chat starts",
+            Event::Notification => "when the agent waits for you",
+            Event::SubagentStart => "when a helper starts",
+            Event::SubagentStop => "when a helper stops",
+            Event::PreCompact => "when earlier turns are left out",
+            Event::SessionEnd => "when Lattice closes",
+            Event::AfterResponse => "after an answer",
+            Event::PostToolUseFailure => "after a tool failed",
+            Event::TabRead => "before a Tab completion reads a file",
+            Event::TabEdit => "after a Tab completion is taken",
+            Event::WorkspaceOpen => "when a folder is attached",
         }
+    }
+
+    /// An event that comes while the reader types or waits, or as Lattice
+    /// closes: its hooks run only when already allowed.
+    pub fn background(self) -> bool {
+        matches!(
+            self,
+            Event::Notification | Event::SessionEnd | Event::TabRead | Event::TabEdit | Event::WorkspaceOpen
+        )
+    }
+
+    /// A tool event: its matcher is over tool names.
+    pub fn of_tools(self) -> bool {
+        matches!(self, Event::PreToolUse | Event::PostToolUse | Event::PostToolUseFailure)
     }
 }
 
@@ -72,8 +124,8 @@ pub enum Family {
     /// Claude Code's (and Lattice's own, and plugins').
     Claude,
     Cursor,
-    /// Gemini CLI's and Antigravity's.
     Gemini,
+    Antigravity,
 }
 
 /// Where a hook was read.
@@ -195,10 +247,12 @@ impl Hook {
         crate::sha::sha256_hex(text.as_bytes())
     }
 
-    /// Whether it is for the tool `tool` (a Lattice tool name).
+    /// Whether it is for the tool `tool` (a Lattice tool name), or for an
+    /// event's subject (`startup`, `auto`, `permission_prompt`).
     pub fn applies(&self, tool: &str) -> bool {
         match &self.matcher {
             Matcher::All => true,
+            Matcher::Pattern(_, re) if !self.event.of_tools() => re.is_match(tool),
             Matcher::Pattern(_, re) => {
                 re.is_match(tool) || re.is_match(&run::tool_name(self.family, tool))
             }
@@ -225,7 +279,8 @@ pub struct Found {
 }
 
 impl Found {
-    /// The hooks of `event` (for a tool event, those for `tool`).
+    /// The hooks of `event` (for a tool event, those for `tool`; for another,
+    /// those whose matcher takes its subject, when it has one).
     pub fn for_event(&self, event: Event, tool: Option<&str>) -> Vec<&Hook> {
         self.hooks
             .iter()

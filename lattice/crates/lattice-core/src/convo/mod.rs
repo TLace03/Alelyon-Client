@@ -72,6 +72,9 @@ pub mod git_tools;
 #[cfg(test)]
 mod git_tools_tests;
 pub mod helpers;
+pub mod steps;
+#[cfg(test)]
+mod steps_tests;
 pub(crate) mod hooked;
 #[cfg(test)]
 mod hooks_tests;

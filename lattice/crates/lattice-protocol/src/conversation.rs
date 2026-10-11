@@ -105,6 +105,13 @@ pub fn is_plan_id(id: &str) -> bool {
         .is_some_and(|hex| hex.len() == 16 && is_lower_hex(hex))
 }
 
+/// A checklist of steps the agent gave the reader: `steps_` and 16 lower-case
+/// hex digits.
+pub fn is_steps_id(id: &str) -> bool {
+    id.strip_prefix("steps_")
+        .is_some_and(|hex| hex.len() == 16 && is_lower_hex(hex))
+}
+
 /// How the Python archive identifies a conversation: its id and when it was made.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ArchiveKey {
@@ -961,6 +968,30 @@ pub enum ConversationEventKind {
     PlanSettled {
         plan: PlanId,
         outcome: PlanOutcome,
+    },
+    /// The agent gave the reader steps to do, as a checklist: its id, title
+    /// and steps (each one line), and whether finishing it tells the agent by
+    /// itself.
+    StepsGiven {
+        list: String,
+        title: String,
+        steps: Vec<String>,
+        notify: bool,
+    },
+    /// The reader checked (or unchecked) step `step` (from 0) of `list`.
+    StepChecked {
+        list: String,
+        step: u32,
+        done: bool,
+    },
+    /// Whether finishing `list` tells the agent by itself, as the reader set it.
+    StepsNotify {
+        list: String,
+        notify: bool,
+    },
+    /// The agent was told `list` is done (once).
+    StepsDone {
+        list: String,
     },
     Staged {
         change: ChangeId,

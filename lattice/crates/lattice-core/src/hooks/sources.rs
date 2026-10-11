@@ -34,7 +34,8 @@ const USER_FILES: &[(&str, Family, &[&str])] = &[
     ("claude", Family::Claude, &[".claude", "settings.json"]),
     ("cursor", Family::Cursor, &[".cursor", "hooks.json"]),
     ("gemini", Family::Gemini, &[".gemini", "settings.json"]),
-    ("antigravity", Family::Gemini, &[".gemini", "config", "hooks.json"]),
+    ("antigravity", Family::Antigravity, &[".gemini", "config", "hooks.json"]),
+    ("antigravity", Family::Antigravity, &[".gemini", "antigravity-cli", "settings.json"]),
 ];
 
 /// A trusted folder's files: (format, path in the folder).
@@ -44,7 +45,7 @@ pub const FOLDER_FILES: &[(Family, &str)] = &[
     (Family::Claude, ".claude/settings.local.json"),
     (Family::Cursor, ".cursor/hooks.json"),
     (Family::Gemini, ".gemini/settings.json"),
-    (Family::Gemini, ".agents/hooks.json"),
+    (Family::Antigravity, ".agents/hooks.json"),
 ];
 
 fn user_source(key: &str) -> Source {

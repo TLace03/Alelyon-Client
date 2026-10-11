@@ -35,16 +35,41 @@ use crate::files;
 use crate::resample;
 use crate::stream::{Config as StreamConfig, Event, Source, Transcriber, RATE};
 use crate::wav;
-use crate::whisper::WhisperServer;
+use crate::cloud::{self, CloudRecognizer, Pause};
+use crate::whisper::{Recognizer, Transcript, WhisperServer};
+
+/// What reads the speech: whisper-server on this PC, or a provider's speech-to-text model in the cloud.
+#[derive(Clone, Debug)]
+pub enum Backend {
+    Whisper(SocketAddr),
+    Cloud(Arc<cloud::Spec>),
+}
+
+/// One reading's recogniser, of either backend.
+pub enum Reader {
+    Whisper(WhisperServer),
+    Cloud(CloudRecognizer),
+}
+
+impl Recognizer for Reader {
+    fn transcribe(&mut self, audio: &[f32], prompt: Option<&str>) -> Result<Transcript, String> {
+        match self {
+            Reader::Whisper(r) => r.transcribe(audio, prompt),
+            Reader::Cloud(r) => r.transcribe(audio, prompt),
+        }
+    }
+}
 
 pub struct Settings {
     pub bind: SocketAddr,
-    pub recognizer: SocketAddr,
+    pub recognizer: Backend,
     pub language: Option<String>,
     /// Offered to the recogniser for the microphone, e.g. the spelling of "Sinai".
     pub mic_prompt: Option<String>,
     pub token: String,
     pub model: String,
+    /// A cloud provider's free limit already known when the service starts: paused until then (seconds since 1970).
+    pub paused_until: Option<i64>,
 }
 
 /// Every connected client's outbox.
@@ -130,6 +155,8 @@ pub struct Service {
     jobs: Mutex<Vec<Job>>,
     counter: AtomicU64,
     recognizer_state: Mutex<&'static str>,
+    /// The cloud's free limit, while it is reached.
+    pause: Arc<Pause>,
 }
 
 /// Jobs kept in `ears.state` after they end, newest first.
@@ -141,6 +168,7 @@ impl Service {
     }
 
     fn with_opener(settings: Settings, open: Opener) -> Arc<Service> {
+        let paused_until = settings.paused_until;
         Arc::new(Service {
             settings,
             hub: Hub::default(),
@@ -153,6 +181,13 @@ impl Service {
             jobs: Mutex::new(Vec::new()),
             counter: AtomicU64::new(1),
             recognizer_state: Mutex::new("ready"),
+            pause: Arc::new({
+                let pause = Pause::default();
+                if let Some(until) = paused_until {
+                    pause.set(until);
+                }
+                pause
+            }),
         })
     }
 
@@ -192,9 +227,35 @@ impl Service {
             "type": "ears.state",
             "mic": mic,
             "pc": pc,
-            "recognizer": {"state": *self.recognizer_state.lock().unwrap(), "model": self.settings.model},
+            "recognizer": self.recognizer_state_value(cloud::now()),
             "jobs": jobs,
         })
+    }
+
+    /// The recogniser's state: `paused` with `back_at` (seconds since 1970) while a cloud's free limit is
+    /// reached, `cloud` naming the provider when it reads in the cloud.
+    fn recognizer_state_value(&self, now: i64) -> Value {
+        let mut v = json!({"state": *self.recognizer_state.lock().unwrap(), "model": self.settings.model});
+        if let Backend::Cloud(spec) = &self.settings.recognizer {
+            v["cloud"] = json!(spec.provider.id);
+            if let Some(until) = self.pause.until(now) {
+                v["state"] = json!("paused");
+                v["back_at"] = json!(until);
+            }
+        }
+        v
+    }
+
+    /// A recogniser for one source or job.
+    fn reader(&self) -> Reader {
+        match &self.settings.recognizer {
+            Backend::Whisper(addr) => {
+                let mut r = WhisperServer::new(*addr);
+                r.language = self.settings.language.clone();
+                Reader::Whisper(r)
+            }
+            Backend::Cloud(spec) => Reader::Cloud(CloudRecognizer::new(spec.clone(), Arc::new(crate::winhttp::WinHttp), self.pause.clone())),
+        }
     }
 
     fn announce(&self) {
@@ -337,9 +398,13 @@ impl Service {
     }
 
     fn transcribe_live(self: Arc<Self>, source: Source, rx: Receiver<Vec<f32>>, rate: u32, channels: usize, session: String) {
-        let mut recognizer = WhisperServer::new(self.settings.recognizer);
-        recognizer.language = self.settings.language.clone();
+        let recognizer = self.reader();
         let mut config = StreamConfig::live(source);
+        // In the cloud an utterance is read once, when it ends: readings while it is spoken would spend the
+        // provider's per-minute limit on settling captions.
+        if matches!(self.settings.recognizer, Backend::Cloud(_)) {
+            config.partials = false;
+        }
         if source == Source::Mic {
             config.base_prompt = self.settings.mic_prompt.clone();
         }
@@ -352,8 +417,13 @@ impl Service {
                         transcriber.set_speaking(self.speaking.load(Ordering::SeqCst));
                     }
                     let mono = resample::downmix(&block, channels);
+                    let paused = self.pause.until(cloud::now()).is_some();
                     for e in transcriber.push(&resampler.process(&mono)) {
                         self.emit(&e, &session, source);
+                    }
+                    // a free limit reached during this reading: every client is told the ears are paused
+                    if !paused && self.pause.until(cloud::now()).is_some() {
+                        self.announce();
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -433,8 +503,7 @@ impl Service {
                 return;
             }
         };
-        let mut recognizer = WhisperServer::new(self.settings.recognizer);
-        recognizer.language = self.settings.language.clone();
+        let recognizer = self.reader();
         let mut last = -1i64;
         self.job_update(id, "transcribing", 0.0);
         self.announce();
@@ -621,11 +690,12 @@ mod tests {
     fn settings() -> Settings {
         Settings {
             bind: "127.0.0.1:0".parse().unwrap(),
-            recognizer: "127.0.0.1:9".parse().unwrap(),
+            recognizer: Backend::Whisper("127.0.0.1:9".parse().unwrap()),
             language: None,
             mic_prompt: None,
             token: "secret".into(),
             model: "test".into(),
+            paused_until: None,
         }
     }
 
@@ -659,6 +729,23 @@ mod tests {
         assert_eq!(svc.state()["pc"]["on"], false, "the PC's audio the same way");
         svc.release(4);
         assert_eq!(svc.wanted(), Wants::default(), "a client that asked for nothing changes nothing");
+    }
+
+    #[test]
+    fn a_cloud_recogniser_names_its_provider_and_says_when_it_is_paused() {
+        let spec = cloud::Spec::new(cloud::provider("groq").unwrap(), None, cloud::Key::new("stub-key-for-tests"), None).unwrap();
+        let svc = Service::with_opener(Settings { recognizer: Backend::Cloud(Arc::new(spec)), ..settings() }, stand_in);
+        let now = cloud::now();
+        let r = svc.recognizer_state_value(now);
+        assert_eq!((r["state"].clone(), r["cloud"].clone()), (json!("ready"), json!("groq")));
+        svc.pause.set(now + 600);
+        let r = svc.state()["recognizer"].clone();
+        let started = Service::with_opener(Settings { paused_until: Some(now + 900), ..settings() }, stand_in);
+        assert_eq!(started.pause.until(now), Some(now + 900), "a limit known at start pauses the service from the start");
+        assert_eq!((r["state"].clone(), r["back_at"].clone()), (json!("paused"), json!(now + 600)), "{r}");
+        assert!(!svc.state().to_string().contains("stub-key"), "the key is never in the state");
+        let local = service().state()["recognizer"].clone();
+        assert!(local.get("cloud").is_none() && local.get("back_at").is_none(), "{local}");
     }
 
     #[test]

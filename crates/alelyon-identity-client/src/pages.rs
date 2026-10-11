@@ -107,11 +107,41 @@ pub const ARTICLE_MAX_CHARS: usize = 20000;
 pub const TITLE_MAX_CHARS: usize = 60;
 pub const BIO_MAX_CHARS: usize = 1000;
 
+/// Why a post made as an organization shows no author. Only that organization's active owners and admins are told.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthorFlag {
+    /// The author's account is no longer active: deleted, or disabled by the service.
+    Deleted,
+    /// A moderator suspended the author's page.
+    Suspended,
+}
+
+impl AuthorFlag {
+    pub fn from_word(word: Option<&str>) -> Option<AuthorFlag> {
+        match word {
+            Some("deleted") => Some(AuthorFlag::Deleted),
+            Some("suspended") => Some(AuthorFlag::Suspended),
+            _ => None,
+        }
+    }
+
+    /// What an organization's admin reads on the post.
+    pub fn words(self) -> &'static str {
+        match self {
+            AuthorFlag::Deleted => "Posted by an account that no longer exists.",
+            AuthorFlag::Suspended => "Posted by someone whose page is suspended.",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Post {
     pub id: String,
     pub kind: Kind,
-    pub author: Person,
+    /// Who posted it. None for a post made as an organization whose author is gone: it stays the organization's.
+    pub author: Option<Person>,
+    /// Why `author` is None, for the organization's owners and admins only.
+    pub author_flag: Option<AuthorFlag>,
     /// The organization it was posted as, when it was.
     pub org: Option<Org>,
     /// An article's title.
@@ -138,7 +168,8 @@ impl Post {
         Post {
             id: str_of(v, "id"),
             kind: Kind::from_word(v.get("kind").and_then(Value::as_str)),
-            author: Person::from_json(v.get("author").unwrap_or(&Value::Null)),
+            author: v.get("author").filter(|a| a.is_object()).map(Person::from_json),
+            author_flag: AuthorFlag::from_word(v.get("author_flag").and_then(Value::as_str)),
             org: v.get("org").and_then(Org::from_json),
             title: opt_str(v, "title"),
             text: str_of(v, "text"),
@@ -282,6 +313,12 @@ pub struct Me {
     pub me: Person,
     pub bio: String,
     pub memberships: Vec<Membership>,
+    /// The service names this account a moderator: the moderators' calls are open to it.
+    pub moderator: bool,
+    /// A moderator suspended this account's page: it shows nothing, and posting, liking and following are refused.
+    pub suspended: bool,
+    /// Alelyon may use this account's public posts to improve its services, AI models included: true until it opts out.
+    pub ai_training: bool,
 }
 
 impl Me {
@@ -299,6 +336,9 @@ impl Me {
                     confirmed_title: opt_str(m, "confirmed_title"),
                 })
                 .collect(),
+            moderator: v.get("moderator").and_then(Value::as_bool).unwrap_or(false),
+            suspended: v.get("suspended").and_then(Value::as_bool).unwrap_or(false),
+            ai_training: v.get("ai_training").and_then(Value::as_bool).unwrap_or(true),
         }
     }
 
@@ -376,6 +416,192 @@ pub enum Target {
     Org(String),
 }
 
+// ------------------------------------------------------------------- moderation (moderators only)
+
+/// What a report or a moderator's act names, as a moderator sees it: hidden and suspended things included.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ModTarget {
+    /// `post`, `person`, `org`, or `gone` when it no longer exists.
+    pub kind: String,
+    pub id: String,
+    pub post: Option<Post>,
+    /// The reported person, or a post's author.
+    pub person: Option<Person>,
+    pub org: Option<Org>,
+    /// A person's biography or an organization's about text.
+    pub text: String,
+    /// The post is hidden.
+    pub hidden: bool,
+    /// The page (or the post's author's) or the organization is suspended.
+    pub suspended: bool,
+}
+
+impl ModTarget {
+    pub fn from_json(v: &Value) -> ModTarget {
+        ModTarget {
+            kind: str_of(v, "kind"),
+            id: str_of(v, "id"),
+            post: v.get("post").filter(|p| p.is_object()).map(Post::from_json),
+            person: v.get("person").filter(|p| p.is_object()).map(Person::from_json),
+            org: v.get("org").and_then(Org::from_json),
+            text: str_of(v, "text"),
+            hidden: v.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+            suspended: v.get("suspended").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ModReport {
+    pub id: String,
+    pub reason: String,
+    pub note: String,
+    pub at: String,
+    /// `open`, `actioned` or `dismissed`.
+    pub state: String,
+    pub reporter: Option<Person>,
+    pub target: ModTarget,
+    /// Reports still open on the same target.
+    pub open_on_target: u64,
+    pub resolved_at: Option<String>,
+}
+
+impl ModReport {
+    pub fn from_json(v: &Value) -> ModReport {
+        ModReport {
+            id: str_of(v, "id"),
+            reason: str_of(v, "reason"),
+            note: str_of(v, "note"),
+            at: str_of(v, "at"),
+            state: str_of(v, "state"),
+            reporter: v.get("reporter").filter(|p| p.is_object()).map(Person::from_json),
+            target: ModTarget::from_json(v.get("target").unwrap_or(&Value::Null)),
+            open_on_target: v.get("open_on_target").and_then(Value::as_u64).unwrap_or(0),
+            resolved_at: opt_str(v, "resolved_at"),
+        }
+    }
+
+    pub fn open(&self) -> bool {
+        self.state == "open"
+    }
+}
+
+/// One entry of the moderation log.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ModAction {
+    pub id: String,
+    pub at: String,
+    /// `hide-post`, `restore-post`, `suspend-page`, `restore-page`, `suspend-org`, `restore-org` or `dismiss`.
+    pub action: String,
+    /// The moderator, or None for an act taken on the identity host itself (`by_host`).
+    pub moderator: Option<Person>,
+    pub by_host: bool,
+    /// `post`, `person`, `org` or `report`.
+    pub target_kind: String,
+    pub target_id: String,
+    pub report_id: Option<String>,
+    pub note: String,
+}
+
+impl ModAction {
+    pub fn from_json(v: &Value) -> ModAction {
+        ModAction {
+            id: str_of(v, "id"),
+            at: str_of(v, "at"),
+            action: str_of(v, "action"),
+            moderator: v.get("moderator").filter(|p| p.is_object()).map(Person::from_json),
+            by_host: v.get("by_host").and_then(Value::as_bool).unwrap_or(false),
+            target_kind: str_of(v, "target_kind"),
+            target_id: str_of(v, "target_id"),
+            report_id: opt_str(v, "report_id"),
+            note: str_of(v, "note"),
+        }
+    }
+
+    /// The act in a few words, as a log line says it.
+    pub fn words(&self) -> &'static str {
+        ModAct::from_word(&self.action).map(ModAct::past).unwrap_or(if self.action == "dismiss" { "dismissed a report" } else { "acted" })
+    }
+}
+
+/// What a moderator can do to what a report names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModAct {
+    HidePost,
+    RestorePost,
+    SuspendPage,
+    RestorePage,
+    SuspendOrg,
+    RestoreOrg,
+}
+
+impl ModAct {
+    pub const ALL: [ModAct; 6] =
+        [ModAct::HidePost, ModAct::RestorePost, ModAct::SuspendPage, ModAct::RestorePage, ModAct::SuspendOrg, ModAct::RestoreOrg];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModAct::HidePost => "hide-post",
+            ModAct::RestorePost => "restore-post",
+            ModAct::SuspendPage => "suspend-page",
+            ModAct::RestorePage => "restore-page",
+            ModAct::SuspendOrg => "suspend-org",
+            ModAct::RestoreOrg => "restore-org",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Option<ModAct> {
+        ModAct::ALL.into_iter().find(|a| a.as_str() == word)
+    }
+
+    /// The button's words.
+    pub fn label(self) -> &'static str {
+        match self {
+            ModAct::HidePost => "Hide post",
+            ModAct::RestorePost => "Restore post",
+            ModAct::SuspendPage => "Suspend page",
+            ModAct::RestorePage => "Restore page",
+            ModAct::SuspendOrg => "Suspend organization",
+            ModAct::RestoreOrg => "Restore organization",
+        }
+    }
+
+    /// What was done, for the log.
+    pub fn past(self) -> &'static str {
+        match self {
+            ModAct::HidePost => "hid a post",
+            ModAct::RestorePost => "restored a post",
+            ModAct::SuspendPage => "suspended a page",
+            ModAct::RestorePage => "restored a page",
+            ModAct::SuspendOrg => "suspended an organization",
+            ModAct::RestoreOrg => "restored an organization",
+        }
+    }
+
+    /// The kind of target it acts on: `post`, `person` or `org`.
+    pub fn kind(self) -> &'static str {
+        match self {
+            ModAct::HidePost | ModAct::RestorePost => "post",
+            ModAct::SuspendPage | ModAct::RestorePage => "person",
+            ModAct::SuspendOrg | ModAct::RestoreOrg => "org",
+        }
+    }
+
+    /// The act that fits a target as it stands: hide or suspend it, or restore it when it already is.
+    pub fn for_target(t: &ModTarget) -> Option<ModAct> {
+        Some(match (t.kind.as_str(), t.hidden || t.suspended) {
+            ("post", false) => ModAct::HidePost,
+            ("post", true) if t.hidden => ModAct::RestorePost,
+            ("post", true) => return None, // a post shown nowhere because its author's page is suspended
+            ("person", false) => ModAct::SuspendPage,
+            ("person", true) => ModAct::RestorePage,
+            ("org", false) => ModAct::SuspendOrg,
+            ("org", true) => ModAct::RestoreOrg,
+            _ => return None,
+        })
+    }
+}
+
 /// A post to send.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct NewPost {
@@ -433,6 +659,44 @@ pub fn not_offered(problem: &Problem) -> bool {
     matches!(problem, Problem::Refused(code, _) if code.is_empty())
 }
 
+/// Reports, with what each names: the open ones oldest first, or the closed ones newest first (moderators only).
+pub async fn mod_queue(client: &Client, token: &str, closed: bool, before: Option<&str>) -> Result<(Vec<ModReport>, bool), Problem> {
+    let body = paged(json!({"state": if closed { "closed" } else { "open" }}), before);
+    call(client, token, "mod-queue", body).await.map(|v| {
+        (list_of(&v, "reports").iter().map(ModReport::from_json).collect(), v.get("more").and_then(Value::as_bool).unwrap_or(false))
+    })
+}
+
+/// Act on a target, named directly (`target`), or through a report (`report_id`), or both (they must agree). Hiding
+/// or suspending closes every open report on the target (moderators only).
+pub async fn mod_act(client: &Client, token: &str, act: ModAct, target: Option<&Target>, report_id: Option<&str>, note: &str) -> Result<ModAction, Problem> {
+    let mut body = json!({"action": act.as_str(), "note": note});
+    match target {
+        Some(Target::Post(id)) => body["post_id"] = json!(id),
+        Some(Target::Person(username)) => body["username"] = json!(username),
+        Some(Target::Org(ticker)) => body["ticker"] = json!(ticker),
+        None => {}
+    }
+    if let Some(r) = report_id {
+        body["report_id"] = json!(r);
+    }
+    call(client, token, "mod-act", body).await.map(|v| ModAction::from_json(v.get("action").unwrap_or(&Value::Null)))
+}
+
+/// Close an open report without acting on what it names (moderators only).
+pub async fn mod_dismiss(client: &Client, token: &str, report_id: &str, note: &str) -> Result<ModAction, Problem> {
+    call(client, token, "mod-dismiss", json!({"report_id": report_id, "note": note}))
+        .await
+        .map(|v| ModAction::from_json(v.get("action").unwrap_or(&Value::Null)))
+}
+
+/// The moderation log, newest first (moderators only).
+pub async fn mod_history(client: &Client, token: &str, before: Option<&str>) -> Result<(Vec<ModAction>, bool), Problem> {
+    call(client, token, "mod-history", paged(json!({}), before)).await.map(|v| {
+        (list_of(&v, "actions").iter().map(ModAction::from_json).collect(), v.get("more").and_then(Value::as_bool).unwrap_or(false))
+    })
+}
+
 /// One pages route by name; the client id and the token are added here.
 pub async fn call(client: &Client, token: &str, name: &str, mut body: Value) -> Result<Value, Problem> {
     body["client_id"] = json!(CLIENT_ID);
@@ -471,6 +735,11 @@ pub async fn update(client: &Client, token: &str, title: Option<&str>, title_org
 /// Show exactly these tickers after the reader's name, in this order: none, one or several.
 pub async fn set_tickers(client: &Client, token: &str, tickers: &[String]) -> Result<Me, Problem> {
     call(client, token, "tickers", json!({"tickers": tickers})).await.map(|v| Me::from_json(&v))
+}
+
+/// Allow, or opt out of, Alelyon using the account's public posts to improve its services, AI models included.
+pub async fn ai_training(client: &Client, token: &str, allow: bool) -> Result<Me, Problem> {
+    call(client, token, "ai-training", json!({"allow": allow})).await.map(|v| Me::from_json(&v))
 }
 
 fn paged(mut body: Value, before: Option<&str>) -> Value {
@@ -573,6 +842,12 @@ pub async fn org_members(client: &Client, token: &str, ticker: &str) -> Result<V
     call(client, token, "org-members", json!({"ticker": ticker})).await.map(|v| members_from_json(&v))
 }
 
+/// The organization's posts whose author is gone, each with its `author_flag`, newest first: for its owners and
+/// admins to keep or delete.
+pub async fn org_flagged(client: &Client, token: &str, ticker: &str, before: Option<&str>) -> Result<Posts, Problem> {
+    call(client, token, "org-flagged", paged(json!({"ticker": ticker}), before)).await.map(|v| Posts::from_json(&v))
+}
+
 fn state_of(v: &Value) -> String {
     str_of(v, "state")
 }
@@ -651,6 +926,25 @@ mod tests {
     }
 
     #[test]
+    fn an_organizations_post_whose_author_is_gone_reads_without_them_and_with_the_flag() {
+        let gone = Post::from_json(&json!({"id": "pst_4", "author": null, "author_flag": "suspended", "text": "Hello",
+                                           "org": {"id": "org_1", "ticker": "LACE", "name": "Lace Labs"}}));
+        assert!(gone.author.is_none());
+        assert_eq!(gone.author_flag, Some(AuthorFlag::Suspended));
+        assert_eq!(gone.org.as_ref().map(|o| o.ticker.as_str()), Some("LACE"));
+        let unknown = Post::from_json(&json!({"id": "pst_5", "author": card("ada"), "author_flag": "later"}));
+        assert_eq!((unknown.author.as_ref().map(|a| a.name()), unknown.author_flag), (Some("Ada Lovelace"), None));
+        assert_eq!(AuthorFlag::from_word(Some("deleted")), Some(AuthorFlag::Deleted));
+    }
+
+    #[test]
+    fn the_ai_training_choice_reads_as_allowed_unless_the_service_says_otherwise() {
+        assert!(!Me::from_json(&json!({"me": card("ada"), "ai_training": false})).ai_training);
+        assert!(Me::from_json(&json!({"me": card("ada"), "ai_training": true})).ai_training);
+        assert!(Me::from_json(&json!({"me": card("ada")})).ai_training, "allowed until an account opts out");
+    }
+
+    #[test]
     fn pages_of_posts_say_where_the_next_one_starts() {
         let page = Posts::from_json(&json!({"posts": [{"id": "pst_a"}, {"id": "pst_b"}], "more": true}));
         assert_eq!(page.next().as_deref(), Some("pst_b"));
@@ -696,6 +990,39 @@ mod tests {
         assert_eq!(article, json!({"kind": "article", "text": "Body", "title": "T", "as_org": "LACE"}));
         let repost = NewPost { repost_of: Some("pst_1".into()), ..NewPost::default() }.body();
         assert_eq!(repost, json!({"kind": "post", "text": "", "repost_of": "pst_1"}));
+    }
+
+    #[test]
+    fn a_moderators_queue_and_log_read_with_their_targets() {
+        let me = Me::from_json(&json!({"me": card("mona"), "memberships": [], "moderator": true, "suspended": false}));
+        assert!(me.moderator && !me.suspended);
+        assert!(!Me::from_json(&json!({"me": card("ada")})).moderator, "absent reads as not a moderator");
+        let report = ModReport::from_json(&json!({
+            "id": "rpt_1", "reason": "spam", "note": "Sells things.", "at": "t", "state": "open",
+            "reporter": card("bob"), "open_on_target": 2, "resolved_at": null, "resolved_by": null,
+            "target": {"kind": "post", "id": "pst_1", "post": {"id": "pst_1", "text": "Buy now"},
+                       "person": card("ada"), "org": null, "text": "", "hidden": false, "suspended": false}
+        }));
+        assert!(report.open());
+        assert_eq!((report.target.kind.as_str(), report.open_on_target), ("post", 2));
+        assert_eq!(report.target.post.as_ref().map(|p| p.text.as_str()), Some("Buy now"));
+        assert_eq!(ModAct::for_target(&report.target), Some(ModAct::HidePost));
+        let hidden = ModTarget { kind: "post".into(), hidden: true, ..ModTarget::default() };
+        assert_eq!(ModAct::for_target(&hidden), Some(ModAct::RestorePost));
+        let behind_suspension = ModTarget { kind: "post".into(), suspended: true, ..ModTarget::default() };
+        assert_eq!(ModAct::for_target(&behind_suspension), None, "restored through the page, not the post");
+        let page = ModTarget { kind: "person".into(), suspended: true, ..ModTarget::default() };
+        assert_eq!(ModAct::for_target(&page), Some(ModAct::RestorePage));
+        assert_eq!(ModAct::for_target(&ModTarget { kind: "gone".into(), ..ModTarget::default() }), None);
+        let log = ModAction::from_json(&json!({"id": "mod_1", "at": "t", "action": "suspend-page", "moderator": card("mona"),
+                                               "by_host": false, "target_kind": "person", "target_id": "acct_ada",
+                                               "report_id": "rpt_1", "note": "Impersonation."}));
+        assert_eq!((log.words(), log.report_id.as_deref()), ("suspended a page", Some("rpt_1")));
+        let host = ModAction::from_json(&json!({"action": "dismiss", "moderator": null, "by_host": true}));
+        assert_eq!((host.words(), host.by_host, host.moderator), ("dismissed a report", true, None));
+        for act in ModAct::ALL {
+            assert_eq!(ModAct::from_word(act.as_str()), Some(act));
+        }
     }
 
     #[test]

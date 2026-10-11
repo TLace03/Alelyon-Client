@@ -110,13 +110,17 @@ fn a_folders_commands_are_read_only_when_it_is_trusted_and_by_the_path_rules() {
             .unwrap()
     };
     assert!(
-        load_as(TrustState::Untrusted).commands.is_empty(),
+        load_as(TrustState::Untrusted)
+            .commands
+            .iter()
+            .all(|c| c.source == Source::BuiltIn),
         "an untrusted folder's commands are not read"
     );
     let found = load_as(TrustState::Trusted);
     let listed: Vec<(&str, &str)> = found
         .commands
         .iter()
+        .filter(|c| c.source != Source::BuiltIn)
         .map(|c| (c.name.as_str(), c.id.as_str()))
         .collect();
     assert_eq!(
@@ -127,7 +131,7 @@ fn a_folders_commands_are_read_only_when_it_is_trusted_and_by_the_path_rules() {
             ("plan", ".cursor/commands/plan.md"),
         ]
     );
-    assert!(found.commands.iter().all(|c| c.source == Source::Folder));
+    assert!(found.commands.iter().all(|c| matches!(c.source, Source::Folder | Source::BuiltIn)));
     assert_eq!(found.commands[1].description, "Ship it");
 }
 
@@ -153,4 +157,23 @@ fn a_command_expands_its_arguments_and_nothing_else() {
         "!git status\nThen go @notes.md",
         "a ! line and an @path stay text"
     );
+}
+
+#[test]
+fn review_is_built_in_unless_a_command_of_that_name_takes_its_place() {
+    let scratch = Scratch::new("commands-built-in");
+    let state = state(&scratch);
+    let found = load(&state, None);
+    let review = found.find("builtin:review").expect("/review is built in");
+    assert_eq!((review.name.as_str(), review.source), ("review", Source::BuiltIn));
+    assert!(review.body.contains("change nothing") && review.body.contains("git_diff"));
+    let text = expand(review, "against develop");
+    assert!(text.contains("What to review: against develop"), "{text}");
+    assert!(expand(review, "").contains("What to review: \n"), "nothing named: the uncommitted changes");
+
+    write(&user_commands_dir(&state).join("review.md"), "My own review of $ARGUMENTS.");
+    let found = load(&state, None);
+    let reviews: Vec<&Command> = found.commands.iter().filter(|c| c.name == "review").collect();
+    assert_eq!(reviews.len(), 1);
+    assert_eq!(reviews[0].source, Source::User, "the reader's own takes its place");
 }

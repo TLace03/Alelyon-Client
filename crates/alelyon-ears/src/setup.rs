@@ -7,7 +7,8 @@
 //! - The recogniser: `--whisper-exe`, else `ANGEL_WHISPER_SERVER`, else [`SERVER_PROGRAM`] beside the engine's own
 //!   program, or in a `whisper` folder beside it.
 //!
-//! `--attach <host:port>` uses a recogniser that is already running, and then neither is needed.
+//! `--attach <host:port>` uses a recogniser that is already running, and `--cloud <provider>` reads in the cloud
+//! (`cloud`); then neither is needed.
 
 use std::path::{Path, PathBuf};
 
@@ -32,7 +33,7 @@ pub fn models_dir(home: &Path) -> PathBuf {
 /// What the rule reads, so it can be tested without changing the environment.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Given {
-    /// `--attach`: a recogniser already running, so nothing else is needed.
+    /// `--attach` (a recogniser already running) or `--cloud` (a provider's): nothing else is needed on this PC.
     pub attach: bool,
     /// `--model`.
     pub model: Option<PathBuf>,
@@ -62,12 +63,12 @@ impl Given {
         }
     }
 
-    /// The same, with an engine's command-line options (`--attach`, `--model`, `--whisper-exe`) read from `args`, as
+    /// The same, with an engine's command-line options (`--attach`, `--cloud`, `--model`, `--whisper-exe`) read from `args`, as
     /// `serve` would read them.
     pub fn with_args<S: AsRef<str>>(mut self, args: &[S]) -> Given {
         let args: Vec<&str> = args.iter().map(AsRef::as_ref).collect();
         let value = |name: &str| args.iter().rposition(|a| *a == name).and_then(|i| args.get(i + 1)).map(PathBuf::from);
-        self.attach = args.contains(&"--attach");
+        self.attach = args.contains(&"--attach") || args.contains(&"--cloud");
         self.model = value("--model").or(self.model);
         self.server = value("--whisper-exe").or(self.server);
         self
@@ -228,6 +229,8 @@ mod tests {
     fn an_engines_options_are_read_as_serve_reads_them() {
         let g = given().with_args(&["--attach", "127.0.0.1:18178"]);
         assert!(g.attach);
+        let g = given().with_args(&["--cloud", "groq", "--cloud-model", "whisper-large-v3-turbo"]);
+        assert!(g.attach && g.missing(|_| false).is_empty(), "the cloud needs no model or recogniser on this PC");
         let g = given().with_args(&["--model", "a.bin", "--whisper-exe", "w.exe", "--model", "b.bin"]);
         assert_eq!((g.model.clone(), g.server.clone()), (Some(PathBuf::from("b.bin")), Some(PathBuf::from("w.exe"))), "the last one, as serve's options");
         assert!(!g.attach);

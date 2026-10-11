@@ -47,7 +47,11 @@ own words and never the text itself.
 - A **post** has these fields:
   - `id`;
   - `kind`: `post` or `article`;
-  - `author`: a person;
+  - `author`: a person, or null for a post made as an org whose author is
+    gone (the account is no longer active, or its page is suspended). Such a
+    post stays the org's;
+  - `author_flag`: why `author` is null, `deleted` or `suspended`. Only the
+    org's active owners and admins are told; for everyone else it is null;
   - `org`: the org it was posted as, or null;
   - `title`: an article's title;
   - `text`;
@@ -94,15 +98,17 @@ own words and never the text itself.
 
 | route | body (besides `client_id`, `refresh_token`) | replies |
 |---|---|---|
-| `me` | | 200 `{"me": person, "bio", "memberships": [{"org", "role", "state", "shown", "confirmed_title", "since"}]}` |
+| `me` | | 200 `{"me": person, "bio", "memberships": [{"org", "role", "state", "shown", "confirmed_title", "since"}], "moderator", "suspended", "ai_training"}` |
 | `open`, `close` | | 200, as `me` |
 | `update` | `title?`, `title_org?` (a ticker; empty for none; an active membership), `bio?` | 200, as `me`; 409 `page-needed`, `not-a-member` |
 | `tickers` | `tickers` (a list, in order) | 200, as `me`; each must be an active membership; every other one is hidden |
+| `ai-training` | `allow` (`true` or `false`) | 200, as `me`: whether Alelyon may use the account's public posts to improve its services, AI models included. Allowed until the account opts out; it needs no page |
 | `person` | `username`, `before?` | 200 `{"person", "bio", "followers", "following", "posts", "more", "you_follow", "you_block"}`; 404 `no-such-page` |
 | `org` | `ticker`, `before?` | 200 `{"org", "about", "created_at", "followers", "members": [person], "posts", "more", "you_follow", "your_role", "your_state"}`; 404 `no-such-org` |
 | `org-create` | `ticker`, `name`, `about?` | 200 `{"org"}`; 400 `invalid-ticker`; 409 `ticker-taken`, `ticker-reserved`, `too-many-orgs` (10 owned) |
 | `org-update` | `ticker`, `name?`, `about?` | 200 `{"org"}`; 403 `not-org-admin` |
 | `org-members` | `ticker` | 200 `{"members": [{"person", "role", "state", "confirmed_title", "since"}]}`; owners and admins only |
+| `org-flagged` | `ticker`, `before?` | 200 `{"posts", "more"}`: the org's posts whose author is gone, newest first, each with its `author_flag`; owners and admins only (403 `not-org-admin`) |
 | `org-join` | `ticker` | 200 `{"state": "requested"\|"member"}` |
 | `org-invite` | `ticker`, `username` | 200 `{"state": "invited"\|"member"}`; owners and admins only |
 | `org-leave` | `ticker` | **204**; leaves, withdraws a request or declines an invitation; 409 `last-owner` |
@@ -120,19 +126,73 @@ own words and never the text itself.
 | `explore` | `before?` | 200 a page of posts: every top-level post |
 | `report` | `reason` (`spam`\|`harassment`\|`impersonation`\|`illegal`\|`other`), `note?`, one of `post_id`, `username`, `ticker` | 200 `{"report_id"}` |
 
+## Moderation
+
+The service names its moderators in its configuration: the accounts whose
+usernames it lists. For them, `me` answers `"moderator": true`. Anyone else
+gets 403 `not-a-moderator` from these four routes. They are open to the app
+only, not to the website. Each is `POST /identity/native/pages/<name>`, with
+`client_id` and `refresh_token` in the body as above.
+
+| route | body | replies |
+|---|---|---|
+| `mod-queue` | `state?` (`open`, the default, or `closed`), `before?` | 200 `{"reports": [report], "more"}`: open reports oldest first, closed ones newest first |
+| `mod-act` | `action`, then the target as `post_id`, `username` or `ticker`, or `report_id` alone (or both, which must agree), `note?` | 200 `{"action": action}`; 404 `no-such-post`, `no-such-person`, `no-such-org`, `no-such-report`; 409 `wrong-target` |
+| `mod-dismiss` | `report_id`, `note?` | 200 `{"action": action}`; 404 `no-such-report`; 409 `report-closed` |
+| `mod-history` | `before?` | 200 `{"actions": [action], "more"}`, newest first |
+
+- **Actions:** `hide-post`, `restore-post`, `suspend-page`, `restore-page`,
+  `suspend-org`, `restore-org`. Hiding or suspending closes every open report
+  on that target as `actioned`.
+- **A suspended page** shows nothing: no page and none of that person's posts,
+  posts made as an organization included. Its owner gets 403
+  `page-suspended` from `open`, `update`, `post`, `edit`, `like`, `follow`
+  and `org-create`, and `me` answers `"suspended": true`. Closing one's own
+  page does not end a suspension; a moderator's `restore-page` does.
+- **A report** has these fields:
+  - `id`, `reason`, `note`, `at`;
+  - `state`: `open`, `actioned` or `dismissed`;
+  - `reporter`: a person;
+  - `target`;
+  - `open_on_target`: open reports on the same target;
+  - `resolved_at`, `resolved_by`.
+
+  A **target** has these fields:
+  - `kind`: `post`, `person`, `org`, or `gone`;
+  - `id`;
+  - `post`;
+  - `person`: the reported person or a post's author;
+  - `org`;
+  - `text`: a biography or an organization's about text;
+  - `hidden`;
+  - `suspended`.
+
+  Hidden and suspended things are included.
+- **An action** has these fields:
+  - `id`, `at`;
+  - `action`: one of the above, or `dismiss`;
+  - `moderator`: a person, or null with `by_host: true` for an act taken on
+    the service's own host;
+  - `target_kind`: `post`, `person`, `org` or `report`;
+  - `target_id`, `report_id`, `note`.
+
+  The service keeps every action in a log its database will not let anyone
+  rewrite.
+
 ## Rate limits
 
 The signed-in routes are limited per account:
 
 | routes | limit |
 |---|---|
-| reads (`me`, `person`, `org`, `org-members`, `thread`, `feed`, `explore`) | 240 per minute |
+| reads (`me`, `person`, `org`, `org-members`, `org-flagged`, `thread`, `feed`, `explore`) | 240 per minute |
 | `post` | 30 per hour |
 | `org-create` | 5 per day |
 | `report` | 20 per hour |
 | every other route | 300 per hour |
 
-The public reads are limited to 120 per minute per source address. A refusal
+The moderators' routes are limited to 600 per hour per moderator. The public
+reads are limited to 120 per minute per source address. A refusal
 is 429 `rate-limited`, with `Retry-After` in whole seconds.
 
 ## Privacy

@@ -177,6 +177,10 @@ fn event_type(kind: &ConversationEventKind) -> &'static str {
         K::TodosUpdated { .. } => "todos_updated",
         K::PlanProposed { .. } => "plan_proposed",
         K::PlanSettled { .. } => "plan_settled",
+        K::StepsGiven { .. } => "steps_given",
+        K::StepChecked { .. } => "step_checked",
+        K::StepsNotify { .. } => "steps_notify",
+        K::StepsDone { .. } => "steps_done",
         K::ImagesAttached { .. } => "images_attached",
         K::Staged { .. } => "staged",
         K::Reviewed { .. } => "reviewed",
@@ -196,7 +200,7 @@ fn event_type(kind: &ConversationEventKind) -> &'static str {
     }
 }
 
-const EVENT_TYPES: [&str; 33] = [
+const EVENT_TYPES: [&str; 37] = [
     "turn_started",
     "stage",
     "delta",
@@ -230,6 +234,10 @@ const EVENT_TYPES: [&str; 33] = [
     "plan_proposed",
     "plan_settled",
     "images_attached",
+    "steps_given",
+    "step_checked",
+    "steps_notify",
+    "steps_done",
 ];
 
 fn sample_events() -> Vec<ConversationEventKind> {
@@ -416,6 +424,27 @@ fn sample_events() -> Vec<ConversationEventKind> {
             turn: "a1b2c3d4e5f6".into(),
             count: 2,
             bytes: 184_320,
+        },
+        K::StepsGiven {
+            list: "steps_0011223344556677".into(),
+            title: "Connect OpenRouter".into(),
+            steps: vec![
+                "Open the Models page.".into(),
+                "Press Sign in with OpenRouter and approve the key.".into(),
+            ],
+            notify: true,
+        },
+        K::StepChecked {
+            list: "steps_0011223344556677".into(),
+            step: 0,
+            done: true,
+        },
+        K::StepsNotify {
+            list: "steps_0011223344556677".into(),
+            notify: false,
+        },
+        K::StepsDone {
+            list: "steps_0011223344556677".into(),
         },
     ]
 }

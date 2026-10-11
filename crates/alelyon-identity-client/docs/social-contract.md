@@ -27,7 +27,7 @@ email address.
 
 | route | body (besides `client_id`, `refresh_token`) | replies |
 |---|---|---|
-| `profile` | `username?` | 200 `{"me": person}`. With `username`, sets the account's FIRST username (2-39 lowercase letters, digits, `.`, `_`, `-`): 400 `invalid-username`, 409 `username-taken`, 409 `username-set` (changing one is not in v1) |
+| `profile` | `username?`, `display_name?` | 200 `{"me": person}`. With `username`, sets the account's FIRST username (2-39 lowercase letters, digits, `.`, `_`, `-`): 400 `invalid-username`, 409 `username-taken`, 409 `username-set` (changing one is not in v1). With `display_name`, changes the account's name: 1-64 characters once trimmed (each run of white space becomes one space), no control character and none of `[ ] ( )`, which a name line keeps for a title and tickers: 400 `invalid-name`; 5 a day (429 `rate-limited`) |
 | `search` | `query` | 200 `{"people": [person]}`: an exact, case-insensitive username match, so zero or one; never by email, never a prefix, never the caller, never a disabled account. A query that is not a valid username answers an empty list, not an error |
 | `friends` | | 200 `{"friends": [{"person", "presence", "last_seen", "unread"}], "incoming": [{"id", "from", "sent_at"}], "outgoing": [{"id", "to", "sent_at"}]}`; friends sorted online, away, offline, then by display name; `unread` counts that friend's messages not read yet |
 | `request` | `username` | 200 `{"state": "requested"\|"friends"}` (a crossing request makes them friends at once); 404 `no-such-person` (also the caller's own username, an account without a username, a disabled account); 409 `already-friends`, `already-requested`, `too-many-requests` (50 pending outgoing) |

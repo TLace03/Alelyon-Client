@@ -45,6 +45,10 @@ pub fn tool_name(family: Family, tool: &str) -> String {
             "spawn_agent" => "Task",
             _ => tool,
         },
+        Family::Antigravity => match tool {
+            "read_file" => "view_file",
+            _ => tool,
+        },
         Family::Gemini => match tool {
             "run_command" => "run_shell_command",
             "edit_file" => "replace",
@@ -75,6 +79,14 @@ pub struct Happening<'a> {
     pub prompt: Option<&'a str>,
     /// A Stop hook already had the agent go on in this turn.
     pub stop_active: bool,
+    /// What the agent waits for (Notification), a helper's task, a reason.
+    pub message: Option<&'a str>,
+    /// A file a Tab completion reads or changed (its path in the folder).
+    pub file: Option<&'a str>,
+    /// What a Tab completion takes in (the file's text) or put in (the text taken).
+    pub content: Option<&'a str>,
+    /// The tool's error (PostToolUseFailure).
+    pub failed: bool,
 }
 
 /// A tool's arguments as hooks read them: Lattice's own, with `file_path`
@@ -109,6 +121,13 @@ pub fn payload(hook: &Hook, what: &Happening<'_>) -> Value {
                 put("permission_mode", json!("default"));
             }
         }
+        Family::Antigravity => {
+            put("conversationId", json!(what.session));
+            put("workspacePaths", json!(if cwd.is_empty() { vec![] } else { vec![cwd.clone()] }));
+            put("transcriptPath", Value::Null);
+            put("artifactDirectoryPath", Value::Null);
+            put("modelName", json!(""));
+        }
         Family::Cursor => {
             put("conversation_id", json!(what.session));
             put("generation_id", json!(what.session));
@@ -117,7 +136,14 @@ pub fn payload(hook: &Hook, what: &Happening<'_>) -> Value {
             put("cwd", json!(cwd));
         }
     }
-    if let Some(tool) = what.tool {
+    if let (Some(tool), Family::Antigravity) = (what.tool, hook.family) {
+        let input = tool_input(what.input, what.folder);
+        put("toolCall", json!({"name": tool_name(hook.family, tool), "args": input}));
+        put("stepIdx", json!(0));
+        if what.failed {
+            put("error", json!(what.output.unwrap_or_default()));
+        }
+    } else if let Some(tool) = what.tool {
         let input = tool_input(what.input, what.folder);
         put("tool_name", json!(tool_name(hook.family, tool)));
         if hook.family == Family::Cursor {
@@ -130,10 +156,15 @@ pub fn payload(hook: &Hook, what: &Happening<'_>) -> Value {
         }
         put("tool_input", input);
         if let Some(output) = what.output {
-            match hook.family {
-                Family::Claude => put("tool_response", json!({"output": output})),
-                Family::Gemini => put("tool_response", json!({"llmContent": output, "returnDisplay": output})),
-                Family::Cursor => put("tool_output", json!(output)),
+            match (hook.family, what.failed) {
+                (Family::Cursor, true) => {
+                    put("error_message", json!(output));
+                    put("failure_type", json!("error"));
+                }
+                (Family::Claude, _) => put("tool_response", json!({"output": output})),
+                (Family::Gemini, _) => put("tool_response", json!({"llmContent": output, "returnDisplay": output})),
+                (Family::Cursor, false) => put("tool_output", json!(output)),
+                (Family::Antigravity, _) => {}
             }
         }
     }
@@ -143,12 +174,54 @@ pub fn payload(hook: &Hook, what: &Happening<'_>) -> Value {
     match hook.event {
         Event::Stop => {
             put("stop_hook_active", json!(what.stop_active));
-            if hook.family == Family::Cursor {
-                put("status", json!("completed"));
-                put("loop_count", json!(u32::from(what.stop_active)));
+            match hook.family {
+                Family::Cursor => {
+                    put("status", json!("completed"));
+                    put("loop_count", json!(u32::from(what.stop_active)));
+                }
+                Family::Antigravity => {
+                    put("executionNum", json!(u32::from(what.stop_active)));
+                    put("invocationNum", json!(u32::from(what.stop_active)));
+                    put("terminationReason", json!("completed"));
+                    put("fullyIdle", json!(true));
+                }
+                _ => {}
             }
         }
+        Event::UserPromptSubmit if hook.family == Family::Antigravity => {
+            put("invocationNum", json!(0));
+            put("initialNumSteps", json!(0));
+        }
         Event::SessionStart => put("source", json!("startup")),
+        Event::Notification => {
+            put("message", json!(what.message.unwrap_or_default()));
+            put("notification_type", json!(if hook.family == Family::Gemini { "ToolPermission" } else { "permission_prompt" }));
+        }
+        Event::SubagentStart | Event::SubagentStop => {
+            put("subagent_type", json!("helper"));
+            put("task", json!(what.message.unwrap_or_default()));
+            if hook.event == Event::SubagentStop {
+                put("stop_hook_active", json!(false));
+                put("status", json!(if what.failed { "error" } else { "completed" }));
+                put("summary", json!(what.output.unwrap_or_default()));
+            }
+        }
+        Event::PreCompact => {
+            put("trigger", json!("auto"));
+            put("custom_instructions", json!(""));
+        }
+        Event::SessionEnd => put("reason", json!(if hook.family == Family::Cursor { "window_close" } else { "exit" })),
+        Event::AfterResponse => put("text", json!(what.output.unwrap_or_default())),
+        Event::TabRead | Event::TabEdit => {
+            let file = what.file.unwrap_or_default();
+            let full = what.folder.map(|f| f.join(file).display().to_string()).unwrap_or_else(|| file.to_owned());
+            put("file_path", json!(full));
+            if hook.event == Event::TabRead {
+                put("content", json!(what.content.unwrap_or_default()));
+            } else {
+                put("edits", json!([{"old_string": "", "new_string": what.content.unwrap_or_default()}]));
+            }
+        }
         _ => {}
     }
     Value::Object(map)
@@ -275,6 +348,25 @@ pub fn verdict(hook: &Hook, code: Option<u32>, stdout: &str, stderr: &str) -> Ve
                 v.context.push(context);
             }
         }
+        Family::Antigravity => {
+            let reason = text_of(&answer, "reason");
+            let decision = answer.get("decision").and_then(Value::as_str);
+            match hook.event {
+                Event::Stop if hook.native == "PostInvocation" => {
+                    if answer.get("terminationBehavior").and_then(Value::as_str) == Some("force_continue") {
+                        v.block = Some(injected(&answer).or(reason).unwrap_or_else(|| "Go on.".to_owned()));
+                    }
+                }
+                Event::Stop if decision == Some("continue") => {
+                    v.block = Some(reason.unwrap_or_else(|| "Go on.".to_owned()));
+                }
+                Event::UserPromptSubmit => v.context.extend(injected(&answer)),
+                _ if matches!(decision, Some("deny" | "deny_unless_prior_grant")) => {
+                    v.block = Some(reason.unwrap_or_else(|| "A hook denied it.".to_owned()));
+                }
+                _ => {}
+            }
+        }
         Family::Gemini => {
             if answer.get("continue").and_then(Value::as_bool) == Some(false) {
                 v.halt = Some(text_of(&answer, "stopReason").unwrap_or_else(|| "A hook ended the turn.".to_owned()));
@@ -291,6 +383,16 @@ pub fn verdict(hook: &Hook, code: Option<u32>, stdout: &str, stderr: &str) -> Ve
         }
     }
     v
+}
+
+/// The messages an Antigravity hook injects (`injectSteps`), joined.
+fn injected(answer: &Value) -> Option<String> {
+    let steps = answer.get("injectSteps")?.as_array()?;
+    let said: Vec<String> = steps
+        .iter()
+        .filter_map(|step| text_of(step, "userMessage").or_else(|| text_of(step, "ephemeralMessage")))
+        .collect();
+    (!said.is_empty()).then(|| said.join("\n"))
 }
 
 /// What a hook wrote, and how it ended (`None`: it did not end in time).
@@ -369,6 +471,73 @@ pub fn execute(env: &dyn Env, globals: &Path, hook: &Hook, cwd: &Path, project: 
         stdout: String::from_utf8_lossy(&out.join().unwrap_or_default()).into_owned(),
         stderr: String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned(),
     })
+}
+
+/// What happened, owned, for a hook run off the runtime.
+#[derive(Clone, Debug, Default)]
+pub struct What {
+    pub tool: Option<String>,
+    pub input: Option<Value>,
+    pub output: Option<String>,
+    pub prompt: Option<String>,
+    pub stop_active: bool,
+    pub message: Option<String>,
+    pub file: Option<String>,
+    pub content: Option<String>,
+    pub failed: bool,
+}
+
+impl What {
+    /// What an event's hooks are matched against: the tool, else the event's
+    /// subject as Claude Code names it (`startup`, `auto`, `permission_prompt`).
+    pub fn subject(&self, event: Event) -> Option<&str> {
+        if event.of_tools() {
+            return self.tool.as_deref();
+        }
+        match event {
+            Event::SessionStart => Some("startup"),
+            Event::PreCompact => Some("auto"),
+            Event::Notification => Some("permission_prompt"),
+            _ => None,
+        }
+    }
+}
+
+/// Run `hook` for `what` and read its answer. Blocking.
+pub fn run_one(env: &dyn Env, globals: &Path, hook: &Hook, session: &str, folder: Option<&Path>, what: &What) -> Result<Verdict, String> {
+    let happening = Happening {
+        session,
+        folder,
+        tool: what.tool.as_deref(),
+        input: what.input.as_ref(),
+        output: what.output.as_deref(),
+        prompt: what.prompt.as_deref(),
+        stop_active: what.stop_active,
+        message: what.message.as_deref(),
+        file: what.file.as_deref(),
+        content: what.content.as_deref(),
+        failed: what.failed,
+    };
+    let input = payload(hook, &happening);
+    let cwd = cwd_for(hook, folder);
+    execute(env, globals, hook, &cwd, folder, &input).map(|ran| verdict(hook, ran.code, &ran.stdout, &ran.stderr))
+}
+
+/// Run the hooks of `event` the reader already allowed, one after another (no
+/// dialog: for events that come while the reader types or waits). Blocking.
+pub fn run_allowed(env: &dyn Env, state: &crate::state::StateRoot, found: &super::Found, event: Event, session: &str, folder: Option<&Path>, what: &What) -> Verdict {
+    let file = super::approvals::file(state);
+    let mut all = Verdict::default();
+    for hook in found.for_event(event, what.subject(event)) {
+        if !super::approvals::allowed(&file, hook) {
+            continue;
+        }
+        match run_one(env, &state.globals, hook, session, folder, what) {
+            Ok(verdict) => all.merge(verdict),
+            Err(why) => all.notes.push(why),
+        }
+    }
+    all
 }
 
 /// The folder a hook runs in: Cursor's own hooks run from `~/.cursor`, as

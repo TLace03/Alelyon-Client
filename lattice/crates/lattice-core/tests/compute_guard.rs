@@ -71,7 +71,7 @@ const WORDS: [&str; 12] = [
 const TIMEOUTS: [&str; 2] = ["timeout", "timeout_at"];
 
 /// The sites outside [`ALLOWED`]: (file, exact trimmed line, times, why).
-const LISTED: [(&str, &str, usize, &str); 15] = [
+const LISTED: [(&str, &str, usize, &str); 18] = [
     (
         "lattice-core/src/llama/bench.rs",
         "tokio::time::sleep(Duration::from_millis(200)).await;",
@@ -121,6 +121,12 @@ const LISTED: [(&str, &str, usize, &str); 15] = [
         "shutdown's bounded wait for running turns, once, at exit",
     ),
     (
+        "lattice-core/src/convo/agent.rs",
+        "let _ = tokio::time::timeout(wait, futures::future::join_all(ends)).await;",
+        1,
+        "shutdown's bounded wait for the open chats' SessionEnd hooks, once, at exit",
+    ),
+    (
         "lattice-core/src/llama/server.rs",
         "tokio::time::sleep(idle).await;",
         1,
@@ -161,6 +167,18 @@ const LISTED: [(&str, &str, usize, &str); 15] = [
         "let result = match tokio::time::timeout(timeout, answer).await {",
         1,
         "one of the labs' agents' requests (crate::acp), only while it waits for its answer, as an MCP request's (mcp/)",
+    ),
+    (
+        "lattice-core/src/hosted/meter.rs",
+        "Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {",
+        1,
+        "the Cloudflare meter's lock, waited for at most LOCK_WAIT (3 s) before one call, which is then refused",
+    ),
+    (
+        "lattice-core/src/hosted/meter.rs",
+        "std::thread::sleep(std::time::Duration::from_millis(10));",
+        1,
+        "the Cloudflare meter's lock wait's pause between tries, only while one call waits for it",
     ),
 ];
 

@@ -60,6 +60,25 @@ looks for them here, and says which is missing and where to put it:
 the model on a graphics card. `--attach host:port` uses a whisper-server that is already running, and then neither
 is needed.
 
+### In the cloud
+
+`serve --cloud groq [--cloud-model whisper-large-v3-turbo]` reads with a provider's speech-to-text model on the
+person's own account instead of whisper-server, and then neither the recogniser nor the model is needed on this PC.
+The key comes from the provider's environment variable (`GROQ_API_KEY`); Alelyon's window sets it for the engine it
+starts only after the person agreed, in the ears' picker, to send their speech there. Each utterance goes once, when
+it ends, as a 16 kHz WAV to the provider's OpenAI-compatible `POST /openai/v1/audio/transcriptions`
+([Groq: speech to text](https://console.groq.com/docs/speech-to-text)), with `response_format=verbose_json` and word
+and segment times; no readings are made while it is spoken, so captions show only finished utterances. The request
+goes over Windows' own HTTP stack (WinHTTP, HTTPS only off this machine, no redirect, the system's proxy), so no TLS
+library is linked.
+
+At the provider's free limit (a `429`) the ears pause until the time it gives (`Retry-After`, else its request reset,
+else a minute): every reading until then fails at once with "free limit reached, back at <time>" and sends nothing,
+and `ears.state`'s recogniser says `"state": "paused"` with `back_at` (seconds since 1970). `--cloud-paused-until
+<seconds since 1970>` starts the service already paused, for a limit the window already knows. Nothing retries, switches
+provider or pays. A debug build reads `ALELYON_CLOUD_STUB` (an `http://` address on this machine) in place of the
+provider's address, for tests.
+
 ## Use
 
 ```bash
@@ -101,7 +120,9 @@ Events: `ears.state` (to every new client, and whenever anything is switched), `
 
 ## Privacy
 
-- Everything stays on this PC: capture, recognition and the socket are local, and the socket is loopback only.
+- Everything stays on this PC unless the engine was started with `--cloud`: capture, recognition and the socket are
+  local, and the socket is loopback only. With `--cloud`, each utterance and each file's audio go to that provider,
+  and `ears.state`'s recogniser names it (`"cloud": "groq"`).
 - Nothing is stored unless someone saves it. File jobs write only where they are told to.
 - The microphone is on only while a client asks for it, and `ears.state` always says so, so a window can show that it
   is on air. Each client's wishes are kept apart: when a window closes, crashes or loses its connection, what it asked

@@ -4,12 +4,14 @@
 //! 16 kHz mono (`resample`), cut into utterances (`vad`), read by whisper.cpp's server (`whisper`) while it is
 //! spoken, and turned into settled and settling words (`agreement`, `stream`). The service (`server`) hands those
 //! words, as events, to the window and to Sinai's hearing. `setup` says where the recogniser program and the
-//! speech model are looked for, and what is missing.
+//! speech model are looked for, and what is missing. `cloud` reads with a provider's speech-to-text model on
+//! the person's own account instead of whisper-server, over the system's HTTP stack (`winhttp`).
 //!
 //! The same stream serves captions, dictation, the computer's own audio and files for people, and Sinai, which acts
 //! only on speech addressed to it.
 
 pub mod agreement;
+pub mod cloud;
 pub mod events;
 pub mod files;
 pub mod resample;
@@ -27,3 +29,5 @@ pub mod media;
 pub mod recognizer;
 #[cfg(windows)]
 pub mod server;
+#[cfg(windows)]
+pub mod winhttp;
