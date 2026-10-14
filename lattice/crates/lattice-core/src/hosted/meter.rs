@@ -284,7 +284,7 @@ mod tests {
     fn the_count_is_shared_by_the_account_and_stops_before_the_allocation() {
         let dir = TempDir::new("meter-shared");
         let meter = Meter::at(path_in(dir.path()));
-        assert!(STOP_AT < FREE_PER_DAY);
+        const { assert!(STOP_AT < FREE_PER_DAY) };
         meter.add("acct", 5_000.0, NOW).unwrap(); // the voice
         meter.add("acct", 3_900.0, NOW).unwrap(); // the embeddings
         assert_eq!(meter.used("acct", NOW), 8_900.0, "every part on the account counts toward one allocation");

@@ -94,7 +94,7 @@ fn a_new_chat_in_a_project_joins_it_and_leads_with_its_instructions_and_files() 
     let projects = h.runtime.block_on(h.chat.projects()).unwrap();
     assert_eq!(
         projects[0].chats,
-        [id.clone()],
+        std::slice::from_ref(&id),
         "the chat joined its project"
     );
     let lead = lead(&model.calls()[0]);
@@ -189,7 +189,7 @@ fn a_plain_turn_joins_its_project_and_says_what_it_does_not_carry() {
     let projects = h.runtime.block_on(h.chat.projects()).unwrap();
     assert_eq!(
         projects[0].chats,
-        [id.clone()],
+        std::slice::from_ref(&id),
         "the plain chat joined its project"
     );
     let project = project_with(&h, "Answer in French.", vec![]);

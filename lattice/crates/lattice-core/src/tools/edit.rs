@@ -230,6 +230,30 @@ pub fn edit_file(ctx: &StageContext<'_>, args: &EditFileArgs) -> Result<String, 
 
 /// `write_file` (§7.4.1).
 pub fn write_file(ctx: &StageContext<'_>, args: &WriteFileArgs) -> Result<String, ToolError> {
+    write_whole(ctx, args, true)
+}
+
+/// An agent's client write (`fs/write_text_file`, `crate::acp`): staged
+/// exactly as `write_file` stages, under the same policy, path rules, size
+/// bound and encoding, into the same review. Only the "read it first" rule is
+/// not applied: such an agent may read a file with its own tools, which
+/// Lattice does not see, and its whole-file write is reviewed as a diff
+/// against the file's base like any staged change before any byte is written.
+pub fn agent_write(ctx: &StageContext<'_>, path: &str, content: &str) -> Result<String, ToolError> {
+    let args = WriteFileArgs {
+        path: path.to_owned(),
+        content: content.to_owned(),
+    };
+    write_whole(ctx, &args, false)
+}
+
+/// `write_file`'s staging; `must_have_read` asks for the file to have been
+/// read (or staged) first when it exists.
+fn write_whole(
+    ctx: &StageContext<'_>,
+    args: &WriteFileArgs,
+    must_have_read: bool,
+) -> Result<String, ToolError> {
     allowed(ctx, Target::None)?;
     if args.content.len() as u64 > MAX_FILE_BYTES {
         return Err(ToolError::new(
@@ -253,7 +277,11 @@ pub fn write_file(ctx: &StageContext<'_>, args: &WriteFileArgs) -> Result<String
                 }
             })?;
             let live = ctx.staging.live(&resolved.derived);
-            if live.is_none() && resolved.exists && !ctx.staging.has_read(&resolved.derived) {
+            if must_have_read
+                && live.is_none()
+                && resolved.exists
+                && !ctx.staging.has_read(&resolved.derived)
+            {
                 return Err(ToolError::new("Read the file before replacing it."));
             }
             let view = view(ctx, &mut resolved)?;

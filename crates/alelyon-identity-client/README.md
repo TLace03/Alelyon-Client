@@ -89,7 +89,13 @@ Rust 1.97 or later (edition 2024). The DPAPI test runs on Windows only; elsewher
   creates an account, and every social rule (exact-match search, friends-only chat, request limits) are the
   service's. This client's checks are for a clear message, not a boundary: a modified client gains nothing the
   service does not grant.
-- **Chat is not end-to-end encrypted** in social contract v1: messages are stored on the server in plain text.
+- **Chat is sealed on the device** (ADR-0049, switched on in Phase 4; an independent review is pending, so no
+  end-to-end-encrypted claim is made yet). Social contract v1's plain-text messages are still stored on the server in
+  plain text, and `send` still carries them while a friend has no device. `src/sealed.rs` is the envelope (Phase 1:
+  HPKE Auth mode per device, AES-256-GCM per message, checked against RFC 9180's vectors and the website's
+  implementation); it gives no forward secrecy. `src/sealed_chat.rs` is the client side of the service's sealed-message routes: this device's key
+  kept with DPAPI (its own label and file), registering it, sealing for every live device of both people, opening what
+  arrives, and remembering each friend's devices for "added a new device" notices.
 
 ## Licence
 

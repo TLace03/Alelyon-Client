@@ -18,6 +18,8 @@ pub mod billing;
 pub mod client;
 pub mod loopback;
 pub mod pages;
+pub mod sealed;
+pub mod sealed_chat;
 pub mod social;
 // Seals the kept session with Windows' DPAPI, so it may use unsafe code; nothing else in the crate may.
 #[allow(unsafe_code)]

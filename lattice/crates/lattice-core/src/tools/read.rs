@@ -433,6 +433,36 @@ pub fn read_file(ctx: &ReadContext<'_>, args: &ReadFileArgs) -> Result<String, T
         .map_err(rules_error)?
 }
 
+/// A file's whole text as the conversation sees it, for an agent's client
+/// read (`fs/read_text_file`, `crate::acp`): the same path rules and staged
+/// view as `read_file`, but the text itself, with its line ends, and no
+/// header. UTF-8 only (a byte-order mark is taken off): a file that is not
+/// UTF-8 text is refused rather than shown with replacement characters, since
+/// the agent may write back what it read.
+pub fn read_text(ctx: &ReadContext<'_>, path: &str) -> Result<String, ToolError> {
+    ctx.workspace
+        .with_rules(ctx.runner, |rules| {
+            let resolved = rules.resolve(path, Want::MayCreate)?;
+            if resolved.is_dir {
+                return Err(ToolError::new("That is a folder, not a text file."));
+            }
+            let (bytes, _) = bytes_of(ctx, &resolved.derived, resolved.file)?;
+            if bytes[..bytes.len().min(BINARY_PROBE)].contains(&0) {
+                return Err(ToolError::new(format!(
+                    "binary file, {} bytes; only text files are read here",
+                    bytes.len()
+                )));
+            }
+            let body = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+            let text = std::str::from_utf8(body)
+                .map_err(|_| ToolError::new("That file is not UTF-8 text."))?
+                .to_owned();
+            ctx.overlay.note_read(&resolved.derived);
+            Ok(text)
+        })
+        .map_err(rules_error)?
+}
+
 /// `list_dir` (§7.3): directories first, then files, sorted.
 pub fn list_dir(ctx: &ReadContext<'_>, args: &ListDirArgs) -> Result<String, ToolError> {
     let depth = args.depth.unwrap_or(1);

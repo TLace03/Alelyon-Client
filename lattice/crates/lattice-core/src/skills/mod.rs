@@ -406,7 +406,7 @@ pub fn relative(path: &str) -> Result<String, String> {
     if parts.is_empty()
         || path.starts_with('/')
         || path.contains(':')
-        || parts.iter().any(|part| *part == "..")
+        || parts.contains(&"..")
     {
         return Err(
             "Give a path inside the skill's folder, such as references/guide.md.".to_owned(),

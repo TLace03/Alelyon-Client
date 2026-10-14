@@ -507,8 +507,8 @@ fn search_finds_lines_and_ranges_and_counts_what_it_skips() {
     assert_eq!(
         all.files[0].lines,
         [
-            LineMatch { line: 1, text: "alpha".into(), ranges: vec![0..5] },
-            LineMatch { line: 2, text: "Beta alpha".into(), ranges: vec![5..10] },
+            LineMatch { line: 1, text: "alpha".into(), ranges: vec![std::ops::Range { start: 0, end: 5 }] },
+            LineMatch { line: 2, text: "Beta alpha".into(), ranges: vec![std::ops::Range { start: 5, end: 10 }] },
         ]
     );
     assert_eq!(all.files[1].lines[0].ranges, vec![3..8]);

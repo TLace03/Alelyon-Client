@@ -161,6 +161,16 @@ pub struct Post {
     pub reposts: u64,
     /// Whether the reader liked it.
     pub liked: bool,
+    /// Whether the reader saved it (`bookmark`).
+    pub bookmarked: bool,
+    /// The poll it carries; boxed, since few posts carry one and a post is often held by value.
+    pub poll: Option<Box<Poll>>,
+    /// Who may reply to it.
+    pub replies_from: ReplyRule,
+    /// Whether the reader may reply.
+    pub you_can_reply: bool,
+    /// The job opening it is (an organization's article); boxed, as the poll is.
+    pub job: Option<Box<Job>>,
 }
 
 impl Post {
@@ -183,6 +193,11 @@ impl Post {
             replies: v.get("replies").and_then(Value::as_u64).unwrap_or(0),
             reposts: v.get("reposts").and_then(Value::as_u64).unwrap_or(0),
             liked: v.get("liked").and_then(Value::as_bool).unwrap_or(false),
+            bookmarked: v.get("bookmarked").and_then(Value::as_bool).unwrap_or(false),
+            poll: v.get("poll").filter(|p| p.is_object()).map(|p| Box::new(Poll::from_json(p))),
+            replies_from: ReplyRule::from_word(v.get("replies_from").and_then(Value::as_str).unwrap_or("")),
+            you_can_reply: v.get("you_can_reply").and_then(Value::as_bool).unwrap_or(true),
+            job: v.get("job").filter(|j| j.is_object()).map(|j| Box::new(Job::from_json(j))),
         }
     }
 
@@ -213,6 +228,626 @@ impl Posts {
     }
 }
 
+/// Who may reply in a conversation, as its first post set it; each reply under that post carries the same rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ReplyRule {
+    #[default]
+    Everyone,
+    /// The first post's author's followers (or its organization's, for a post made as one).
+    Followers,
+    /// The people the first post mentions.
+    Mentioned,
+}
+
+impl ReplyRule {
+    pub const ALL: [ReplyRule; 3] = [ReplyRule::Everyone, ReplyRule::Followers, ReplyRule::Mentioned];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReplyRule::Everyone => "everyone",
+            ReplyRule::Followers => "followers",
+            ReplyRule::Mentioned => "mentioned",
+        }
+    }
+
+    /// An unknown rule reads as the widest, as the service would never send one.
+    pub fn from_word(word: &str) -> ReplyRule {
+        match word {
+            "followers" => ReplyRule::Followers,
+            "mentioned" => ReplyRule::Mentioned,
+            _ => ReplyRule::Everyone,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ReplyRule::Everyone => "Everyone can reply",
+            ReplyRule::Followers => "Your followers can reply",
+            ReplyRule::Mentioned => "People you mention can reply",
+        }
+    }
+}
+
+impl std::fmt::Display for ReplyRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// A poll as a post carries it. `votes` is None until the reader voted or it closed (its author always sees them).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Poll {
+    pub options: Vec<String>,
+    pub votes: Option<Vec<u64>>,
+    pub total: u64,
+    pub closes_at: String,
+    pub closed: bool,
+    /// The option the reader chose.
+    pub you_voted: Option<usize>,
+}
+
+impl Poll {
+    pub fn from_json(v: &Value) -> Poll {
+        Poll {
+            options: list_of(v, "options").iter().filter_map(|o| o.as_str().map(str::to_string)).collect(),
+            votes: v.get("votes").and_then(Value::as_array).map(|a| a.iter().map(|n| n.as_u64().unwrap_or(0)).collect()),
+            total: v.get("total").and_then(Value::as_u64).unwrap_or(0),
+            closes_at: str_of(v, "closes_at"),
+            closed: v.get("closed").and_then(Value::as_bool).unwrap_or(false),
+            you_voted: v.get("you_voted").and_then(Value::as_u64).map(|n| n as usize),
+        }
+    }
+
+    /// Each option's share of the votes, in whole percent, when the votes are shown.
+    pub fn shares(&self) -> Option<Vec<u64>> {
+        let votes = self.votes.as_ref()?;
+        let total: u64 = votes.iter().sum();
+        Some(votes.iter().map(|v| (v * 100 + total / 2).checked_div(total).unwrap_or(0)).collect())
+    }
+}
+
+/// A poll a new post carries: 2-4 options of 1-25 characters, open 1-168 hours.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct NewPoll {
+    pub options: Vec<String>,
+    pub hours: u32,
+}
+
+/// Where a job is done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Workplace {
+    #[default]
+    OnSite,
+    Hybrid,
+    Remote,
+}
+
+impl Workplace {
+    pub const ALL: [Workplace; 3] = [Workplace::OnSite, Workplace::Hybrid, Workplace::Remote];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Workplace::OnSite => "on-site",
+            Workplace::Hybrid => "hybrid",
+            Workplace::Remote => "remote",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Workplace {
+        match word {
+            "hybrid" => Workplace::Hybrid,
+            "remote" => Workplace::Remote,
+            _ => Workplace::OnSite,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Workplace::OnSite => "On-site",
+            Workplace::Hybrid => "Hybrid",
+            Workplace::Remote => "Remote",
+        }
+    }
+}
+
+impl std::fmt::Display for Workplace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// The kind of employment a job offers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Employment {
+    #[default]
+    FullTime,
+    PartTime,
+    Contract,
+    Temporary,
+    Internship,
+}
+
+impl Employment {
+    pub const ALL: [Employment; 5] =
+        [Employment::FullTime, Employment::PartTime, Employment::Contract, Employment::Temporary, Employment::Internship];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Employment::FullTime => "full-time",
+            Employment::PartTime => "part-time",
+            Employment::Contract => "contract",
+            Employment::Temporary => "temporary",
+            Employment::Internship => "internship",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Employment {
+        match word {
+            "part-time" => Employment::PartTime,
+            "contract" => Employment::Contract,
+            "temporary" => Employment::Temporary,
+            "internship" => Employment::Internship,
+            _ => Employment::FullTime,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Employment::FullTime => "Full-time",
+            Employment::PartTime => "Part-time",
+            Employment::Contract => "Contract",
+            Employment::Temporary => "Temporary",
+            Employment::Internship => "Internship",
+        }
+    }
+}
+
+impl std::fmt::Display for Employment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// A job opening: an organization's article that people apply for.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Job {
+    pub location: String,
+    pub workplace: Workplace,
+    pub employment: Employment,
+    /// As the organization wrote it; empty for none.
+    pub pay: String,
+    pub closes_at: String,
+    pub closed: bool,
+    /// Whether the reader applied.
+    pub applied: bool,
+    /// How many applied: for the organization's owners and admins only.
+    pub applicants: Option<u64>,
+}
+
+impl Job {
+    pub fn from_json(v: &Value) -> Job {
+        Job {
+            location: str_of(v, "location"),
+            workplace: Workplace::from_word(v.get("workplace").and_then(Value::as_str).unwrap_or("")),
+            employment: Employment::from_word(v.get("employment").and_then(Value::as_str).unwrap_or("")),
+            pay: str_of(v, "pay"),
+            closes_at: str_of(v, "closes_at"),
+            closed: v.get("closed").and_then(Value::as_bool).unwrap_or(false),
+            applied: v.get("applied").and_then(Value::as_bool).unwrap_or(false),
+            applicants: v.get("applicants").and_then(Value::as_u64),
+        }
+    }
+}
+
+/// The job a new article opens; it is posted as an organization.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct NewJob {
+    /// Where; may be empty for a remote job.
+    pub location: String,
+    pub workplace: Workplace,
+    pub employment: Employment,
+    /// As written; may be empty.
+    pub pay: String,
+    /// Open for this many days, 1-90.
+    pub days: u32,
+}
+
+/// Someone who applied for a job, as its organization's owners and admins read them.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Applicant {
+    pub person: Person,
+    pub note: String,
+    pub applied_at: String,
+}
+
+impl Applicant {
+    pub fn from_json(v: &Value) -> Applicant {
+        Applicant {
+            person: Person::from_json(v.get("person").unwrap_or(&Value::Null)),
+            note: str_of(v, "note"),
+            applied_at: str_of(v, "applied_at"),
+        }
+    }
+}
+
+/// What `jobs` lists: open jobs with these words, at this workplace, of this kind and at this organization.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct JobsQuery {
+    pub words: String,
+    pub workplace: Option<Workplace>,
+    pub employment: Option<Employment>,
+    pub ticker: Option<String>,
+}
+
+/// A position on a person's page, as LinkedIn lists one.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Experience {
+    pub id: String,
+    pub title: String,
+    /// The Alelyon organization it names, while that is active.
+    pub org: Option<Org>,
+    /// The employer's name: the organization's, or as written.
+    pub org_name: String,
+    /// YYYY-MM.
+    pub started: String,
+    /// YYYY-MM; None while it is the person's position now.
+    pub ended: Option<String>,
+    pub about: String,
+    /// An owner or admin of `org` confirmed it, and it was not edited since.
+    pub confirmed: bool,
+}
+
+impl Experience {
+    pub fn from_json(v: &Value) -> Experience {
+        Experience {
+            id: str_of(v, "id"),
+            title: str_of(v, "title"),
+            org: v.get("org").and_then(Org::from_json),
+            org_name: str_of(v, "org_name"),
+            started: str_of(v, "started"),
+            ended: opt_str(v, "ended"),
+            about: str_of(v, "about"),
+            confirmed: v.get("confirmed").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+
+    /// `2019-03 to 2023-12`, or `2024-01 to now`.
+    pub fn span(&self) -> String {
+        format!("{} to {}", self.started, self.ended.as_deref().unwrap_or("now"))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Education {
+    pub id: String,
+    pub school: String,
+    pub degree: String,
+    pub field: String,
+    /// YYYY, when given.
+    pub started: Option<String>,
+    pub ended: Option<String>,
+}
+
+impl Education {
+    pub fn from_json(v: &Value) -> Education {
+        Education {
+            id: str_of(v, "id"),
+            school: str_of(v, "school"),
+            degree: str_of(v, "degree"),
+            field: str_of(v, "field"),
+            started: opt_str(v, "started"),
+            ended: opt_str(v, "ended"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Skill {
+    pub skill: String,
+    /// How many people endorsed it; who they are is not shown.
+    pub endorsements: u64,
+    /// Whether the reader endorsed it; None for the person themselves or a reader signed out.
+    pub you_endorsed: Option<bool>,
+}
+
+impl Skill {
+    pub fn from_json(v: &Value) -> Skill {
+        Skill {
+            skill: str_of(v, "skill"),
+            endorsements: v.get("endorsements").and_then(Value::as_u64).unwrap_or(0),
+            you_endorsed: v.get("you_endorsed").and_then(Value::as_bool),
+        }
+    }
+}
+
+/// A person's experience, education and skills.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Profile {
+    pub experience: Vec<Experience>,
+    pub education: Vec<Education>,
+    pub skills: Vec<Skill>,
+}
+
+impl Profile {
+    pub fn from_json(v: &Value) -> Profile {
+        Profile {
+            experience: list_of(v, "experience").iter().map(Experience::from_json).collect(),
+            education: list_of(v, "education").iter().map(Education::from_json).collect(),
+            skills: list_of(v, "skills").iter().map(Skill::from_json).collect(),
+        }
+    }
+}
+
+/// An experience entry to add (`id` empty) or to replace (`id` set).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct NewExperience {
+    pub id: String,
+    pub title: String,
+    /// An Alelyon organization's ticker; empty for an employer named in `org_name`.
+    pub ticker: String,
+    pub org_name: String,
+    /// YYYY-MM.
+    pub started: String,
+    /// YYYY-MM, or empty while it is the position now.
+    pub ended: String,
+    pub about: String,
+}
+
+impl NewExperience {
+    pub fn body(&self) -> Value {
+        let mut body = json!({"title": self.title, "started": self.started, "about": self.about});
+        for (key, value) in [("entry_id", &self.id), ("ticker", &self.ticker), ("org_name", &self.org_name), ("ended", &self.ended)] {
+            if !value.is_empty() {
+                body[key] = json!(value);
+            }
+        }
+        body
+    }
+}
+
+/// An education entry to add (`id` empty) or to replace (`id` set). Years are YYYY or empty.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct NewEducation {
+    pub id: String,
+    pub school: String,
+    pub degree: String,
+    pub field: String,
+    pub started: String,
+    pub ended: String,
+}
+
+impl NewEducation {
+    pub fn body(&self) -> Value {
+        let mut body = json!({"school": self.school, "degree": self.degree, "field": self.field});
+        for (key, value) in [("entry_id", &self.id), ("started", &self.started), ("ended", &self.ended)] {
+            if !value.is_empty() {
+                body[key] = json!(value);
+            }
+        }
+        body
+    }
+}
+
+/// What a search found: the people and organizations that match (on an `All` search or their own) and a page of
+/// posts (on an `All` or a `Posts` search).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Found {
+    pub people: Vec<Person>,
+    pub orgs: Vec<Org>,
+    pub posts: Posts,
+}
+
+impl Found {
+    pub fn from_json(v: &Value) -> Found {
+        Found {
+            people: list_of(v, "people").iter().map(Person::from_json).collect(),
+            orgs: list_of(v, "orgs").iter().filter_map(Org::from_json).collect(),
+            posts: Posts::from_json(v),
+        }
+    }
+}
+
+/// Which part of Pages a search reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SearchKind {
+    /// A few people and organizations beside the first page of posts.
+    #[default]
+    All,
+    Posts,
+    People,
+    Orgs,
+}
+
+impl SearchKind {
+    pub const ALL: [SearchKind; 4] = [SearchKind::All, SearchKind::Posts, SearchKind::People, SearchKind::Orgs];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SearchKind::All => "all",
+            SearchKind::Posts => "posts",
+            SearchKind::People => "people",
+            SearchKind::Orgs => "orgs",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SearchKind::All => "Top",
+            SearchKind::Posts => "Posts",
+            SearchKind::People => "People",
+            SearchKind::Orgs => "Organizations",
+        }
+    }
+}
+
+/// The posts carrying one hashtag, as the service spelled it (lower case, no `#`).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Tagged {
+    pub tag: String,
+    pub posts: Posts,
+}
+
+impl Tagged {
+    pub fn from_json(v: &Value) -> Tagged {
+        Tagged { tag: str_of(v, "tag"), posts: Posts::from_json(v) }
+    }
+}
+
+/// A trending hashtag: the posts that carry it, and how many different people posted them.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct TrendingTag {
+    pub tag: String,
+    pub posts: u64,
+    pub people: u64,
+}
+
+/// The hashtags the most people used over the last `hours`: 24, or 168 when none qualified in a day.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Trending {
+    pub hours: u64,
+    pub tags: Vec<TrendingTag>,
+}
+
+impl Trending {
+    pub fn from_json(v: &Value) -> Trending {
+        Trending {
+            hours: v.get("hours").and_then(Value::as_u64).unwrap_or(24),
+            tags: list_of(v, "tags")
+                .iter()
+                .map(|t| TrendingTag {
+                    tag: str_of(t, "tag"),
+                    posts: t.get("posts").and_then(Value::as_u64).unwrap_or(0),
+                    people: t.get("people").and_then(Value::as_u64).unwrap_or(0),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Why someone is suggested. Only public signals: never whom anyone follows or what anyone liked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Why {
+    /// They show an organization the reader belongs to or follows (`Suggestion::org`).
+    Org,
+    /// They answered or quoted the reader in the last 30 days.
+    Replied,
+    /// The reader answered or quoted them in the last 30 days.
+    YouReplied,
+    /// Among the most followed.
+    Popular,
+    /// They have a page; nothing more.
+    #[default]
+    Page,
+}
+
+impl Why {
+    pub fn from_word(word: &str) -> Why {
+        match word {
+            "org" => Why::Org,
+            "replied" => Why::Replied,
+            "you-replied" => Why::YouReplied,
+            "popular" => Why::Popular,
+            _ => Why::Page,
+        }
+    }
+
+    /// The reason in words, naming the organization for `Org`.
+    pub fn words(self, org: Option<&Org>) -> String {
+        match (self, org) {
+            (Why::Org, Some(o)) => format!("Shows ({})", o.ticker),
+            (Why::Org, None) => "Shares an organization".into(),
+            (Why::Replied, _) => "Replied to you".into(),
+            (Why::YouReplied, _) => "You replied".into(),
+            (Why::Popular, _) => "Popular on Pages".into(),
+            (Why::Page, _) => "On Pages".into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Suggestion {
+    pub person: Person,
+    pub why: Why,
+    pub org: Option<Org>,
+}
+
+/// Who to follow, and organizations to follow.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Suggestions {
+    pub people: Vec<Suggestion>,
+    pub orgs: Vec<Org>,
+}
+
+impl Suggestions {
+    pub fn from_json(v: &Value) -> Suggestions {
+        Suggestions {
+            people: list_of(v, "people")
+                .iter()
+                .map(|s| Suggestion {
+                    person: Person::from_json(s.get("person").unwrap_or(&Value::Null)),
+                    why: Why::from_word(s.get("reason").and_then(Value::as_str).unwrap_or("")),
+                    org: s.get("org").and_then(Org::from_json),
+                })
+                .collect(),
+            orgs: list_of(v, "orgs").iter().filter_map(Org::from_json).collect(),
+        }
+    }
+}
+
+/// Something another person did that concerns the reader (`notifications`).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Notification {
+    pub id: String,
+    /// `like`, `reply`, `repost`, `quote`, `mention`, `follow`, `org-invite`, `org-request`, `org-joined` or
+    /// `title-confirmed`.
+    pub kind: String,
+    /// Who did it, while they can still be shown.
+    pub actor: Option<Person>,
+    /// The post it concerns, as the reader may see it now: the new post for a reply, a quote or a mention; the
+    /// reader's own for a like or a repost.
+    pub post: Option<Post>,
+    pub org: Option<Org>,
+    pub at: String,
+    pub read: bool,
+}
+
+impl Notification {
+    pub fn from_json(v: &Value) -> Notification {
+        Notification {
+            id: str_of(v, "id"),
+            kind: str_of(v, "kind"),
+            actor: v.get("actor").filter(|a| a.is_object()).map(Person::from_json),
+            post: v.get("post").filter(|p| p.is_object()).map(Post::from_json),
+            org: v.get("org").and_then(Org::from_json),
+            at: str_of(v, "at"),
+            read: v.get("read").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+}
+
+/// A page of notifications, newest first, whether more remain, and how many are unread in all.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Notifications {
+    pub items: Vec<Notification>,
+    pub more: bool,
+    pub unread: u64,
+}
+
+impl Notifications {
+    pub fn from_json(v: &Value) -> Notifications {
+        Notifications {
+            items: list_of(v, "notifications").iter().map(Notification::from_json).collect(),
+            more: v.get("more").and_then(Value::as_bool).unwrap_or(false),
+            unread: v.get("unread").and_then(Value::as_u64).unwrap_or(0),
+        }
+    }
+
+    /// The id to ask the next page `before`, when more remain.
+    pub fn next(&self) -> Option<String> {
+        self.more.then(|| self.items.last().map(|n| n.id.clone())).flatten()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct PersonPage {
     pub person: Person,
@@ -222,6 +857,12 @@ pub struct PersonPage {
     pub posts: Posts,
     pub you_follow: bool,
     pub you_block: bool,
+    /// The reader muted this person.
+    pub you_mute: bool,
+    /// The post the person pinned to the top of the page (on the first page of posts only).
+    pub pinned: Option<Post>,
+    /// Experience, education and skills (on the first page of posts only).
+    pub profile: Option<Profile>,
 }
 
 impl PersonPage {
@@ -234,6 +875,9 @@ impl PersonPage {
             posts: Posts::from_json(v),
             you_follow: v.get("you_follow").and_then(Value::as_bool).unwrap_or(false),
             you_block: v.get("you_block").and_then(Value::as_bool).unwrap_or(false),
+            you_mute: v.get("you_mute").and_then(Value::as_bool).unwrap_or(false),
+            pinned: v.get("pinned").filter(|p| p.is_object()).map(Post::from_json),
+            profile: v.get("profile").filter(|p| p.is_object()).map(Profile::from_json),
         }
     }
 }
@@ -319,6 +963,10 @@ pub struct Me {
     pub suspended: bool,
     /// Alelyon may use this account's public posts to improve its services, AI models included: true until it opts out.
     pub ai_training: bool,
+    /// How many of the reader's notifications are unread.
+    pub unread_notifications: u64,
+    /// The reader's own experience, education and skills.
+    pub profile: Profile,
 }
 
 impl Me {
@@ -339,6 +987,8 @@ impl Me {
             moderator: v.get("moderator").and_then(Value::as_bool).unwrap_or(false),
             suspended: v.get("suspended").and_then(Value::as_bool).unwrap_or(false),
             ai_training: v.get("ai_training").and_then(Value::as_bool).unwrap_or(true),
+            unread_notifications: v.get("unread_notifications").and_then(Value::as_u64).unwrap_or(0),
+            profile: Profile::from_json(v.get("profile").unwrap_or(&Value::Null)),
         }
     }
 
@@ -614,6 +1264,12 @@ pub struct NewPost {
     pub repost_of: Option<String>,
     /// Post as this organization (its ticker); the reader must be an owner or admin.
     pub as_org: Option<String>,
+    /// Who may reply.
+    pub replies: ReplyRule,
+    /// A poll, on a top-level post only.
+    pub poll: Option<NewPoll>,
+    /// A job opening, on an article posted as an organization only.
+    pub job: Option<NewJob>,
 }
 
 impl NewPost {
@@ -624,6 +1280,16 @@ impl NewPost {
             if let Some(v) = value {
                 body[key] = json!(v);
             }
+        }
+        if self.replies != ReplyRule::Everyone {
+            body["replies"] = json!(self.replies.as_str());
+        }
+        if let Some(poll) = &self.poll {
+            body["poll"] = json!({"options": poll.options, "hours": poll.hours});
+        }
+        if let Some(job) = &self.job {
+            body["job"] = json!({"location": job.location, "workplace": job.workplace.as_str(),
+                                 "employment": job.employment.as_str(), "pay": job.pay, "days": job.days});
         }
         body
     }
@@ -737,6 +1403,21 @@ pub async fn set_tickers(client: &Client, token: &str, tickers: &[String]) -> Re
     call(client, token, "tickers", json!({"tickers": tickers})).await.map(|v| Me::from_json(&v))
 }
 
+/// The reader's notifications, newest first, a page after `before`.
+pub async fn notifications(client: &Client, token: &str, before: Option<&str>) -> Result<Notifications, Problem> {
+    call(client, token, "notifications", paged(json!({}), before)).await.map(|v| Notifications::from_json(&v))
+}
+
+/// Mark the reader's notifications read: every one, or those up to and including `up_to` in the list's order.
+/// Returns how many stay unread.
+pub async fn notifications_read(client: &Client, token: &str, up_to: Option<&str>) -> Result<u64, Problem> {
+    let body = match up_to {
+        Some(id) => json!({"up_to": id}),
+        None => json!({}),
+    };
+    call(client, token, "notifications-read", body).await.map(|v| v.get("unread").and_then(Value::as_u64).unwrap_or(0))
+}
+
 /// Allow, or opt out of, Alelyon using the account's public posts to improve its services, AI models included.
 pub async fn ai_training(client: &Client, token: &str, allow: bool) -> Result<Me, Problem> {
     call(client, token, "ai-training", json!({"allow": allow})).await.map(|v| Me::from_json(&v))
@@ -794,6 +1475,162 @@ pub async fn delete(client: &Client, token: &str, post_id: &str) -> Result<(), P
 
 pub async fn like(client: &Client, token: &str, post_id: &str, like: bool) -> Result<(), Problem> {
     call(client, token, "like", json!({"post_id": post_id, "like": like})).await.map(|_| ())
+}
+
+/// Save a post for oneself, or forget it. Only the reader sees their bookmarks.
+pub async fn bookmark(client: &Client, token: &str, post_id: &str, bookmark: bool) -> Result<(), Problem> {
+    call(client, token, "bookmark", json!({"post_id": post_id, "bookmark": bookmark})).await.map(|_| ())
+}
+
+/// The reader's bookmarks, the most recently saved first.
+pub async fn bookmarks(client: &Client, token: &str, before: Option<&str>) -> Result<Posts, Problem> {
+    call(client, token, "bookmarks", paged(json!({}), before)).await.map(|v| Posts::from_json(&v))
+}
+
+/// Pin one's own top-level post, quote or article to the top of one's page; it replaces any other.
+pub async fn pin(client: &Client, token: &str, post_id: &str) -> Result<(), Problem> {
+    call(client, token, "pin", json!({"post_id": post_id})).await.map(|_| ())
+}
+
+pub async fn unpin(client: &Client, token: &str) -> Result<(), Problem> {
+    call(client, token, "unpin", json!({})).await.map(|_| ())
+}
+
+/// Search Pages: people, organizations and posts (`All`), or one of them. `before` pages on a `Posts` search only.
+/// One `#tag` alone reads that hashtag.
+pub async fn search(client: &Client, token: &str, query: &str, kind: SearchKind, before: Option<&str>) -> Result<Found, Problem> {
+    call(client, token, "search", paged(json!({"q": query, "kind": kind.as_str()}), before)).await.map(|v| Found::from_json(&v))
+}
+
+/// The posts carrying a hashtag (with or without its `#`), newest first.
+pub async fn tag(client: &Client, token: &str, tag: &str, before: Option<&str>) -> Result<Tagged, Problem> {
+    call(client, token, "tag", paged(json!({"tag": tag}), before)).await.map(|v| Tagged::from_json(&v))
+}
+
+pub async fn trending(client: &Client, token: &str) -> Result<Trending, Problem> {
+    call(client, token, "trending", json!({})).await.map(|v| Trending::from_json(&v))
+}
+
+/// Who to follow, and organizations to follow, from public signals only.
+pub async fn suggestions(client: &Client, token: &str) -> Result<Suggestions, Problem> {
+    call(client, token, "suggestions", json!({})).await.map(|v| Suggestions::from_json(&v))
+}
+
+/// One page (0 first, at most 10) of the ranked For you feed: others' recent top-level posts.
+pub async fn for_you(client: &Client, token: &str, page: u32) -> Result<Posts, Problem> {
+    call(client, token, "for-you", json!({"page": page})).await.map(|v| Posts::from_json(&v))
+}
+
+fn experience_list(v: &Value) -> Vec<Experience> {
+    list_of(v, "experience").iter().map(Experience::from_json).collect()
+}
+
+fn education_list(v: &Value) -> Vec<Education> {
+    list_of(v, "education").iter().map(Education::from_json).collect()
+}
+
+/// Add an experience entry, or replace one of the reader's own. A change clears an organization's confirmation.
+pub async fn set_experience(client: &Client, token: &str, entry: &NewExperience) -> Result<Vec<Experience>, Problem> {
+    call(client, token, "experience", entry.body()).await.map(|v| experience_list(&v))
+}
+
+pub async fn delete_experience(client: &Client, token: &str, entry_id: &str) -> Result<Vec<Experience>, Problem> {
+    call(client, token, "experience-delete", json!({"entry_id": entry_id})).await.map(|v| experience_list(&v))
+}
+
+/// An owner or admin of the organization an entry names confirms it, or takes the confirmation back.
+pub async fn confirm_experience(client: &Client, token: &str, ticker: &str, entry_id: &str, confirm: bool) -> Result<(), Problem> {
+    call(client, token, "experience-confirm", json!({"ticker": ticker, "entry_id": entry_id, "confirm": confirm})).await.map(|_| ())
+}
+
+/// For an organization's owners and admins: the experience entries that name it, the unconfirmed first.
+pub async fn org_experience(client: &Client, token: &str, ticker: &str) -> Result<Vec<(Person, Experience)>, Problem> {
+    call(client, token, "org-experience", json!({"ticker": ticker})).await.map(|v| {
+        list_of(&v, "entries")
+            .iter()
+            .map(|e| {
+                (Person::from_json(e.get("person").unwrap_or(&Value::Null)), Experience::from_json(e.get("entry").unwrap_or(&Value::Null)))
+            })
+            .collect()
+    })
+}
+
+pub async fn set_education(client: &Client, token: &str, entry: &NewEducation) -> Result<Vec<Education>, Problem> {
+    call(client, token, "education", entry.body()).await.map(|v| education_list(&v))
+}
+
+pub async fn delete_education(client: &Client, token: &str, entry_id: &str) -> Result<Vec<Education>, Problem> {
+    call(client, token, "education-delete", json!({"entry_id": entry_id})).await.map(|v| education_list(&v))
+}
+
+/// The reader's skills, in its order (at most 50). Endorsements of a skill it drops go.
+pub async fn set_skills(client: &Client, token: &str, skills: &[String]) -> Result<Vec<Skill>, Problem> {
+    call(client, token, "skills", json!({"skills": skills})).await.map(|v| list_of(&v, "skills").iter().map(Skill::from_json).collect())
+}
+
+/// Mute someone, silently, or unmute them: their posts leave the reader's feeds and their acts its notifications.
+pub async fn mute(client: &Client, token: &str, username: &str, mute: bool) -> Result<(), Problem> {
+    call(client, token, "mute", json!({"username": username, "mute": mute})).await.map(|_| ())
+}
+
+/// Whom the reader muted, the most recent first.
+pub async fn mutes(client: &Client, token: &str) -> Result<Vec<Person>, Problem> {
+    call(client, token, "mutes", json!({})).await.map(|v| list_of(&v, "people").iter().map(Person::from_json).collect())
+}
+
+/// Open jobs, newest first, as `query` narrows them.
+pub async fn jobs(client: &Client, token: &str, query: &JobsQuery, before: Option<&str>) -> Result<Posts, Problem> {
+    let mut body = json!({});
+    if !query.words.trim().is_empty() {
+        body["q"] = json!(query.words.trim());
+    }
+    if let Some(workplace) = query.workplace {
+        body["workplace"] = json!(workplace.as_str());
+    }
+    if let Some(employment) = query.employment {
+        body["employment"] = json!(employment.as_str());
+    }
+    if let Some(ticker) = &query.ticker {
+        body["ticker"] = json!(ticker);
+    }
+    call(client, token, "jobs", paged(body, before)).await.map(|v| Posts::from_json(&v))
+}
+
+/// Apply for an open job with a note its organization's owners and admins read; again, to change the note.
+pub async fn apply_job(client: &Client, token: &str, post_id: &str, note: &str) -> Result<(), Problem> {
+    call(client, token, "job-apply", json!({"post_id": post_id, "note": note})).await.map(|_| ())
+}
+
+/// Withdraw an application, which deletes it.
+pub async fn withdraw_application(client: &Client, token: &str, post_id: &str) -> Result<(), Problem> {
+    call(client, token, "job-apply", json!({"post_id": post_id, "apply": false})).await.map(|_| ())
+}
+
+/// For an organization's owners and admins: who applied for its job, the earliest first, with their notes.
+pub async fn job_applicants(client: &Client, token: &str, post_id: &str) -> Result<Vec<Applicant>, Problem> {
+    call(client, token, "job-applicants", json!({"post_id": post_id}))
+        .await
+        .map(|v| list_of(&v, "applicants").iter().map(Applicant::from_json).collect())
+}
+
+/// For an organization's owners and admins: close its job now.
+pub async fn close_job(client: &Client, token: &str, post_id: &str) -> Result<(), Problem> {
+    call(client, token, "job-close", json!({"post_id": post_id})).await.map(|_| ())
+}
+
+/// The jobs the reader applied for, the latest application first.
+pub async fn applications(client: &Client, token: &str) -> Result<Vec<Post>, Problem> {
+    call(client, token, "applications", json!({})).await.map(|v| list_of(&v, "posts").iter().map(Post::from_json).collect())
+}
+
+/// Vote in a poll: one vote, never changed, while it is open; never in one's own.
+pub async fn vote(client: &Client, token: &str, post_id: &str, option: usize) -> Result<(), Problem> {
+    call(client, token, "vote", json!({"post_id": post_id, "option": option})).await.map(|_| ())
+}
+
+/// Endorse a skill another person lists, or take the endorsement back. Only the totals are shown.
+pub async fn endorse(client: &Client, token: &str, username: &str, skill: &str, endorse: bool) -> Result<(), Problem> {
+    call(client, token, "endorse", json!({"username": username, "skill": skill, "endorse": endorse})).await.map(|_| ())
 }
 
 pub async fn follow_person(client: &Client, token: &str, username: &str, follow: bool) -> Result<(), Problem> {
@@ -942,6 +1779,131 @@ mod tests {
         assert!(!Me::from_json(&json!({"me": card("ada"), "ai_training": false})).ai_training);
         assert!(Me::from_json(&json!({"me": card("ada"), "ai_training": true})).ai_training);
         assert!(Me::from_json(&json!({"me": card("ada")})).ai_training, "allowed until an account opts out");
+    }
+
+    #[test]
+    fn notifications_read_with_what_they_concern_and_page_on() {
+        let page = Notifications::from_json(&json!({"notifications": [
+            {"id": "ntf_1", "kind": "like", "actor": card("ada"), "post": {"id": "pst_1", "text": "Mine"}, "org": null,
+             "at": "t", "read": false},
+            {"id": "ntf_2", "kind": "org-invite", "actor": card("bob"), "post": null,
+             "org": {"id": "org_1", "ticker": "LACE", "name": "Lace Labs"}, "at": "t", "read": true}],
+            "more": true, "unread": 4}));
+        assert_eq!((page.items.len(), page.unread, page.next().as_deref()), (2, 4, Some("ntf_2")));
+        let like = &page.items[0];
+        assert_eq!((like.kind.as_str(), like.read), ("like", false));
+        assert_eq!(like.post.as_ref().map(|p| p.id.as_str()), Some("pst_1"));
+        let invite = &page.items[1];
+        assert!(invite.post.is_none() && invite.read);
+        assert_eq!(invite.org.as_ref().map(|o| o.ticker.as_str()), Some("LACE"));
+        assert_eq!(Me::from_json(&json!({"me": card("ada"), "unread_notifications": 3})).unread_notifications, 3);
+    }
+
+    #[test]
+    fn a_post_says_whether_the_reader_saved_it_and_a_page_carries_its_pin() {
+        assert!(Post::from_json(&json!({"id": "pst_1", "bookmarked": true})).bookmarked);
+        assert!(!Post::from_json(&json!({"id": "pst_1", "bookmarked": null})).bookmarked);
+        let page = PersonPage::from_json(&json!({"person": card("ada"), "posts": [], "more": false,
+                                                 "pinned": {"id": "pst_9", "text": "Read me first"}}));
+        assert_eq!(page.pinned.as_ref().map(|p| p.id.as_str()), Some("pst_9"));
+        assert!(PersonPage::from_json(&json!({"person": card("ada"), "pinned": null})).pinned.is_none());
+    }
+
+    #[test]
+    fn a_job_reads_from_a_post_and_a_new_one_sends_it() {
+        let post = Post::from_json(&json!({"id": "pst_1", "kind": "article", "job": {"location": "London",
+            "workplace": "hybrid", "employment": "part-time", "pay": "", "closes_at": "2026-11-13T00:00:00Z",
+            "closed": false, "applied": true, "applicants": null}}));
+        let job = post.job.expect("a job");
+        assert_eq!((job.workplace, job.employment, job.applied, job.applicants), (Workplace::Hybrid, Employment::PartTime, true, None));
+        assert_eq!(Post::from_json(&json!({"id": "pst_2"})).job, None);
+        let new = NewPost {
+            kind: Kind::Article,
+            text: "Build".into(),
+            title: Some("Engineer".into()),
+            as_org: Some("BABG".into()),
+            job: Some(NewJob { workplace: Workplace::Remote, employment: Employment::Contract, days: 30, ..NewJob::default() }),
+            ..NewPost::default()
+        };
+        assert_eq!(new.body()["job"], json!({"location": "", "workplace": "remote", "employment": "contract", "pay": "", "days": 30}));
+        assert_eq!(Workplace::ALL.map(|w| w.to_string()), ["On-site", "Hybrid", "Remote"]);
+        assert_eq!(Employment::ALL.map(Employment::as_str).map(Employment::from_word), Employment::ALL);
+    }
+
+    #[test]
+    fn a_post_reads_its_poll_and_who_may_reply_and_a_new_one_sends_them() {
+        let post = Post::from_json(&json!({"id": "pst_1", "replies_from": "followers", "you_can_reply": false,
+            "poll": {"options": ["A", "B", "C"], "votes": [1, 2, 0], "total": 3, "closes_at": "2026-10-15T00:00:00Z",
+                     "closed": false, "you_voted": 1}}));
+        assert_eq!((post.replies_from, post.you_can_reply), (ReplyRule::Followers, false));
+        let poll = post.poll.expect("a poll");
+        assert_eq!((poll.you_voted, poll.shares()), (Some(1), Some(vec![33, 67, 0])));
+        let hidden = Poll::from_json(&json!({"options": ["A", "B"], "votes": null, "total": 4}));
+        assert_eq!((hidden.shares(), hidden.total), (None, 4));
+        let plain = Post::from_json(&json!({"id": "pst_2"}));
+        assert_eq!((plain.replies_from, plain.you_can_reply, plain.poll), (ReplyRule::Everyone, true, None));
+        let new = NewPost {
+            text: "Which?".into(),
+            replies: ReplyRule::Mentioned,
+            poll: Some(NewPoll { options: vec!["A".into(), "B".into()], hours: 24 }),
+            ..NewPost::default()
+        };
+        assert_eq!(new.body(), json!({"kind": "post", "text": "Which?", "replies": "mentioned",
+                                     "poll": {"options": ["A", "B"], "hours": 24}}));
+        assert!(PersonPage::from_json(&json!({"person": card("ada"), "you_mute": true})).you_mute);
+    }
+
+    #[test]
+    fn a_page_carries_its_profile_and_me_mine() {
+        let page = PersonPage::from_json(&json!({"person": card("ada"), "profile": {
+            "experience": [{"id": "exp_1", "title": "Founder", "org": {"id": "org_1", "ticker": "LACE", "name": "Lace Labs"},
+                            "org_name": "Lace Labs", "started": "2024-01", "ended": null, "about": "", "confirmed": true}],
+            "education": [{"id": "edu_1", "school": "University of London", "degree": "BSc", "field": "Mathematics",
+                           "started": "2015", "ended": "2019"}],
+            "skills": [{"skill": "Mathematics", "endorsements": 2, "you_endorsed": true},
+                       {"skill": "Engines", "endorsements": 0, "you_endorsed": null}]}}));
+        let profile = page.profile.expect("the first page carries it");
+        assert_eq!((profile.experience[0].span(), profile.experience[0].confirmed), ("2024-01 to now".to_string(), true));
+        assert_eq!(profile.education[0].ended.as_deref(), Some("2019"));
+        let skills: Vec<_> = profile.skills.iter().map(|s| (s.endorsements, s.you_endorsed)).collect();
+        assert_eq!(skills, [(2, Some(true)), (0, None)]);
+        assert!(PersonPage::from_json(&json!({"person": card("ada"), "profile": null})).profile.is_none());
+        assert_eq!(Me::from_json(&json!({"me": card("ada")})).profile, Profile::default());
+        let new = NewExperience { title: "Analyst".into(), org_name: "Babbage & Co".into(), started: "2019-03".into(), ..NewExperience::default() };
+        assert_eq!(new.body(), json!({"title": "Analyst", "org_name": "Babbage & Co", "started": "2019-03", "about": ""}));
+        let school = NewEducation { id: "edu_1".into(), school: "UCL".into(), ended: "2019".into(), ..NewEducation::default() };
+        assert_eq!(school.body(), json!({"entry_id": "edu_1", "school": "UCL", "degree": "", "field": "", "ended": "2019"}));
+    }
+
+    #[test]
+    fn a_search_reads_people_organizations_and_posts() {
+        let found = Found::from_json(&json!({"people": [card("ada")],
+                                             "orgs": [{"id": "org_1", "ticker": "LACE", "name": "Lace Labs"}],
+                                             "posts": [{"id": "pst_1"}], "more": true}));
+        assert_eq!(found.people[0].username.as_deref(), Some("ada"));
+        assert_eq!(found.orgs[0].ticker, "LACE");
+        assert_eq!(found.posts.next().as_deref(), Some("pst_1"));
+        let people_only = Found::from_json(&json!({"people": []}));
+        assert!(people_only.orgs.is_empty() && people_only.posts.posts.is_empty());
+        assert_eq!(SearchKind::ALL.map(SearchKind::as_str), ["all", "posts", "people", "orgs"]);
+        let tagged = Tagged::from_json(&json!({"tag": "looms", "posts": [{"id": "pst_1"}], "more": false}));
+        assert_eq!((tagged.tag.as_str(), tagged.posts.posts.len()), ("looms", 1));
+    }
+
+    #[test]
+    fn trending_tags_and_suggestions_read_with_their_reasons() {
+        let t = Trending::from_json(&json!({"hours": 168, "tags": [{"tag": "looms", "posts": 3, "people": 2}]}));
+        assert_eq!((t.hours, t.tags[0].tag.as_str(), t.tags[0].posts, t.tags[0].people), (168, "looms", 3, 2));
+        let s = Suggestions::from_json(&json!({"people": [
+            {"person": card("ada"), "reason": "org", "org": {"id": "org_1", "ticker": "LACE", "name": "Lace Labs"}},
+            {"person": card("bob"), "reason": "replied", "org": null},
+            {"person": card("cy"), "reason": "something-new", "org": null}],
+            "orgs": [{"id": "org_2", "ticker": "MILL", "name": "Mills"}]}));
+        assert_eq!(s.people[0].why.words(s.people[0].org.as_ref()), "Shows (LACE)");
+        assert_eq!(s.people[1].why, Why::Replied);
+        assert_eq!(s.people[2].why, Why::Page, "an unknown reason reads as the plainest one");
+        assert_eq!(s.orgs[0].ticker, "MILL");
+        assert_eq!(Suggestions::from_json(&Value::Null), Suggestions::default());
     }
 
     #[test]

@@ -1,0 +1,76 @@
+{
+  "protocol": "alelyon.friends.sealed/v1",
+  "encoding": "hex",
+  "generator": "www/scripts/gen-sealed-vectors.mjs",
+  "sealed_a": {
+    "text": "hello, Bob",
+    "sender_secret": "1e2124272a2d303336393c3f4245484b4e5154575a5d606366696c6f7275787b",
+    "recipient_secrets": [
+      "3b3e4144474a4d505356595c5f6265686b6e7174777a7d808386898c8f929598",
+      "585b5e6164676a6d707376797c7f8285888b8e9194979a9da0a3a6a9acafb2b5"
+    ],
+    "sender_account": "acct_ada",
+    "recipient_account": "acct_bob",
+    "sender_device": "78e6ef68f8d09174b2a0257ab8146822",
+    "message_id": "msg_a1",
+    "random_draws": [
+      "05101b26313c47525d68737e89949faab5c0cbd6e1ecf7020d18232e39444f5a",
+      "2a35404b56616c77828d98a3",
+      "4f5a65707b86919ca7b2bdc8d3dee9f4ff0a15202b36414c57626d78838e99a4",
+      "747f8a95a0abb6c1ccd7e2edf8030e19242f3a45505b66717c87929da8b3bec9"
+    ],
+    "nonce": "2a35404b56616c77828d98a3",
+    "ciphertext": "df76eff6f3ed285cb7e704d094ecaea604548cd166133624160e",
+    "keys": [
+      {
+        "device": "fc5927fe1d15c340d91aeed920480209",
+        "enc": "148f596db540bde69533716b51127e24a322d90fadff1454c173e703ecf74670",
+        "wrapped": "ed2ce8177b81d0593f0ff794cefff9b36116b97e4705d100345ead66d594debca129707f3c61cb8edd0e50bbd6132a7e"
+      },
+      {
+        "device": "d53af836451c33e20906e28148c5e392",
+        "enc": "5e194dceac659c21c771b5441cd96dbbdd02d8233d6f679f79d2e8c7e5c61012",
+        "wrapped": "f2eee1696c43be64bd7e1dd1e3800d68799df3798c469f60f09c1fc2567c4c04fdbce236fc2d175a094386690aa20522"
+      }
+    ]
+  },
+  "sealed_b": {
+    "text": "Grüße — 你好 — 👋\nsecond line",
+    "sender_secret": "75787b7e8184878a8d909396999c9fa2a5a8abaeb1b4b7babdc0c3c6c9cccfd2",
+    "recipient_secrets": [
+      "9295989b9ea1a4a7aaadb0b3b6b9bcbfc2c5c8cbced1d4d7dadde0e3e6e9ecef",
+      "afb2b5b8bbbec1c4c7cacdd0d3d6d9dcdfe2e5e8ebeef1f4f7fafd000306090c",
+      "cccfd2d5d8dbdee1e4e7eaedf0f3f6f9fcff0205080b0e1114171a1d20232629"
+    ],
+    "sender_account": "acct_bob",
+    "recipient_account": "acct_ada",
+    "sender_device": "db518026bd1af0af656c74a062490d80",
+    "message_id": "msg_b2",
+    "random_draws": [
+      "05101b26313c47525d68737e89949faab5c0cbd6e1ecf7020d18232e39444f5a",
+      "2a35404b56616c77828d98a3",
+      "4f5a65707b86919ca7b2bdc8d3dee9f4ff0a15202b36414c57626d78838e99a4",
+      "747f8a95a0abb6c1ccd7e2edf8030e19242f3a45505b66717c87929da8b3bec9",
+      "99a4afbac5d0dbe6f1fc07121d28333e49545f6a75808b96a1acb7c2cdd8e3ee"
+    ],
+    "nonce": "2a35404b56616c77828d98a3",
+    "ciphertext": "f06140265f5e6d3e3a059a6446f915af09c065c02151a9f02996546908925b9f83cd40f4be8523b254cf530dac46a96652ecf6bbed4570",
+    "keys": [
+      {
+        "device": "a4bf5c327ac329462603dbbda6638382",
+        "enc": "148f596db540bde69533716b51127e24a322d90fadff1454c173e703ecf74670",
+        "wrapped": "bec84d17db82d773bdd75ce12ed840b749aecffe04e2958f0f3bbc75d6776c3c3faeeffcdc409a63129dd42b7d54b275"
+      },
+      {
+        "device": "c3539cfbb1baa4b05108d3546a1feab8",
+        "enc": "5e194dceac659c21c771b5441cd96dbbdd02d8233d6f679f79d2e8c7e5c61012",
+        "wrapped": "15253fb7497f55eb263f1c3eb4b6516b22a2b45367b6c886773cfeadebc8c01503371d3676a9d8a1c5b41179a1465ffe"
+      },
+      {
+        "device": "5b60bde28df755e2005fbf90043eba34",
+        "enc": "77e00c77c6a67485476e799513580c3489ddb42376b8d73b1f8cf98190bb4a57",
+        "wrapped": "def20863793d2db4eea4fcfcfb0a8ffb0a21f71f6aa449548fb9fdecafbe571f774b8677c6c0a3b37f9abdff8e374516"
+      }
+    ]
+  }
+}

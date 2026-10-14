@@ -24,6 +24,7 @@
 //! put in an error.
 
 pub mod meter;
+pub mod spend;
 pub mod openrouter;
 pub mod parts;
 #[cfg(test)]
@@ -349,7 +350,7 @@ pub fn parse_models_where(
 /// A row's prices per million input and output tokens: OpenRouter's
 /// `pricing.prompt` and `pricing.completion` (US dollars per token, as text),
 /// or Together's `pricing.input` and `pricing.output` (per million tokens).
-fn price(row: &Value) -> Option<(f64, f64)> {
+pub(crate) fn price(row: &Value) -> Option<(f64, f64)> {
     let pricing = row.get("pricing")?;
     let per = |k: &str, scale: f64| -> Option<f64> {
         let v = pricing.get(k)?;

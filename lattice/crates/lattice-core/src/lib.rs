@@ -55,6 +55,10 @@
 //!   starts and owns (ADR-0041): its files, its binary, its models and their
 //!   GGUF headers, its settings, and the server itself; [`net`], the one HTTP
 //!   client the core builds for it, loopback only.
+//! - [`fetch`]: model files fetched from Hugging Face's public file store
+//!   once the person agreed to them: planned from the Hub's own listing (each
+//!   file's size and SHA-256), held against the free disk, resumable, and
+//!   checked before it is put in place.
 //! - [`browser`]: the agent's own browser (Edge or Chrome on a profile of its
 //!   own, its DevTools on two pipes it inherits and no port), which the agent
 //!   operates as a person does: screenshots, clicks, typing, keys; the public
@@ -102,6 +106,7 @@ pub mod desktop;
 pub mod devmodel;
 pub mod env;
 pub mod exec;
+pub mod fetch;
 mod front;
 pub mod fsx;
 pub mod git;
@@ -129,6 +134,7 @@ pub mod sha;
 pub mod skills;
 pub mod staging;
 pub mod state;
+pub mod steps_mcp;
 pub mod store;
 #[cfg(test)]
 mod testkit;

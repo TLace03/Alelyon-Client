@@ -24,6 +24,12 @@ sha2 = "0.10.9"
 base64 = "0.23.1"
 getrandom = "0.2.17"
 percent-encoding = "2.3.2"
+# Sealed friends messages (ADR-0049, src/sealed.rs): X25519 from curve25519-dalek (a device key must be stored,
+# which ring's X25519 does not allow), HKDF-SHA256, and AES-GCM and the system's randomness from ring.
+curve25519-dalek = { version = "4.1.3", default-features = false, features = ["zeroize"] }
+hkdf = "0.12.4"
+ring = "0.17.14"
+zeroize = "1.8.2"
 
 [dev-dependencies]
 # examples/status.rs runs its one request on a tokio runtime.

@@ -498,3 +498,105 @@ fn the_providers_are_the_four_and_only_gemini_trains_on_what_it_is_sent() {
         assert!(crate::keys::valid_key_name(c.key_name), "{}", c.key_name);
     }
 }
+
+// ------------------------------------------------------------------- paid models under a monthly cap
+
+/// A spending ledger in a folder of the test's own (kept for the test's life).
+fn ledger() -> Arc<Spend> {
+    let dir: &'static crate::testkit::TempDir = Box::leak(Box::new(crate::testkit::TempDir::new("parts-spend")));
+    Arc::new(Spend::at(super::spend::path_in(dir.path())))
+}
+
+fn paid(model: &str, cap: f64, ledger: &Arc<Spend>) -> Paid {
+    Paid { model: model.into(), part: "mind".into(), price: Price::known(0.2, 0.6).unwrap(), cap_usd: cap, ledger: ledger.clone() }
+}
+
+#[test]
+fn a_paid_model_is_refused_without_a_cap_for_that_very_model() {
+    let stub = Stub::json(200, json!({"choices": [{"message": {"content": "never"}}]}));
+    let l = ledger();
+    // an allowance for another model, and one with no cap, admit nothing
+    for allowance in [paid("qwen/qwen3-14b", 5.0, &l), paid("qwen/qwen3-235b-a22b", 0.0, &l)] {
+        let r = reach(&OPENROUTER, &stub).with_paid(allowance);
+        let c = Client::new(&r).unwrap();
+        let refused = run(chat(&c, &r, "qwen/qwen3-235b-a22b", vec![json!({"role": "user", "content": "hi"})], 64, NOW)).unwrap_err();
+        assert!(matches!(&refused, Failure::Failed(s) if s.contains("free models only")), "{refused:?}");
+    }
+    // speech stays free only, whatever the reach carries
+    let r = reach(&GROQ, &stub).with_paid(paid("whisper-paid", 5.0, &l));
+    let c = Client::new(&r).unwrap();
+    assert!(run(speak(&c, &r, " ", "hello", None, None, NOW)).is_err());
+    assert!(stub.seen().is_empty(), "nothing was sent");
+    assert_eq!(l.used(NOW), 0.0, "nothing was counted");
+}
+
+#[test]
+fn a_paid_call_is_counted_at_the_cost_the_provider_reports() {
+    let stub = Stub::json(
+        200,
+        json!({"choices": [{"message": {"content": "Hello."}}], "usage": {"prompt_tokens": 20, "completion_tokens": 5, "cost": 0.0042}}),
+    );
+    let l = ledger();
+    let r = reach(&OPENROUTER, &stub).with_paid(paid("qwen/qwen3-235b-a22b", 5.0, &l));
+    let c = Client::new(&r).unwrap();
+    let answer = run(chat(&c, &r, "qwen/qwen3-235b-a22b", vec![json!({"role": "user", "content": "hi"})], 64, NOW)).unwrap();
+    assert_eq!(answer.value, "Hello.");
+    assert!((l.used_by("mind", NOW) - 0.0042).abs() < 1e-12, "settled to the reported cost: {}", l.used(NOW));
+    let body = stub.seen()[0].json();
+    assert_eq!(body["usage"]["include"], true, "OpenRouter is asked to report the cost");
+    // without a reported cost: the reported tokens at the published price
+    let stub = Stub::json(200, json!({"choices": [{"message": {"content": "Hi."}}], "usage": {"prompt_tokens": 1000, "completion_tokens": 1000}}));
+    let l = ledger();
+    let r = reach(&OPENROUTER, &stub).with_paid(paid("qwen/qwen3-235b-a22b", 5.0, &l));
+    let c = Client::new(&r).unwrap();
+    run(chat(&c, &r, "qwen/qwen3-235b-a22b", vec![json!({"role": "user", "content": "hi"})], 64, NOW)).unwrap();
+    assert!((l.used(NOW) - 0.0008).abs() < 1e-12, "{}", l.used(NOW));
+    // a free model through the same reach is not counted, and is not asked for its cost
+    let stub = Stub::json(200, json!({"choices": [{"message": {"content": "Free."}}], "usage": {"cost": 0.5}}));
+    let r = reach(&OPENROUTER, &stub).with_paid(paid("qwen/qwen3-235b-a22b", 5.0, &l));
+    let c = Client::new(&r).unwrap();
+    run(chat(&c, &r, "qwen/qwen3-8b:free", vec![json!({"role": "user", "content": "hi"})], 64, NOW)).unwrap();
+    assert!((l.used(NOW) - 0.0008).abs() < 1e-12);
+    assert!(stub.seen()[0].json().get("usage").is_none());
+}
+
+#[test]
+fn at_the_cap_a_paid_call_is_refused_before_anything_is_sent() {
+    let stub = Stub::json(200, json!({"choices": [{"message": {"content": "never"}}]}));
+    let l = ledger();
+    // the month already holds nearly all of a $5 cap; the call's worst case does not fit
+    let r0 = l.reserve("mind", 4.9999, 5.0, NOW).unwrap();
+    l.settle(&r0, 4.9999).unwrap();
+    let r = reach(&OPENROUTER, &stub).with_paid(paid("qwen/qwen3-235b-a22b", 5.0, &l));
+    let c = Client::new(&r).unwrap();
+    let refused = run(chat(&c, &r, "qwen/qwen3-235b-a22b", vec![json!({"role": "user", "content": "hi"})], 1024, NOW)).unwrap_err();
+    assert_eq!(refused, Failure::Capped { back_at: super::spend::next_month_start(NOW) });
+    assert!(refused.sentence().contains("Monthly cap reached"));
+    assert!(stub.seen().is_empty(), "nothing was sent at the cap");
+}
+
+#[test]
+fn a_priced_list_keeps_open_weight_models_with_a_readable_price() {
+    let list = json!({"data": [
+        {"id": "qwen/qwen3-8b:free", "hugging_face_id": "Qwen/Qwen3-8B", "pricing": {"prompt": "0", "completion": "0"}},
+        {"id": "qwen/qwen3-235b-a22b", "hugging_face_id": "Qwen/Qwen3-235B-A22B", "pricing": {"prompt": "0.00000013", "completion": "0.0000006"}},
+        {"id": "qwen/qwen3-14b", "hugging_face_id": "Qwen/Qwen3-14B", "pricing": {"prompt": "n/a", "completion": "0.1"}},
+        {"id": "closed/model", "hugging_face_id": "", "pricing": {"prompt": "0.00000125", "completion": "0.00001"}},
+        {"id": "qwen/qwen2.5-vl-72b-instruct", "hugging_face_id": "Qwen/Qwen2.5-VL-72B-Instruct", "pricing": {"prompt": "0.0000007", "completion": "0.0000007"},
+         "architecture": {"input_modalities": ["text", "image"]}},
+    ]});
+    let chat: Vec<(String, (f64, f64))> = priced(&OPENROUTER, Task::Chat, &list).into_iter().map(|(m, p)| (m.id, (p.input_per_m, p.output_per_m))).collect();
+    let ids: Vec<&str> = chat.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, ["qwen/qwen2.5-vl-72b-instruct", "qwen/qwen3-235b-a22b", "qwen/qwen3-8b:free"], "a closed model and an unreadable price are left out");
+    let big = &chat[1].1;
+    assert!((big.0 - 0.13).abs() < 1e-9 && (big.1 - 0.6).abs() < 1e-9, "per million tokens: {big:?}");
+    let vision: Vec<String> = priced(&OPENROUTER, Task::Vision, &list).into_iter().map(|(m, _)| m.id).collect();
+    assert_eq!(vision, ["qwen/qwen2.5-vl-72b-instruct"]);
+    // elsewhere, the free plan's models, at zero
+    let groq = json!({"data": [{"id": "whisper-large-v3-turbo"}, {"id": "llama-3.3-70b-versatile"}]});
+    let ears = priced(&GROQ, Task::Transcribe, &groq);
+    assert_eq!(ears.len(), 1);
+    assert!(ears[0].1.is_free());
+    assert_eq!(reported_cost(&json!({"usage": {"cost": "0.25"}})), Some(0.25));
+    assert_eq!(reported_cost(&json!({"usage": {"cost": -1}})), None);
+}
