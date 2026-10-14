@@ -184,13 +184,28 @@ fn a_prompt_streams_asks_reads_and_writes_through_the_client() {
             Some("chatgpt"),
             &Model::ConfigOption("gpt-5.5".into()),
             Some("read-only"),
+            true,
+            &[crate::steps_mcp::acp_entry(
+                Path::new("C:/Alelyon/centcom.exe"),
+                Path::new("D:/steps"),
+            )],
         ))
         .unwrap();
     assert_eq!(session.id, "s1");
+    // The handshake offers the client's reads and (staged) writes, no terminal.
+    assert_eq!(
+        seen.lock().unwrap()[0]["params"]["clientCapabilities"],
+        json!({"fs": {"readTextFile": true, "writeTextFile": true}, "terminal": false})
+    );
     // What it offered is kept with the session, for the reader's model picker.
     assert_eq!(session.offered.how, Some(super::models::How::ConfigOption));
     assert_eq!(
-        session.offered.models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        session
+            .offered
+            .models
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
         ["default", "opus"]
     );
     assert_eq!(session.offered.current.as_deref(), Some("default"));
@@ -224,7 +239,11 @@ fn a_prompt_streams_asks_reads_and_writes_through_the_client() {
     assert_eq!(asked[0].call_id, "t1");
     assert_eq!(
         asked[0].diffs,
-        [super::session::Diff { path: "C:/work/b.txt".into(), old: None, new: "new\n".into() }]
+        [super::session::Diff {
+            path: "C:/work/b.txt".into(),
+            old: None,
+            new: "new\n".into()
+        }]
     );
     let seen = seen.lock().unwrap().clone();
     let methods: Vec<&str> = seen
@@ -242,6 +261,16 @@ fn a_prompt_streams_asks_reads_and_writes_through_the_client() {
             "session/set_config_option",
             "session/prompt"
         ]
+    );
+    // The session is offered the checklist server, as a stdio entry.
+    let new = seen
+        .iter()
+        .find(|m| m.get("method").and_then(Value::as_str) == Some("session/new"))
+        .unwrap();
+    assert_eq!(
+        new["params"]["mcpServers"],
+        json!([{"name": crate::steps_mcp::NAME, "command": "C:/Alelyon/centcom.exe", "args": [crate::steps_mcp::FLAG],
+            "env": [{"name": "ALELYON_STEPS_DIR", "value": "D:/steps"}]}])
     );
     assert_eq!(
         answer_to(&seen, 100)["result"],
@@ -271,6 +300,20 @@ fn a_prompt_streams_asks_reads_and_writes_through_the_client() {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(conn.closed().is_some());
+}
+
+/// The write is offered only where Lattice stages it for review; the read
+/// always; a terminal never.
+#[test]
+fn the_client_write_is_offered_only_where_it_is_staged() {
+    assert_eq!(
+        session::client_capabilities(false),
+        json!({"fs": {"readTextFile": true, "writeTextFile": false}, "terminal": false})
+    );
+    assert_eq!(
+        session::client_capabilities(true)["fs"]["writeTextFile"],
+        true
+    );
 }
 
 /// An agent that stops answering: a waiting request ends with the reason the
@@ -320,7 +363,10 @@ fn the_agents_start_with_their_measured_settings_and_no_nesting_marker() {
         assert_eq!(Agent::from_choice(agent.choice()), Some(agent));
     }
     assert_eq!(Agent::ClaudeCode.model(), Model::Agents);
-    assert_eq!(Agent::Codex.model(), Model::SetModel("gpt-6-luna[high]".into()));
+    assert_eq!(
+        Agent::Codex.model(),
+        Model::SetModel("gpt-6-luna[high]".into())
+    );
     assert_eq!(Agent::Codex.auth(), Some("chat-gpt"));
     let env = MapEnv::new()
         .with("PATH", r"C:\Windows")
@@ -350,8 +396,7 @@ fn the_agents_start_with_their_measured_settings_and_no_nesting_marker() {
             .to_string_lossy()
             .ends_with(r"@agentclientprotocol\claude-agent-acp\dist\index.js")
     );
-    let (_, argv) =
-        Agent::Codex.command(Path::new(r"C:\agents"), Path::new(r"C:\node\node.exe"));
+    let (_, argv) = Agent::Codex.command(Path::new(r"C:\agents"), Path::new(r"C:\node\node.exe"));
     assert!(
         argv[1]
             .to_string_lossy()
@@ -407,6 +452,8 @@ fn each_real_agent_answers_on_the_readers_subscription() {
                 agent.auth(),
                 &agent.model(),
                 agent.mode(),
+                false,
+                &[],
             ))
             .unwrap();
         let stop = runtime
@@ -448,7 +495,10 @@ fn codex_offers_its_models_and_claude_code_its_model_option() {
     });
     let o = offered(&codex);
     assert_eq!(o.how, Some(How::SetModel));
-    assert_eq!(o.models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-6-luna[low]", "gpt-6-luna[high]"]);
+    assert_eq!(
+        o.models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["gpt-6-luna[low]", "gpt-6-luna[high]"]
+    );
     assert_eq!(o.models[0].name, "6 Luna (low)");
     assert_eq!(o.models[0].description, "Fast and affordable");
     assert_eq!(o.current.as_deref(), Some("gpt-6-astra[xhigh]"));
@@ -470,41 +520,80 @@ fn codex_offers_its_models_and_claude_code_its_model_option() {
     let o = offered(&claude);
     assert_eq!(o.how, Some(How::ConfigOption));
     assert_eq!(
-        o.models.iter().map(|m| (m.id.as_str(), m.name.as_str())).collect::<Vec<_>>(),
-        [("default", "Default (recommended)"), ("opus", "Opus"), ("claude-opus-5", "claude-opus-5")]
+        o.models
+            .iter()
+            .map(|m| (m.id.as_str(), m.name.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("default", "Default (recommended)"),
+            ("opus", "Opus"),
+            ("claude-opus-5", "claude-opus-5")
+        ]
     );
     assert_eq!(o.current.as_deref(), Some("fable[1m]"));
-    assert_eq!(offered(&json!({"sessionId": "s"})), super::models::Offered::default());
+    assert_eq!(
+        offered(&json!({"sessionId": "s"})),
+        super::models::Offered::default()
+    );
 }
 
 /// The pick: only a model the agent offered; each new session opens on it,
 /// set the way the agent offered it; cleared, the agent's default again.
 #[test]
 fn the_readers_pick_opens_new_sessions_set_as_the_agent_takes_it() {
-    use super::models::{Offer, Offered, How, known, model_for, pick, remember_offered};
+    use super::models::{How, Offer, Offered, known, model_for, pick, remember_offered};
     let dir = crate::testkit::TempDir::new("acp-models");
     let dir = dir.path();
-    assert_eq!(model_for(dir, Agent::Codex), Agent::Codex.model(), "no pick: the default");
+    assert_eq!(
+        model_for(dir, Agent::Codex),
+        Agent::Codex.model(),
+        "no pick: the default"
+    );
     // Nothing offered yet: no pick is taken.
-    assert!(pick(dir, Agent::Codex, Some("gpt-6-luna[low]")).unwrap_err().contains("does not offer"));
-    let offer = |id: &str| Offer { id: id.into(), name: id.into(), description: String::new() };
-    remember_offered(dir, Agent::Codex, &Offered {
-        how: Some(How::SetModel),
-        models: vec![offer("gpt-6-luna[low]"), offer("gpt-6-luna[high]")],
-        current: None,
-    })
+    assert!(
+        pick(dir, Agent::Codex, Some("gpt-6-luna[low]"))
+            .unwrap_err()
+            .contains("does not offer")
+    );
+    let offer = |id: &str| Offer {
+        id: id.into(),
+        name: id.into(),
+        description: String::new(),
+    };
+    remember_offered(
+        dir,
+        Agent::Codex,
+        &Offered {
+            how: Some(How::SetModel),
+            models: vec![offer("gpt-6-luna[low]"), offer("gpt-6-luna[high]")],
+            current: None,
+        },
+    )
     .unwrap();
-    remember_offered(dir, Agent::ClaudeCode, &Offered {
-        how: Some(How::ConfigOption),
-        models: vec![offer("default"), offer("opus")],
-        current: Some("default".into()),
-    })
+    remember_offered(
+        dir,
+        Agent::ClaudeCode,
+        &Offered {
+            how: Some(How::ConfigOption),
+            models: vec![offer("default"), offer("opus")],
+            current: Some("default".into()),
+        },
+    )
     .unwrap();
     pick(dir, Agent::Codex, Some("gpt-6-luna[low]")).unwrap();
     pick(dir, Agent::ClaudeCode, Some("opus")).unwrap();
-    assert!(pick(dir, Agent::ClaudeCode, Some("gpt-6-luna[low]")).is_err(), "another agent's model");
-    assert_eq!(model_for(dir, Agent::Codex), Model::SetModel("gpt-6-luna[low]".into()));
-    assert_eq!(model_for(dir, Agent::ClaudeCode), Model::ConfigOption("opus".into()));
+    assert!(
+        pick(dir, Agent::ClaudeCode, Some("gpt-6-luna[low]")).is_err(),
+        "another agent's model"
+    );
+    assert_eq!(
+        model_for(dir, Agent::Codex),
+        Model::SetModel("gpt-6-luna[low]".into())
+    );
+    assert_eq!(
+        model_for(dir, Agent::ClaudeCode),
+        Model::ConfigOption("opus".into())
+    );
     let (offered, picked) = known(dir, Agent::ClaudeCode);
     assert_eq!(offered.models.len(), 2);
     assert_eq!(picked.as_deref(), Some("opus"));
@@ -552,11 +641,22 @@ fn each_real_agent_offers_models_and_answers_on_a_picked_one() {
         )
         .unwrap();
         let session = runtime
-            .block_on(AgentSession::start(conn, work.path(), agent.auth(), model, agent.mode()))
+            .block_on(AgentSession::start(
+                conn,
+                work.path(),
+                agent.auth(),
+                model,
+                agent.mode(),
+                false,
+                &[],
+            ))
             .unwrap();
         (session, client, child)
     };
-    for (agent, wanted) in [(Agent::ClaudeCode, "sonnet"), (Agent::Codex, "gpt-6-luna[low]")] {
+    for (agent, wanted) in [
+        (Agent::ClaudeCode, "sonnet"),
+        (Agent::Codex, "gpt-6-luna[low]"),
+    ] {
         let (session, _, _child) = open(agent, &agent.model());
         let offered = session.offered.clone();
         session.close();
@@ -565,9 +665,16 @@ fn each_real_agent_offers_models_and_answers_on_a_picked_one() {
             agent.label(),
             offered.how,
             offered.current,
-            offered.models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>()
+            offered
+                .models
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>()
         );
-        assert!(offered.models.iter().any(|m| m.id == wanted), "{wanted} not offered");
+        assert!(
+            offered.models.iter().any(|m| m.id == wanted),
+            "{wanted} not offered"
+        );
         let model = match offered.how {
             Some(super::models::How::SetModel) => Model::SetModel(wanted.into()),
             _ => Model::ConfigOption(wanted.into()),
@@ -605,10 +712,21 @@ fn a_change_is_shown_as_its_removed_and_added_lines() {
         old: Some("one\ntwo\nthree\nfour\n".into()),
         new: "one\ntwo\n3\nfour\n".into(),
     };
-    assert_eq!(diff_lines(&[edit]), ["src/a.txt:", "  two", "- three", "+ 3", "  four"]);
-    let new = Diff { path: "b.txt".into(), old: None, new: "new\r\n".into() };
+    assert_eq!(
+        diff_lines(&[edit]),
+        ["src/a.txt:", "  two", "- three", "+ 3", "  four"]
+    );
+    let new = Diff {
+        path: "b.txt".into(),
+        old: None,
+        new: "new\r\n".into(),
+    };
     assert_eq!(diff_lines(&[new]), ["b.txt (new file)", "+ new"]);
-    let long = Diff { path: "c.txt".into(), old: None, new: "x\n".repeat(100) };
+    let long = Diff {
+        path: "c.txt".into(),
+        old: None,
+        new: "x\n".repeat(100),
+    };
     let shown = diff_lines(&[long]);
     assert_eq!(shown.len(), DIFF_LINES + 1);
     assert_eq!(shown.last().unwrap(), "... and 41 more lines");

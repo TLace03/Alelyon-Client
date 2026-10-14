@@ -71,7 +71,7 @@ const WORDS: [&str; 12] = [
 const TIMEOUTS: [&str; 2] = ["timeout", "timeout_at"];
 
 /// The sites outside [`ALLOWED`]: (file, exact trimmed line, times, why).
-const LISTED: [(&str, &str, usize, &str); 18] = [
+const LISTED: [(&str, &str, usize, &str); 22] = [
     (
         "lattice-core/src/llama/bench.rs",
         "tokio::time::sleep(Duration::from_millis(200)).await;",
@@ -179,6 +179,30 @@ const LISTED: [(&str, &str, usize, &str); 18] = [
         "std::thread::sleep(std::time::Duration::from_millis(10));",
         1,
         "the Cloudflare meter's lock wait's pause between tries, only while one call waits for it",
+    ),
+    (
+        "lattice-core/src/steps_mcp.rs",
+        "let left = until.saturating_duration_since(Instant::now());",
+        1,
+        "the checklist server's wait_for_steps, in its own process, only while an agent's call waits (at most MAX_WAIT_SECS)",
+    ),
+    (
+        "lattice-core/src/steps_mcp.rs",
+        "std::thread::sleep(self.poll.min(left));",
+        1,
+        "the checklist server's wait_for_steps' pause between reads of the list, only while an agent's call waits",
+    ),
+    (
+        "lattice-core/src/hosted/spend.rs",
+        "Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {",
+        1,
+        "the paid spending ledger's lock, waited for at most LOCK_WAIT (3 s) before one paid call, which is then refused",
+    ),
+    (
+        "lattice-core/src/hosted/spend.rs",
+        "std::thread::sleep(std::time::Duration::from_millis(10));",
+        1,
+        "the paid spending ledger's lock wait's pause between tries, only while one paid call waits for it",
     ),
 ];
 

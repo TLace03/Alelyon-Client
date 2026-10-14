@@ -190,7 +190,7 @@ fn a_server_that_is_not_enabled_never_starts() {
     );
     let tools = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), None, None));
     assert!(
         tools.tools.is_empty() && tools.notices.is_empty(),
         "{tools:?}"
@@ -213,7 +213,7 @@ fn an_enabled_server_starts_lists_its_tools_and_answers_calls() {
     assert!(rig.enable(&entry));
     let turn = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), None, None));
     assert!(turn.notices.is_empty(), "{:?}", turn.notices);
     let names: Vec<&str> = turn.tools.iter().map(|t| t.model_name.as_str()).collect();
     assert_eq!(
@@ -284,7 +284,7 @@ fn a_changed_entry_asks_again_and_its_old_server_is_not_used() {
     assert_ne!(changed.sha256, entry.sha256);
     let turn = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[changed.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&changed), None, None));
     assert!(turn.tools.is_empty());
     let declared = config::load_user(&rig.state);
     let view = rig.hub.overview(&declared).servers.remove(0);
@@ -307,7 +307,7 @@ fn a_changed_entry_asks_again_and_its_old_server_is_not_used() {
     assert!(rig.enable(&changed));
     let turn = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[changed.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&changed), None, None));
     assert_eq!(turn.tools.len(), 8);
     assert!(turn.tools.iter().all(|t| t.sha256 == changed.sha256));
 }
@@ -319,7 +319,7 @@ fn a_server_that_exits_at_start_is_a_sentence_with_its_last_line() {
     assert!(rig.enable(&entry));
     let turn = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), None, None));
     assert!(turn.tools.is_empty());
     assert_eq!(turn.notices.len(), 1);
     assert!(
@@ -371,7 +371,7 @@ fn a_server_that_crashes_during_a_call_fails_the_call_and_says_so() {
     assert!(why.contains("stub: crashing on echo"), "{why}");
     let turn = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), None, None));
     assert_eq!(turn.tools.len(), 8, "the next use starts it again");
 }
 
@@ -495,7 +495,7 @@ fn a_folders_server_gets_lattices_value_for_a_name_and_runs_in_the_folder() {
     assert!(enabled);
     let turn = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], Some(&folder), None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), Some(&folder), None));
     assert_eq!(turn.tools.len(), 8, "{:?}", turn.notices);
     let value = |name: &str| {
         rig.runtime
@@ -607,7 +607,7 @@ fn switches_and_allow_always_shape_what_a_turn_offers() {
     ));
     let turn = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), None, None));
     assert!(!turn.tools.iter().any(|t| t.tool == "fail"));
     let echo = turn.tools.iter().find(|t| t.tool == "echo").unwrap();
     assert!(echo.allowed);
@@ -637,7 +637,7 @@ fn a_changed_tool_list_is_read_again_before_the_next_turn() {
     assert!(rig.enable(&entry));
     let first = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), None, None));
     assert_eq!(first.tools.len(), 8);
     rig.runtime
         .block_on(
@@ -648,7 +648,7 @@ fn a_changed_tool_list_is_read_again_before_the_next_turn() {
     std::thread::sleep(Duration::from_millis(200));
     let second = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), None, None));
     assert_eq!(second.tools.len(), 9);
     assert!(second.tools.iter().any(|t| t.tool == "late"));
 }
@@ -680,7 +680,7 @@ fn by_hand_a_server_built_with_the_mcp_sdk_speaks_with_lattices_client() {
     assert!(rig.enable(&entry));
     let turn = rig
         .runtime
-        .block_on(rig.hub.turn_tools(&[entry.clone()], None, None));
+        .block_on(rig.hub.turn_tools(std::slice::from_ref(&entry), None, None));
     assert!(turn.notices.is_empty(), "{:?}", turn.notices);
     let mut names: Vec<&str> = turn.tools.iter().map(|t| t.model_name.as_str()).collect();
     names.sort();

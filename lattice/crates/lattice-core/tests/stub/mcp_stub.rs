@@ -162,8 +162,8 @@ fn main() {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_owned();
-        if let Some(record) = &args.record {
-            if let Ok(mut file) = std::fs::OpenOptions::new()
+        if let Some(record) = &args.record
+            && let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(record)
@@ -175,7 +175,6 @@ fn main() {
                 };
                 let _ = writeln!(file, "{shown}");
             }
-        }
         let Some(id) = message.get("id").cloned() else {
             continue;
         };

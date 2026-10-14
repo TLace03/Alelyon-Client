@@ -159,7 +159,7 @@ fn a_suggested_task_starts_a_new_chat_in_the_same_folder_once() {
         conversation: conversation.id.clone(),
     };
     let events = h.events_until(&id, |events| !settled(events, &task).is_empty());
-    assert_eq!(settled(&events, &task), [started.clone()]);
+    assert_eq!(settled(&events, &task), std::slice::from_ref(&started));
     assert!(h.sidecar_items(&id).iter().any(|item| matches!(
         item,
         Item::TaskSettled { task: t, outcome, .. } if *t == task && *outcome == started

@@ -29,7 +29,13 @@ pub fn path_or(var: &str) -> Option<PathBuf> {
 
 /// Seal `secret` and write it, replacing what was there (a whole new file moved over the old).
 pub fn keep(at: &Path, secret: &str) -> Result<(), String> {
-    let sealed = seal(secret.as_bytes())?;
+    keep_with(at, secret, ENTROPY)
+}
+
+/// [`keep`] under another label (`entropy`), for a secret that is not the session (the friends device key): a blob
+/// sealed under one label does not open under another.
+pub fn keep_with(at: &Path, secret: &str, entropy: &[u8]) -> Result<(), String> {
+    let sealed = seal(secret.as_bytes(), entropy)?;
     if let Some(dir) = at.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("{} could not be made: {e}", dir.display()))?;
     }
@@ -40,8 +46,13 @@ pub fn keep(at: &Path, secret: &str) -> Result<(), String> {
 
 /// The kept secret, if there is one this user can open.
 pub fn open(at: &Path) -> Option<String> {
+    open_with(at, ENTROPY)
+}
+
+/// [`open`] for a secret kept with [`keep_with`] under `entropy`.
+pub fn open_with(at: &Path, entropy: &[u8]) -> Option<String> {
     let sealed = fs::read(at).ok()?;
-    String::from_utf8(unseal(&sealed).ok()?).ok()
+    String::from_utf8(unseal(&sealed, entropy).ok()?).ok()
 }
 
 /// Forget the kept session (sign out, or a token the service refused).
@@ -89,10 +100,10 @@ mod dpapi {
 }
 
 #[cfg(windows)]
-fn run(input: &[u8], protect: bool) -> Result<Vec<u8>, String> {
+fn run(input: &[u8], protect: bool, label: &[u8]) -> Result<Vec<u8>, String> {
     use dpapi::*;
     let blob_in = Blob { len: input.len() as u32, data: input.as_ptr() as *mut u8 };
-    let entropy = Blob { len: ENTROPY.len() as u32, data: ENTROPY.as_ptr() as *mut u8 };
+    let entropy = Blob { len: label.len() as u32, data: label.as_ptr() as *mut u8 };
     let mut out = Blob { len: 0, data: std::ptr::null_mut() };
     // SAFETY: the input and entropy blobs point at live slices for the call; on success the system allocates `out`
     // with LocalAlloc, it is copied before LocalFree, and it is freed exactly once.
@@ -114,22 +125,22 @@ fn run(input: &[u8], protect: bool) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(windows)]
-fn seal(secret: &[u8]) -> Result<Vec<u8>, String> {
-    run(secret, true)
+fn seal(secret: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
+    run(secret, true, entropy)
 }
 
 #[cfg(windows)]
-fn unseal(sealed: &[u8]) -> Result<Vec<u8>, String> {
-    run(sealed, false)
+fn unseal(sealed: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
+    run(sealed, false, entropy)
 }
 
 #[cfg(not(windows))]
-fn seal(_: &[u8]) -> Result<Vec<u8>, String> {
+fn seal(_: &[u8], _: &[u8]) -> Result<Vec<u8>, String> {
     Err("Stay signed in needs Windows' DPAPI here; nothing was kept".into())
 }
 
 #[cfg(not(windows))]
-fn unseal(_: &[u8]) -> Result<Vec<u8>, String> {
+fn unseal(_: &[u8], _: &[u8]) -> Result<Vec<u8>, String> {
     Err("no DPAPI".into())
 }
 

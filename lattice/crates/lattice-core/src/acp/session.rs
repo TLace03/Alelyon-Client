@@ -97,9 +97,20 @@ pub fn diffs(content: Option<&Value>) -> Vec<Diff> {
                 .iter()
                 .filter(|item| item.get("type").and_then(Value::as_str) == Some("diff"))
                 .map(|item| Diff {
-                    path: item.get("path").and_then(Value::as_str).unwrap_or("").to_owned(),
-                    old: item.get("oldText").and_then(Value::as_str).map(str::to_owned),
-                    new: item.get("newText").and_then(Value::as_str).unwrap_or("").to_owned(),
+                    path: item
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned(),
+                    old: item
+                        .get("oldText")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    new: item
+                        .get("newText")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned(),
                 })
                 .collect()
         })
@@ -129,7 +140,10 @@ pub fn diff_lines(diffs: &[Diff]) -> Vec<String> {
                         similar::ChangeTag::Insert => "+ ",
                         similar::ChangeTag::Equal => "  ",
                     };
-                    out.push(format!("{mark}{}", change.value().trim_end_matches(['\r', '\n'])));
+                    out.push(format!(
+                        "{mark}{}",
+                        change.value().trim_end_matches(['\r', '\n'])
+                    ));
                 }
             }
         }
@@ -149,7 +163,8 @@ pub trait Client: Send + Sync + 'static {
     fn permission(&self, permission: Permission) -> BoxFuture<'static, Option<String>>;
     /// A text file's content, from `line` (1-based) for `limit` lines when given.
     fn read(&self, path: &str, line: Option<u64>, limit: Option<u64>) -> Result<String, String>;
-    /// Write a text file (the caller may stage it for review instead).
+    /// Write a text file: Lattice stages it for the reader's review instead,
+    /// and nothing reaches the disk until the reader keeps it.
     fn write(&self, path: &str, content: &str) -> Result<(), String>;
 }
 
@@ -342,6 +357,13 @@ pub fn events(client: Arc<dyn Client>, log: Arc<dyn Fn(String) + Send + Sync>) -
     })
 }
 
+/// What Lattice offers an agent as its client (`initialize`): reading text
+/// files, writing them when `writes` (each write becomes a staged change in
+/// the conversation's review, never a direct write), and no terminal.
+pub fn client_capabilities(writes: bool) -> Value {
+    json!({"fs": {"readTextFile": true, "writeTextFile": writes}, "terminal": false})
+}
+
 /// One session with an agent.
 pub struct AgentSession {
     conn: Arc<Connection>,
@@ -355,18 +377,22 @@ fn failed(step: &str, error: CallError) -> String {
 }
 
 impl AgentSession {
-    /// Shake hands, sign in with `auth` when given, open a session in `cwd`,
-    /// and choose `model`.
+    /// Shake hands, sign in with `auth` when given, open a session in `cwd`
+    /// offered the MCP servers `servers` (ACP's `mcpServers` entries), and
+    /// choose `model`. `writes` offers `fs/write_text_file`: Lattice offers it
+    /// only where it stages the write for the reader's review.
     pub async fn start(
         conn: Arc<Connection>,
         cwd: &Path,
         auth: Option<&str>,
         model: &Model,
         mode: Option<&str>,
+        writes: bool,
+        servers: &[Value],
     ) -> Result<Self, String> {
         let init = json!({
             "protocolVersion": 1,
-            "clientCapabilities": {"fs": {"readTextFile": true, "writeTextFile": false}, "terminal": false},
+            "clientCapabilities": client_capabilities(writes),
         });
         conn.request("initialize", init, START_WAIT)
             .await
@@ -379,7 +405,7 @@ impl AgentSession {
         let new = conn
             .request(
                 "session/new",
-                json!({"cwd": cwd.to_string_lossy(), "mcpServers": []}),
+                json!({"cwd": cwd.to_string_lossy(), "mcpServers": servers}),
                 START_WAIT,
             )
             .await

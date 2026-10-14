@@ -42,6 +42,9 @@
 //! Not a port: the sidecar is native-only; its tail healing follows Python's
 //! `history.py`.
 
+pub(crate) mod acp_files;
+#[cfg(test)]
+mod acp_files_tests;
 pub mod agent;
 #[cfg(test)]
 mod agent_interop_tests;

@@ -20,12 +20,18 @@
 //! - [`models`]: the provider's live model list for a part, kept to the free
 //!   ones where the provider says which are free.
 //!
-//! **Free only.** This version calls free models only: an OpenRouter model
-//! must be a free variant (its id ends in `:free`), and [`free_model`] is
-//! checked before every call. A provider's free limit is never worked around:
-//! a `429` (or Cloudflare's daily-allocation error) is [`Failure::Limited`]
-//! with the time the provider gives for trying again, which the caller turns
-//! into a paused part. Nothing here retries, switches provider or pays.
+//! **Free unless a paid cap is given.** A route calls a free model (an
+//! OpenRouter model must be a free variant: its id ends in `:free`;
+//! [`free_model`] is checked before every call), or a paid model only through
+//! a reach that carries a [`Paid`] allowance for that very model: its published
+//! price and the person's monthly cap, counted in [`super::spend`] before and
+//! after each call ([`Failure::Capped`] at the cap). Paid calls are the chat
+//! route's ([`chat`], and [`look`] where the provider has no image route of its
+//! own); speech, voice and embeddings stay free only. A provider's free limit
+//! is never worked around: a `429` (or Cloudflare's daily-allocation error) is
+//! [`Failure::Limited`] with the time the provider gives for trying again,
+//! which the caller turns into a paused part. Nothing here retries, switches
+//! model or provider, or pays past the cap.
 //!
 //! **Cloudflare's meter.** Every Cloudflare call is counted against the account's free daily allocation by
 //! [`super::meter`] before it goes (refused as [`Failure::Limited`] until 00:00 UTC when it could pass 9,000 of the
@@ -48,6 +54,7 @@ use serde_json::{Value, json};
 
 use super::HostedModel;
 use super::meter::{self, Meter};
+use super::spend::{self, Price, Spend};
 use crate::keys::SecretString;
 
 // ------------------------------------------------------------------- providers
@@ -201,6 +208,22 @@ pub struct Reach {
     account: String,
     /// Cloudflare's free-allocation meter: no Cloudflare call goes without one.
     meter: Option<Arc<Meter>>,
+    /// The paid model this reach may call, at its price and under the person's monthly cap.
+    paid: Option<Paid>,
+}
+
+/// The person's consent to pay for one model on one provider: its published price and their monthly cap, counted in
+/// the spending ledger. Given only for a model whose price is known.
+#[derive(Clone, Debug)]
+pub struct Paid {
+    /// The model's id, exactly as it is called.
+    pub model: String,
+    /// The part it runs for, as the ledger counts it (`mind`, `eyes`).
+    pub part: String,
+    pub price: Price,
+    /// The person's monthly cap, in US dollars.
+    pub cap_usd: f64,
+    pub ledger: Arc<Spend>,
 }
 
 impl std::fmt::Debug for Reach {
@@ -276,6 +299,7 @@ impl Reach {
             direct: stub.is_some(),
             account: account.to_owned(),
             meter: None,
+            paid: None,
         })
     }
 
@@ -301,6 +325,17 @@ impl Reach {
     pub fn with_meter(mut self, meter: Arc<Meter>) -> Reach {
         self.meter = Some(meter);
         self
+    }
+
+    /// The same, allowed to call the paid model `paid` names, at its price and under its cap.
+    pub fn with_paid(mut self, paid: Paid) -> Reach {
+        self.paid = Some(paid);
+        self
+    }
+
+    /// The paid allowance this reach carries, where it has one.
+    pub fn paid(&self) -> Option<&Paid> {
+        self.paid.as_ref()
     }
 
     /// The meter that counts this reach's calls, where it has one.
@@ -336,6 +371,8 @@ pub fn connected(cloud: &Cloud, get: &dyn Fn(&str) -> Option<SecretString>) -> b
 pub enum Failure {
     /// The free limit is reached: try again at this time (seconds since 1970).
     Limited { back_at: i64 },
+    /// The person's monthly cap for paid models is reached: the count starts again at this time (the next month).
+    Capped { back_at: i64 },
     /// The provider did not accept the key, in one sentence.
     Key(String),
     /// Anything else, in one sentence.
@@ -346,6 +383,7 @@ impl Failure {
     pub fn sentence(&self) -> String {
         match self {
             Failure::Limited { .. } => "The free limit is reached.".to_owned(),
+            Failure::Capped { .. } => "Monthly cap reached: paid models pause until next month, or until you raise the cap.".to_owned(),
             Failure::Key(s) | Failure::Failed(s) => s.clone(),
         }
     }
@@ -742,6 +780,55 @@ fn refuse_paid(reach: &Reach, model: &str) -> Result<(), Failure> {
     }
 }
 
+/// A chat call's admission: a free model (None), or the paid model the reach's [`Paid`] allowance names, with a known
+/// price and a cap (Some). Anything else is refused before anything is sent.
+fn admit<'a>(reach: &'a Reach, model: &str) -> Result<Option<&'a Paid>, Failure> {
+    if free_model(reach.cloud, model) {
+        return Ok(None);
+    }
+    match &reach.paid {
+        Some(p)
+            if p.model == model.trim()
+                && p.cap_usd.is_finite()
+                && p.cap_usd > 0.0
+                && Price::known(p.price.input_per_m, p.price.output_per_m).is_some() =>
+        {
+            Ok(Some(p))
+        }
+        _ => Err(Failure::Failed(format!(
+            "{model} is not a free model of {}: Alelyon calls free models only, unless your monthly cap allows this one.",
+            reach.cloud.label
+        ))),
+    }
+}
+
+/// Before a paid call: its worst case reserved under the person's cap (refused at the cap, or when the ledger cannot be
+/// locked, read or written).
+fn spend_before(paid: Option<&Paid>, input: u64, output: u64, now: i64) -> Result<Option<spend::Reservation>, Failure> {
+    let Some(p) = paid else { return Ok(None) };
+    p.ledger.reserve(&p.part, p.price.cost(input, output), p.cap_usd, now).map(Some).map_err(|r| match r {
+        spend::Refusal::Cap { back_at } => Failure::Capped { back_at },
+        spend::Refusal::Ledger(why) => Failure::Failed(why),
+    })
+}
+
+/// The cost an answer reports for itself (OpenRouter's `usage.cost`, in US dollars), where it does.
+pub fn reported_cost(value: &Value) -> Option<f64> {
+    value
+        .get("usage")?
+        .get("cost")
+        .and_then(|c| c.as_f64().or_else(|| c.as_str()?.trim().parse().ok()))
+        .filter(|c: &f64| c.is_finite() && *c >= 0.0)
+}
+
+/// After a paid call that answered: its reservation settled to the reported cost, else the reported tokens at the price.
+fn spend_after(paid: Option<&Paid>, reserved: Option<spend::Reservation>, answer: &Value, input: u64, output: u64) {
+    if let (Some(p), Some(r)) = (paid, reserved) {
+        let cost = reported_cost(answer).unwrap_or_else(|| p.price.cost(input, output));
+        let _ = p.ledger.settle(&r, cost);
+    }
+}
+
 /// A chat completion's text: `choices[0].message.content` (a string, or a list of text parts).
 fn completion_text(value: &Value) -> Option<String> {
     let content = value.get("choices")?.get(0)?.get("message")?.get("content")?;
@@ -767,16 +854,22 @@ pub async fn chat(
     max_tokens: u32,
     now: i64,
 ) -> Result<Answer<String>, Failure> {
-    refuse_paid(reach, model)?;
+    let paid = admit(reach, model)?;
     let tokens_in = meter::tokens_for(Value::Array(messages.clone()).to_string().len());
     let reserved = meter_before(reach, model, meter::Use { input_tokens: tokens_in, output_tokens: u64::from(max_tokens), ..meter::Use::default() }, now)?;
-    let body = json!({"model": model, "messages": messages, "max_tokens": max_tokens, "stream": false});
+    let spent = spend_before(paid, tokens_in, u64::from(max_tokens), now)?;
+    let mut body = json!({"model": model, "messages": messages, "max_tokens": max_tokens, "stream": false});
+    if paid.is_some() && reach.cloud.id == OPENROUTER.id {
+        // OpenRouter reports each call's cost in its answer when asked
+        body["usage"] = json!({"include": true});
+    }
     let got = checked(reach.cloud, client.post(reach, &format!("{}/chat/completions", reach.base), Payload::Json(body), WAIT).await?, now)?;
     let limits = limits(&got, now);
     let answer = json_of(reach.cloud, &got)?;
     let value = completion_text(&answer).ok_or_else(|| unreadable(reach.cloud))?;
     let (used_in, used_out) = usage(&answer).unwrap_or((tokens_in, meter::tokens_for(value.len())));
     meter_after(reach, model, reserved, meter::Use { input_tokens: used_in, output_tokens: used_out, ..meter::Use::default() });
+    spend_after(paid, spent, &answer, used_in, used_out);
     Ok(Answer { value, limits })
 }
 
@@ -792,7 +885,12 @@ pub async fn look(
     max_tokens: u32,
     now: i64,
 ) -> Result<Answer<String>, Failure> {
-    refuse_paid(reach, model)?;
+    // a provider's own image route (Cloudflare's) calls free models only; the chat route below admits a paid one
+    if reach.run.is_some() {
+        refuse_paid(reach, model)?;
+    } else {
+        admit(reach, model)?;
+    }
     if image.is_empty() || image.len() > MAX_UPLOAD {
         return Err(Failure::Failed("The image is empty or too large to send.".to_owned()));
     }
@@ -1129,6 +1227,65 @@ pub fn offers(cloud: &Cloud, task: Task, row: &Value) -> bool {
         },
         _ => false,
     }
+}
+
+/// The models of a live list (`value`, as [`models`] reads it) that `cloud` offers for `task` with a price: on
+/// OpenRouter, every open-weight model of the task whose list row carries a price (free variants at zero); elsewhere,
+/// the free models the list offers, at zero (those providers are called on the person's free plan). A row without a
+/// price that can be read is left out: an unknown price is never offered for a paid tier.
+pub fn priced(cloud: &Cloud, task: Task, value: &Value) -> Vec<(HostedModel, Price)> {
+    let rows: Vec<Value> = match value {
+        Value::Array(rows) => rows.clone(),
+        Value::Object(map) => map.get("data").or_else(|| map.get("result")).and_then(Value::as_array).cloned().unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let mut out: Vec<(HostedModel, Price)> = rows
+        .iter()
+        .filter_map(|row| {
+            let named = if cloud.id == CLOUDFLARE.id { row.get("name") } else { row.get("id") };
+            let id = named?.as_str()?.trim();
+            let id = id.strip_prefix("models/").unwrap_or(id).to_owned();
+            if id.is_empty() {
+                return None;
+            }
+            let price = if cloud.id == OPENROUTER.id {
+                let open = row.get("hugging_face_id").and_then(Value::as_str).is_some_and(|h| !h.trim().is_empty());
+                let sees = row
+                    .get("architecture")
+                    .and_then(|a| a.get("input_modalities"))
+                    .and_then(Value::as_array)
+                    .is_some_and(|m| m.iter().any(|x| x.as_str() == Some("image")));
+                let fits = match task {
+                    Task::Chat => true,
+                    Task::Vision => sees,
+                    _ => false,
+                };
+                if !(open && fits) {
+                    return None;
+                }
+                let (input, output) = super::price(row)?;
+                Price::known(input, output)?
+            } else {
+                if !offers(cloud, task, row) || (cloud.id == CLOUDFLARE.id && meter::rate(&id).is_none()) {
+                    return None;
+                }
+                Price::known(0.0, 0.0)?
+            };
+            let name = row
+                .get("display_name")
+                .or_else(|| if cloud.id == CLOUDFLARE.id { None } else { row.get("name") })
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .unwrap_or(&id)
+                .to_owned();
+            let context = row.get("context_length").and_then(Value::as_u64);
+            Some((HostedModel { id, name, context, price: Some((price.input_per_m, price.output_per_m)) }, price))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.id.cmp(&b.0.id));
+    out.dedup_by(|a, b| a.0.id == b.0.id);
+    out
 }
 
 /// The models `reach` offers free for `task`, read live, by name. Cloudflare

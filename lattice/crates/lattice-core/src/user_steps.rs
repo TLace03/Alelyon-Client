@@ -159,6 +159,47 @@ fn write(dir: &Path, list: &ExternalList, at: f64) -> Result<(), String> {
         .map_err(|_| "The checklist could not be saved.".to_owned())
 }
 
+/// The longest title, in characters.
+pub const MAX_TITLE_CHARS: usize = 80;
+/// The longest step, in characters.
+pub const MAX_STEP_CHARS: usize = 200;
+/// The longest agent's name, in characters.
+pub const MAX_AGENT_CHARS: usize = 80;
+
+fn one_line(text: &str, most: usize, what: &str) -> Result<String, String> {
+    let text = crate::secrets::redact(text.trim());
+    if text.is_empty() || text.chars().count() > most || text.chars().any(char::is_control) {
+        return Err(format!("{what} is one line of 1 to {most} characters."));
+    }
+    Ok(text)
+}
+
+/// Give the reader a list: write `<id>.json` in `dir` once, as
+/// `tools/user_steps.py add` writes it (`v`, `id`, `title`, `steps`, `agent`,
+/// `folder`, `notify`, `created`), and return its id. Each text is one line,
+/// redacted before it is written; a list that is not in shape is refused and
+/// nothing is written. An empty `agent` is "An agent".
+pub fn give(dir: &Path, title: &str, steps: &[String], agent: &str, folder: &str, notify: bool, at: f64) -> Result<String, String> {
+    let title = one_line(title, MAX_TITLE_CHARS, "The title")?;
+    if steps.is_empty() || steps.len() > MAX_STEPS {
+        return Err(format!("A checklist has 1 to {MAX_STEPS} steps."));
+    }
+    let steps = steps.iter().map(|s| one_line(s, MAX_STEP_CHARS, "Each step")).collect::<Result<Vec<_>, _>>()?;
+    let agent = if agent.trim().is_empty() { "An agent".to_owned() } else { one_line(agent, MAX_AGENT_CHARS, "The agent's name")? };
+    let id = format!("steps_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]);
+    let value = serde_json::json!({
+        "v": 1, "id": id, "title": title, "steps": steps, "agent": agent,
+        "folder": folder, "notify": notify, "created": at,
+    });
+    let mut bytes = serde_json::to_vec_pretty(&value).map_err(|_| "The checklist could not be saved.".to_owned())?;
+    bytes.push(b'\n');
+    std::fs::create_dir_all(dir).map_err(|_| "The checklists' folder could not be made.".to_owned())?;
+    match crate::fsx::write_once(&dir.join(format!("{id}.json")), &bytes) {
+        Ok(true) => Ok(id),
+        _ => Err("The checklist could not be saved.".to_owned()),
+    }
+}
+
 fn found(dir: &Path, id: &str) -> Result<ExternalList, String> {
     read(dir, id).ok_or_else(|| "That checklist is gone.".to_owned())
 }
@@ -254,6 +295,29 @@ mod tests {
         given(&store, "steps_3333333333333333", &["x"], false);
         check(&store, "steps_3333333333333333", 0, true, 1.0).unwrap();
         assert!(set_notify(&store, "steps_3333333333333333", true, 2.0).unwrap().done);
+    }
+
+    #[test]
+    fn a_given_list_is_written_as_the_python_tool_writes_it_and_bad_lists_write_nothing() {
+        let dir = TempDir::new("user-steps-give");
+        let store = dir.path().join("steps");
+        let steps = vec!["Open the Models page.".to_owned(), "Sign in.".to_owned()];
+        let id = give(&store, "Connect a provider", &steps, "", "C:/work", true, 7.5).unwrap();
+        assert!(is_id(&id));
+        let written: Value = serde_json::from_slice(&std::fs::read(store.join(format!("{id}.json"))).unwrap()).unwrap();
+        let mut keys: Vec<&str> = written.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["agent", "created", "folder", "id", "notify", "steps", "title", "v"]);
+        assert_eq!((written["v"].clone(), written["agent"].clone(), written["created"].clone()), (1.into(), "An agent".into(), 7.5.into()));
+        let list = read(&store, &id).unwrap();
+        assert_eq!((list.title.as_str(), list.steps.clone(), list.notify), ("Connect a provider", steps.clone(), true));
+        // Refused, and nothing written: no steps, too many, two lines, too long a title.
+        let many: Vec<String> = (0..=MAX_STEPS).map(|n| format!("Step {n}.")).collect();
+        assert!(give(&store, "x", &[], "", "", true, 1.0).unwrap_err().contains("1 to 20 steps"));
+        assert!(give(&store, "x", &many, "", "", true, 1.0).is_err());
+        assert!(give(&store, "x", &["two\nlines".to_owned()], "", "", true, 1.0).unwrap_err().contains("Each step"));
+        assert!(give(&store, &"t".repeat(81), &steps, "", "", true, 1.0).unwrap_err().contains("The title"));
+        assert_eq!(std::fs::read_dir(&store).unwrap().count(), 1);
     }
 
     #[test]

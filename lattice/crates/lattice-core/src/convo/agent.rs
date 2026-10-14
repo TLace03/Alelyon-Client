@@ -158,6 +158,9 @@ pub const MAX_TURNS: u32 = 40;
 /// What a model can do, as a test or the Models increment says (§4.5).
 pub type CapsFn = Arc<dyn Fn(&Resolution) -> ModelCaps + Send + Sync>;
 
+/// The managed binary's path, size and last write, with its SHA-256.
+pub type BinaryStamp = (PathBuf, u64, Option<std::time::SystemTime>, String);
+
 /// What the agent chat is built from.
 #[derive(Clone)]
 pub struct AgentConfig {
@@ -189,6 +192,10 @@ pub struct AgentConfig {
     /// The stop hotkey's modifiers and virtual key (`None`: Ctrl+Alt+End;
     /// tests give keys nobody presses).
     pub stop_keys: Option<(u32, u32)>,
+    /// The program that serves the checklist store over MCP when started with
+    /// `crate::steps_mcp::FLAG` (the desktop program sets its own); every ACP
+    /// session is offered it. `None`: sessions are offered no server.
+    pub steps_server: Option<std::path::PathBuf>,
 }
 
 impl AgentConfig {
@@ -222,6 +229,7 @@ impl AgentConfig {
             browser: crate::browser::BrowserConfig::default(),
             desktop: None,
             stop_keys: None,
+            steps_server: None,
         }
     }
 }
@@ -428,7 +436,7 @@ pub(crate) struct Inner {
     /// record says too, and an answer the record could not keep.
     pub tool_probes: Mutex<HashMap<String, bool>>,
     /// The managed binary's SHA-256, by its path, size and last write.
-    pub binary_sha: Mutex<Option<(PathBuf, u64, Option<std::time::SystemTime>, String)>>,
+    pub binary_sha: Mutex<Option<BinaryStamp>>,
     pub changed: Changed,
     pub claims: Mutex<HashSet<String>>,
     /// The agent turns' traces (`<native>/chat/runs`).
@@ -1046,11 +1054,18 @@ impl AgentChat {
         let made: Arc<std::sync::OnceLock<std::sync::Weak<Inner>>> = Arc::default();
         let agents = {
             let (asking, folders) = (made.clone(), made.clone());
+            // The checklist server, on the store this window watches.
+            let servers: Vec<serde_json::Value> = config
+                .steps_server
+                .iter()
+                .map(|program| crate::steps_mcp::acp_entry(program, &crate::user_steps::dir(config.env.as_ref())))
+                .collect();
             Arc::new(crate::acp::pool::Pool::new(
                 config.state.clone(),
                 config.env.clone(),
                 handle.clone(),
                 crate::acp::find_node(config.env.as_ref()),
+                servers,
                 Arc::new(move |agent: crate::acp::Agent, permission: crate::acp::session::Permission| {
                     let inner = asking.get().and_then(std::sync::Weak::upgrade);
                     Box::pin(async move {
@@ -1074,9 +1089,12 @@ impl AgentChat {
                 Arc::new(move |thread: &str| {
                     let inner = folders.get().and_then(std::sync::Weak::upgrade)?;
                     let convo = inner.loaded(thread)?;
-                    let root = convo.state().workspace.as_ref().map(|w| w.root.clone());
-                    root
+                    
+                    convo.state().workspace.as_ref().map(|w| w.root.clone())
                 }),
+                // Its client reads see the conversation's staged view; its
+                // client writes become staged changes in its review.
+                Arc::new(super::acp_files::ConvoFiles { inner: made.clone() }),
             ))
         };
         let chat_config = ChatConfig {

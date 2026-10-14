@@ -36,10 +36,13 @@ impl Person {
     }
 }
 
+/// How a friend shows. An app REPORTS only `Online`, `Away` or `Offline` (`presence`); `DoNotDisturb` is shown when a
+/// friend chose it as their `Status`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Presence {
     Online,
     Away,
+    DoNotDisturb,
     Offline,
 }
 
@@ -49,6 +52,7 @@ impl Presence {
         match self {
             Presence::Online => "online",
             Presence::Away => "away",
+            Presence::DoNotDisturb => "dnd",
             Presence::Offline => "offline",
         }
     }
@@ -58,8 +62,82 @@ impl Presence {
         match word {
             Some("online") => Presence::Online,
             Some("away") => Presence::Away,
+            Some("dnd") => Presence::DoNotDisturb,
             _ => Presence::Offline,
         }
+    }
+
+    /// Words for a person.
+    pub fn label(self) -> &'static str {
+        match self {
+            Presence::Online => "Online",
+            Presence::Away => "Away",
+            Presence::DoNotDisturb => "Do not disturb",
+            Presence::Offline => "Offline",
+        }
+    }
+}
+
+/// The status a person chooses for themselves (`set_status`), kept by the service apart from what the app reports.
+/// `Online` shows what the app reports (so it still goes away when idle); `Away` and `DoNotDisturb` show that while the
+/// app is open; `Offline` appears offline to friends while still signed in. Nobody shows anything but offline once
+/// their app stops reporting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Status {
+    #[default]
+    Online,
+    Away,
+    DoNotDisturb,
+    Offline,
+}
+
+impl Status {
+    /// Every choice, in the order a picker lists them.
+    pub const ALL: [Status; 4] = [Status::Online, Status::Away, Status::DoNotDisturb, Status::Offline];
+
+    /// The word the contract uses.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Online => "online",
+            Status::Away => "away",
+            Status::DoNotDisturb => "dnd",
+            Status::Offline => "offline",
+        }
+    }
+
+    /// The contract's word read back; anything unknown reads as the default, online.
+    pub fn from_word(word: Option<&str>) -> Status {
+        match word {
+            Some("away") => Status::Away,
+            Some("dnd") => Status::DoNotDisturb,
+            Some("offline") => Status::Offline,
+            _ => Status::Online,
+        }
+    }
+
+    /// Words for a person.
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::Online => "Online",
+            Status::Away => "Away",
+            Status::DoNotDisturb => "Do not disturb",
+            Status::Offline => "Appear offline",
+        }
+    }
+
+    /// How this choice shows the person themselves while their app is open.
+    pub fn shown(self) -> Presence {
+        match self {
+            Status::Online => Presence::Online,
+            Status::Away => Presence::Away,
+            Status::DoNotDisturb => Presence::DoNotDisturb,
+            Status::Offline => Presence::Offline,
+        }
+    }
+
+    /// Whether this choice asks the app to hold its message alerts.
+    pub fn quiet(self) -> bool {
+        self == Status::DoNotDisturb
     }
 }
 
@@ -78,12 +156,15 @@ pub struct Request {
     pub person: Person,
 }
 
-/// What `friends` answers: the friends (online, then away, then offline), and the requests waiting both ways.
+/// What `friends` answers: the friends (online, away, do not disturb, then offline), and the requests waiting both
+/// ways.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Friends {
     pub friends: Vec<Friend>,
     pub incoming: Vec<Request>,
     pub outgoing: Vec<Request>,
+    /// When the service deletes unsealed messages (ADR-0049 Phase 4b), as it sent it (RFC 3339), once one is set.
+    pub plaintext_retires_at: Option<String>,
 }
 
 impl Friends {
@@ -106,10 +187,22 @@ impl Friends {
                 .iter()
                 .map(|r| Request { id: str_of(r, "id"), person: Person::from_json(r.get("to").unwrap_or(&Value::Null)) })
                 .collect(),
+            plaintext_retires_at: v
+                .get("plaintext_retires_at")
+                .and_then(Value::as_str)
+                .filter(|t| rfc3339_seconds(t).is_some())
+                .map(str::to_owned),
         }
     }
 
-    /// Friends online or away.
+    /// What to tell the person before unsealed messages are deleted (`now` in Unix seconds); None once they are,
+    /// or when no date is set.
+    pub fn retirement_notice(&self, now: u64) -> Option<String> {
+        let at = rfc3339_seconds(self.plaintext_retires_at.as_deref()?)?;
+        (now < at).then(|| format!("Unsealed messages, sent before sealing began, will be deleted on {}.", day_words(at)))
+    }
+
+    /// Friends online, away or not to be disturbed.
     pub fn online(&self) -> usize {
         self.friends.iter().filter(|f| f.presence != Presence::Offline).count()
     }
@@ -257,6 +350,44 @@ pub async fn search(client: &Client, token: &str, query: &str) -> Result<Vec<Per
     call(client, token, "/identity/native/social/search", json!({"query": query})).await.map(|v| people_from_json(&v))
 }
 
+/// Unix seconds of the one timestamp shape the service sends, `YYYY-MM-DDTHH:MM:SSZ`; None for anything else.
+fn rfc3339_seconds(t: &str) -> Option<u64> {
+    let b = t.as_bytes();
+    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' || b[19] != b'Z' {
+        return None;
+    }
+    let n = |r: std::ops::Range<usize>| t.get(r)?.parse::<i64>().ok();
+    let (y, m, d, hh, mm, ss) = (n(0..4)?, n(5..7)?, n(8..10)?, n(11..13)?, n(14..16)?, n(17..19)?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) || hh > 23 || mm > 59 || ss > 59 {
+        return None;
+    }
+    // Days from 1970-01-01 to a civil date (Howard Hinnant's days_from_civil).
+    let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * m + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    u64::try_from(days * 86_400 + hh * 3_600 + mm * 60 + ss).ok()
+}
+
+/// "21 October 2026" for Unix seconds, in UTC.
+fn day_words(at: u64) -> String {
+    const MONTHS: [&str; 12] =
+        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    // civil_from_days, the inverse of the above.
+    let z = (at / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{d} {} {y}", MONTHS[(m - 1) as usize])
+}
+
 pub async fn friends(client: &Client, token: &str) -> Result<Friends, Problem> {
     call(client, token, "/identity/native/social/friends", json!({})).await.map(|v| Friends::from_json(&v))
 }
@@ -283,9 +414,27 @@ pub async fn remove(client: &Client, token: &str, friend_id: &str) -> Result<(),
     call(client, token, "/identity/native/social/remove", json!({"friend_id": friend_id})).await.map(|_| ())
 }
 
-/// Report this app's presence. A friend whose last report is older than 150 s is shown offline.
+/// Report this app's presence. A friend whose last report is older than 150 s is shown offline. The service takes only
+/// online, away and offline here (do not disturb is a `Status`), so `DoNotDisturb` is reported as online.
 pub async fn presence(client: &Client, token: &str, state: Presence) -> Result<(), Problem> {
+    let state = if state == Presence::DoNotDisturb { Presence::Online } else { state };
     call(client, token, "/identity/native/social/presence", json!({"state": state.as_str()})).await.map(|_| ())
+}
+
+/// The status this account chose (`Online` until it chooses one).
+pub async fn status(client: &Client, token: &str) -> Result<Status, Problem> {
+    call(client, token, "/identity/native/social/status", json!({})).await.map(|v| status_from_json(&v))
+}
+
+/// Choose this account's status; the service allows 10 changes a minute.
+pub async fn set_status(client: &Client, token: &str, status: Status) -> Result<Status, Problem> {
+    call(client, token, "/identity/native/social/status", json!({"status": status.as_str()}))
+        .await
+        .map(|v| status_from_json(&v))
+}
+
+fn status_from_json(v: &Value) -> Status {
+    Status::from_word(v.get("status").and_then(Value::as_str))
 }
 
 /// The newest 50 messages with a friend (older than the message `before`, when given), oldest first. Reading marks
@@ -367,6 +516,30 @@ mod tests {
     }
 
     #[test]
+    fn do_not_disturb_reads_as_its_own_presence_and_counts_as_online() {
+        let v = json!({"friends": [
+            {"person": {"id": "a1", "username": "ada", "display_name": "Ada"}, "presence": "dnd", "unread": 0},
+            {"person": {"id": "a2", "username": "bo", "display_name": "Bo"}, "presence": "offline", "unread": 0}
+        ]});
+        let f = Friends::from_json(&v);
+        assert_eq!(f.friends[0].presence, Presence::DoNotDisturb);
+        assert_eq!(f.online(), 1);
+    }
+
+    #[test]
+    fn status_words_round_trip_and_unknown_reads_online() {
+        for s in Status::ALL {
+            assert_eq!(Status::from_word(Some(s.as_str())), s);
+        }
+        assert_eq!(Status::from_word(Some("busy")), Status::Online);
+        assert_eq!(Status::from_word(None), Status::Online);
+        assert_eq!(status_from_json(&json!({"status": "dnd"})), Status::DoNotDisturb);
+        assert_eq!(status_from_json(&json!({"status": "offline"})).label(), "Appear offline");
+        assert!(Status::DoNotDisturb.quiet() && !Status::Away.quiet());
+        assert_eq!(Status::Offline.shown(), Presence::Offline);
+    }
+
+    #[test]
     fn a_no_content_answer_is_success() {
         // respond, cancel, remove and presence answer 204 with no body
         assert_eq!(interpret(204, None, ""), Ok(Value::Null));
@@ -392,9 +565,40 @@ mod tests {
 
     #[test]
     fn presence_words_round_trip() {
-        for p in [Presence::Online, Presence::Away, Presence::Offline] {
+        for p in [Presence::Online, Presence::Away, Presence::DoNotDisturb, Presence::Offline] {
             assert_eq!(Presence::from_word(Some(p.as_str())), p);
         }
         assert_eq!(Presence::from_word(Some("busy")), Presence::Offline);
+    }
+}
+
+#[cfg(test)]
+mod retirement_tests {
+    use super::*;
+
+    #[test]
+    fn the_service_timestamp_reads_as_unix_seconds_and_anything_else_does_not() {
+        assert_eq!(rfc3339_seconds("2026-10-21T00:00:00Z"), Some(1_792_540_800));
+        assert_eq!(rfc3339_seconds("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(rfc3339_seconds("2028-02-29T12:30:05Z"), Some(1_835_440_205));
+        for bad in ["2026-10-21", "2026-10-21T00:00:00+00:00", "2026-13-01T00:00:00Z", "2026-10-21T24:00:00Z", "x"] {
+            assert_eq!(rfc3339_seconds(bad), None, "{bad}");
+        }
+        assert_eq!(day_words(1_792_540_800), "21 October 2026");
+        assert_eq!(day_words(1_835_440_205), "29 February 2028");
+    }
+
+    #[test]
+    fn the_notice_shows_until_the_date_and_only_with_one_set() {
+        let none = Friends::from_json(&serde_json::json!({"friends": []}));
+        assert_eq!(none.retirement_notice(0), None);
+        let set = Friends::from_json(&serde_json::json!({"plaintext_retires_at": "2026-10-21T00:00:00Z"}));
+        assert_eq!(
+            set.retirement_notice(1_792_540_799).as_deref(),
+            Some("Unsealed messages, sent before sealing began, will be deleted on 21 October 2026.")
+        );
+        assert_eq!(set.retirement_notice(1_792_540_800), None);
+        let junk = Friends::from_json(&serde_json::json!({"plaintext_retires_at": "soon"}));
+        assert_eq!(junk.plaintext_retires_at, None);
     }
 }
