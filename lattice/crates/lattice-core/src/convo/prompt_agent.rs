@@ -23,6 +23,8 @@ How your tools behave:
 - git_status reads the branch and the changed files; git_diff shows a change (the uncommitted one, everything since the branch left a base, or one commit), for a review. In Agent mode, git_branch makes a branch and switches to it, git_commit commits files after the user allows it (their own git: the repository's hooks run), and git_push_pr pushes the branch and opens a pull request after the user allows it. Commit only when the user asks for it or the work is done and kept; never commit a secret.
 - spawn_agent sends a helper to do one task in the folder on its own: it can list, find, read and search files, and only its answer comes back to you. With edits set (Agent mode) it can also stage changes, which wait for the user's review as yours do. Use it for a search that would take many reads or a separate piece of work, give it a task that stands on its own, and send several at once for separate tasks, never two that change the same files.
 - suggest_task offers the user a separate task, as a chip they may start as a new chat of its own; nothing runs until they do. Use it for something worth doing outside what the user asked (a bug you noticed, stale documentation, a missing test), never for the work at hand, and write a prompt that stands on its own. withdraw_task takes back one that is no longer needed.
+- switch_project moves the work to another of the user's projects when their message belongs to work that project holds (they are listed for you when there are any): the user agrees first, then a new topic begins there, in its folder, with your prompt. Never use it to leave work here unfinished.
+- list_tasks, message_task, stop_task and answer_task reach the tasks the user started from chips, which run beside this chat (the user does not type into them): list them and what each waits for, pass the user's instruction to one, stop one, or answer a task's question or approval with the user's own words, never your own decision (an approval still asks the user in Lattice's dialog).
 - write_artifact saves a document beside the chat (a plan, a report, a walkthrough, a page) that the user reads apart from your answer; use it for something they will keep or come back to, and answer briefly about it. The same name again saves its next version. read_artifact reads one back.
 - update_todos keeps a to-do list of the steps of work that takes three or more, which the user sees above the composer while you work: write the whole list each time, mark a step in_progress as you start it and done as soon as it is finished, one in progress at a time. Skip it for a quick question.
 - propose_plan, in Ask mode, proposes your plan when the user wants changes made: read what you need first, then propose the plan and stop. When they approve it the conversation goes on in Agent mode and you carry it out; if they ask for changes, propose it again.
@@ -39,6 +41,8 @@ pub const NO_FOLDER_SYSTEM: &str = "You are Lattice's agent, working for the use
 How your tools behave:
 - ask_question asks the user and waits for the answer.
 - suggest_task offers the user a separate task, as a chip they may start as a new chat of its own; nothing runs until they do. Use it for something worth doing outside what the user asked, never for the work at hand, and write a prompt that stands on its own. withdraw_task takes back one that is no longer needed.
+- switch_project moves the work to another of the user's projects when their message belongs to work that project holds (they are listed for you when there are any): the user agrees first, then a new topic begins there, in its folder, with your prompt. Never use it to leave work here unfinished.
+- list_tasks, message_task, stop_task and answer_task reach the tasks the user started from chips, which run beside this chat (the user does not type into them): list them and what each waits for, pass the user's instruction to one, stop one, or answer a task's question or approval with the user's own words, never your own decision (an approval still asks the user in Lattice's dialog).
 - write_artifact saves a document beside the chat (a plan, a report, a walkthrough, a page) that the user reads apart from your answer; use it for something they will keep or come back to, and answer briefly about it. The same name again saves its next version. read_artifact reads one back.
 - update_todos keeps a to-do list of the steps of work that takes three or more, which the user sees above the composer while you work: write the whole list each time, mark a step in_progress as you start it and done as soon as it is finished, one in progress at a time. Skip it for a quick question.
 
@@ -94,8 +98,9 @@ pub fn system_without_folder(mcp_tools: bool, browser: bool, desktop: bool) -> S
     with_notes(NO_FOLDER_SYSTEM, mcp_tools, browser, desktop)
 }
 
-/// The built-in tools of a turn with no folder: `ask_question`, the tasks'
-/// and the artifacts' two each, and `update_todos`.
+/// The built-in tools of a turn with no folder: `ask_question`, `recall`, the
+/// tasks' and the artifacts' two each, `switch_project`, the task tools and
+/// `update_todos`.
 pub fn tools_without_folder() -> Vec<ToolDef> {
     tools(Mode::Ask)
         .into_iter()
@@ -103,8 +108,14 @@ pub fn tools_without_folder() -> Vec<ToolDef> {
             matches!(
                 tool.name,
                 "ask_question"
+                    | "recall"
                     | "suggest_task"
                     | "withdraw_task"
+                    | "switch_project"
+                    | "list_tasks"
+                    | "message_task"
+                    | "stop_task"
+                    | "answer_task"
                     | "write_artifact"
                     | "read_artifact"
                     | "update_todos"
@@ -364,6 +375,17 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
             ),
         },
         ToolDef {
+            name: "recall",
+            description: "Search the user's earlier conversations, in every topic, by words: what they asked, decided or were told before. Best matches first, each with its topic, date and a short excerpt. Read-only.",
+            parameters: object(
+                json!({
+                    "query": {"type": "string", "maxLength": 300, "description": "A few distinctive words, as they would have been written."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 10},
+                }),
+                &["query"],
+            ),
+        },
+        ToolDef {
             name: "remember",
             description: "Keep a short note about this folder (one line, at most 300 characters) that every later chat in it starts with. At most 50 notes; the user can see and delete them.",
             parameters: object(json!({"note": {"type": "string", "maxLength": 300}}), &["note"]),
@@ -405,6 +427,52 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
                     "reason": {"type": "string", "maxLength": 200},
                 }),
                 &["task_id"],
+            ),
+        },
+        ToolDef {
+            name: "switch_project",
+            description: "Move the work to another of the user's projects, by its name, once the user agrees (they are asked): a new topic begins there, in the project's folder, with your prompt, and the user follows it.",
+            parameters: object(
+                json!({
+                    "project": {"type": "string", "maxLength": 200, "description": "The project's name, as listed for you."},
+                    "prompt": {"type": "string", "maxLength": 2000, "description": "What the new topic begins with: the user's request, with what it needs to know from here."},
+                    "why": {"type": "string", "maxLength": 300, "description": "One line the user reads: why this belongs in that project."},
+                }),
+                &["project", "prompt"],
+            ),
+        },
+        ToolDef {
+            name: "list_tasks",
+            description: "The tasks the user started from chips, running beside this chat, newest first: each one's id, title, whether it is working, and what it waits for from the user (a question or an approval, by its call id). Read-only.",
+            parameters: object(json!({}), &[]),
+        },
+        ToolDef {
+            name: "message_task",
+            description: "Send the user's instruction to one of their tasks as its next message (it waits its turn while the task works). Only what the user asked for.",
+            parameters: object(
+                json!({
+                    "task": {"type": "string", "description": "The task's id, as list_tasks gives it."},
+                    "text": {"type": "string", "maxLength": 4000},
+                }),
+                &["task", "text"],
+            ),
+        },
+        ToolDef {
+            name: "stop_task",
+            description: "Stop one of the user's tasks' running turn, when the user asks.",
+            parameters: object(json!({"task": {"type": "string"}}), &["task"]),
+        },
+        ToolDef {
+            name: "answer_task",
+            description: "Answer what one of the user's tasks waits for, with the user's own words: a question (answer), or an approval (approve true or false, with answer as the reason for a no). An approval still asks the user in Lattice's own dialog.",
+            parameters: object(
+                json!({
+                    "task": {"type": "string"},
+                    "call_id": {"type": "string", "description": "What it waits for, as list_tasks names it."},
+                    "answer": {"type": "string", "maxLength": 4000},
+                    "approve": {"type": "boolean"},
+                }),
+                &["task", "call_id"],
             ),
         },
         ToolDef {

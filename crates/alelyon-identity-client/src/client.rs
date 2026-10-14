@@ -278,6 +278,26 @@ impl Client {
         &self.base
     }
 
+    /// A photo's bytes (ADR-0050), from the media domain only (`pages::photo_url`) and at most 6 MB.
+    pub async fn photo(&self, url: &str) -> Result<Vec<u8>, String> {
+        const MOST: usize = 6 * 1024 * 1024;
+        if crate::pages::photo_url(Some(&serde_json::Value::String(url.to_string()))).is_none() {
+            return Err("not a photo's address".into());
+        }
+        let reply = self.http.get(url).send().await.map_err(|e| short(&e))?;
+        if !reply.status().is_success() {
+            return Err(format!("the photo answered {}", reply.status().as_u16()));
+        }
+        if reply.content_length().is_some_and(|n| n as usize > MOST) {
+            return Err("the photo is too large".into());
+        }
+        let bytes = reply.bytes().await.map_err(|e| short(&e))?;
+        if bytes.len() > MOST {
+            return Err("the photo is too large".into());
+        }
+        Ok(bytes.to_vec())
+    }
+
     /// A native call whose refusals the caller reads itself (the social routes): the HTTP status, Retry-After (whole
     /// seconds) and the body, or why nothing came back.
     pub async fn post_raw(&self, path: &str, body: Value) -> Result<(u16, Option<u64>, String), String> {

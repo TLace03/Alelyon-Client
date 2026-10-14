@@ -5,7 +5,9 @@
 //! - **instructions**, the reader's own words for the agent;
 //! - **reference files** the agent reads with them (local text files the
 //!   reader chose);
-//! - **defaults** for a new chat in it: its folder and its model.
+//! - **defaults** for a new chat in it: its folder and its model;
+//! - **more folders** it works in: with its own folder, the folders the
+//!   reader switches between while working in the project.
 //!
 //! The store is one file, `<native>/chat/projects.json`, written through
 //! `fsx`'s atomic write; a file Lattice cannot read is never written over. A
@@ -34,6 +36,8 @@ pub const MAX_NAME: usize = 80;
 pub const MAX_INSTRUCTIONS: usize = 16 * 1024;
 /// The most reference files.
 pub const MAX_FILES: usize = 20;
+/// The most folders a project holds beyond its own.
+pub const MAX_FOLDERS: usize = 20;
 /// The most bytes read of one file.
 pub const MAX_FILE: usize = 256 * 1024;
 /// The most bytes a project adds to a turn.
@@ -51,6 +55,10 @@ pub struct Project {
     /// The folder a new chat in it opens on, when the project is bound to one.
     #[serde(default)]
     pub folder: Option<String>,
+    /// The folders it works in besides its own folder, absolute local paths,
+    /// in order.
+    #[serde(default)]
+    pub more_folders: Vec<String>,
     /// Reference files, absolute local paths, in order.
     #[serde(default)]
     pub files: Vec<String>,
@@ -67,6 +75,18 @@ pub struct Project {
 }
 
 impl Project {
+    /// Every folder it works in: its own folder first, then the others,
+    /// each once.
+    pub fn folders(&self) -> Vec<&str> {
+        let mut all: Vec<&str> = Vec::new();
+        for folder in self.folder.iter().chain(&self.more_folders) {
+            if !all.iter().any(|seen| seen.eq_ignore_ascii_case(folder)) {
+                all.push(folder);
+            }
+        }
+        all
+    }
+
     /// Whether it adds anything to its chats' turns: instructions or
     /// reference files.
     pub fn leads(&self) -> bool {
@@ -80,6 +100,7 @@ pub struct Change {
     pub name: Option<String>,
     pub instructions: Option<String>,
     pub folder: Option<Option<String>>,
+    pub more_folders: Option<Vec<String>>,
     pub files: Option<Vec<String>>,
     pub choice: Option<Option<String>>,
     pub archived: Option<bool>,
@@ -174,6 +195,7 @@ impl Projects {
             name,
             instructions: String::new(),
             folder: None,
+            more_folders: Vec::new(),
             files: Vec::new(),
             choice: None,
             chats: Vec::new(),
@@ -211,6 +233,19 @@ impl Projects {
         {
             return Err("A project's folder is a folder on this PC.".to_owned());
         }
+        if let Some(more) = &change.more_folders {
+            if more.len() > MAX_FOLDERS {
+                return Err(format!(
+                    "A project holds at most {MAX_FOLDERS} more folders."
+                ));
+            }
+            if more.iter().any(|folder| {
+                !(Path::new(folder).is_absolute()
+                    && crate::localfs::is_local_text(Path::new(folder)))
+            }) {
+                return Err("A project's folders are folders on this PC.".to_owned());
+            }
+        }
         let _held = guard(&self.lock);
         let mut stored = self.read()?;
         let project = stored
@@ -226,6 +261,9 @@ impl Projects {
         }
         if let Some(folder) = change.folder {
             project.folder = folder;
+        }
+        if let Some(more) = change.more_folders {
+            project.more_folders = more;
         }
         if let Some(files) = change.files {
             project.files = files;

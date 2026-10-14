@@ -630,6 +630,42 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         (Some(rules), Some(kept)) => Some(format!("{rules}\n\n{kept}")),
         (rules, kept) => rules.or(kept),
     };
+    // What the reader said before, in the other topics, that bears on this message (`super::recall`).
+    let recalled = {
+        let mut recall = lock(&inner.recall);
+        recall.refresh(&*inner.config.store);
+        super::recall::lead_text(&recall.search(&user_turn.text, Some(&id), super::recall::LEAD_HITS))
+    };
+    let rules = match (rules, recalled) {
+        (Some(rules), Some(recalled)) => Some(format!("{rules}\n\n{recalled}")),
+        (rules, recalled) => rules.or(recalled),
+    };
+    // The topics in brief (`super::summaries`): this one's once older exchanges are left out, and the newest
+    // other topics'.
+    let briefs = {
+        let kept = inner.summaries.all();
+        let own = (replayed.left_out > 0).then(|| kept.get(&id)).flatten();
+        let others: Vec<(String, super::summaries::Summary)> = match inner.config.store.list() {
+            crate::chat::store::IndexState::Rows(rows) => rows
+                .into_iter()
+                .filter(|row| row.id != id)
+                .filter_map(|row| kept.get(&row.id).map(|s| (row.title, s.clone())))
+                .take(super::summaries::OTHERS)
+                .collect(),
+            _ => Vec::new(),
+        };
+        super::summaries::lead_text(own, &others)
+    };
+    let rules = match (rules, briefs) {
+        (Some(rules), Some(briefs)) => Some(format!("{rules}\n\n{briefs}")),
+        (rules, briefs) => rules.or(briefs),
+    };
+    // The reader's projects, which `switch_project` moves the work to (`super::switch`).
+    let projects = super::switch::lead_text(&inner.projects.list().unwrap_or_default(), inner.projects.of_chat(&id).as_ref());
+    let rules = match (rules, projects) {
+        (Some(rules), Some(projects)) => Some(format!("{rules}\n\n{projects}")),
+        (rules, projects) => rules.or(projects),
+    };
     let rules = if new && !hooks.hooks.is_empty() {
         let verdict = inner.handle.block_on(super::hooked::fire(
             inner,
@@ -1634,10 +1670,18 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                             stage_tool(tools, name, call, args)
                         }
                         "ask_question" => ask_tool(tools, call, args),
+                        "switch_project" => super::switch::tool(tools, call, args),
+                        "list_tasks" | "message_task" | "stop_task" | "answer_task" => {
+                            super::task_tools::tool(tools, name, args)
+                        }
                         "spawn_agent" => super::helpers::spawn_agent(tools, call, args),
                         "git_status" | "git_diff" | "git_branch" | "git_commit" | "git_push_pr" => {
                             super::git_tools::tool(tools, call, name, args)
                         }
+                        "recall" => blocking_tool(tools, move |tools| {
+                            let mut recall = lock(&tools.inner.recall);
+                            super::recall::tool_text(&mut recall, &*tools.inner.config.store, &args).map_err(ToolError::new)
+                        }),
                         "remember" | "forget" => blocking_tool(tools, move |tools| {
                             super::memory::tool(tools, name, &args)
                         }),
@@ -3041,6 +3085,32 @@ async fn build_model(inner: &Inner, target: &Target) -> Result<Built, String> {
     }
 }
 
+/// The model a topic's summary is written with (`super::summaries`): the
+/// reader's choice for summaries, else Lattice's own on this PC when it is
+/// ready, else `used` (the model of the turn that just ended); behind the
+/// topic's tripwire when it is off this PC. With its label, and the lease that
+/// keeps a local server running while it writes.
+pub(crate) async fn summary_model(inner: &Arc<Inner>, topic: &str, used: &str) -> Option<(Arc<dyn Model>, String, Lease)> {
+    let candidates: Vec<String> = match inner.summaries.choice() {
+        Some(choice) => vec![choice],
+        None => vec![crate::chat::vocab::LOCAL.to_owned(), used.to_owned()],
+    };
+    for choice in candidates {
+        let resolution = inner.resolve_quiet(&choice);
+        if !matches!(resolution.target, Target::Managed(_) | Target::Endpoint(_)) {
+            continue;
+        }
+        let Ok((model, _, lease, _)) = build_model(inner, &resolution.target).await else { continue };
+        let model: Arc<dyn Model> = if resolution.affirmatively_local() {
+            model
+        } else {
+            Arc::new(TripwireModel::new(model, inner.convo(topic).tripwire.clone()))
+        };
+        return Some((model, resolution.shown.label.clone(), lease));
+    }
+    None
+}
+
 /// LR8′: send the tool-call probe through the turn's model, record the answer
 /// (in this process, in `tool-probes.json`, and in the turn's sidecar), and
 /// say so; `true` when it passed. A server whose `/props` reports no chat
@@ -3532,4 +3602,8 @@ async fn finish(
         status,
     });
     inner.note_changed(&convo.id);
+    // The topic in brief, when it is due (in the background; nothing waits for it).
+    if status == TurnStatus::Completed {
+        super::summaries::after_turn(inner.clone(), convo.id.clone(), resolution.id.clone());
+    }
 }

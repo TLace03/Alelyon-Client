@@ -298,32 +298,54 @@ fn cb2_the_gap_holds_while_text_streams() {
 /// CB3: an urgent event 5 ms after a batch goes at once; a delta at the
 /// same moment waits for the gap (positive control).
 /// Mutant: urgency ignored.
+///
+/// Times are taken from just before the first batch is requested: the gap
+/// starts when that batch is sent, which is no earlier, so a delta can arrive
+/// no sooner than `MIN_GAP` after it. A 5 ms sleep can overrun the whole gap
+/// on a loaded machine; a push that lands too late to test anything is
+/// measured again rather than judged.
 #[test]
 fn cb3_an_urgent_event_does_not_wait_for_the_gap() {
+    const PUSH_BY: Duration = Duration::from_millis(20);
+    const ATTEMPTS: usize = 50;
     let rt = runtime();
+    // (time from the push to delivery, time from the first request to delivery)
     let measure = |urgent: bool| {
-        let log = new_log();
-        let mut stream = follow(log.clone(), 0, Gap::default(), rt.handle().clone());
-        log.push(delta("first"));
-        let _ = rt.block_on(stream.next()).unwrap();
-        std::thread::sleep(Duration::from_millis(5));
-        let pushed = Instant::now();
-        log.push(if urgent {
-            approval("call_1")
-        } else {
-            delta("second")
-        });
-        let batch = rt.block_on(stream.next()).unwrap();
-        assert_eq!(batch.len(), 1);
-        pushed.elapsed()
+        for _ in 0..ATTEMPTS {
+            let log = new_log();
+            let mut stream = follow(log.clone(), 0, Gap::default(), rt.handle().clone());
+            log.push(delta("first"));
+            let requested = Instant::now();
+            let _ = rt.block_on(stream.next()).unwrap();
+            std::thread::sleep(Duration::from_millis(5));
+            let pushed = Instant::now();
+            log.push(if urgent {
+                approval("call_1")
+            } else {
+                delta("second")
+            });
+            let batch = rt.block_on(stream.next()).unwrap();
+            let delivered = Instant::now();
+            assert_eq!(batch.len(), 1);
+            if pushed - requested <= PUSH_BY {
+                return (delivered - pushed, delivered - requested);
+            }
+            println!(
+                "cb3: the push came {:?} after the request; again",
+                pushed - requested
+            );
+        }
+        panic!("cb3: no push landed within {PUSH_BY:?} of the request in {ATTEMPTS} attempts");
     };
-    let urgent = measure(true);
-    let plain = measure(false);
-    println!("cb3: urgent after {urgent:?}; a delta after {plain:?}");
+    let (urgent, _) = measure(true);
+    let (plain, plain_since_request) = measure(false);
+    println!(
+        "cb3: urgent after {urgent:?}; a delta after {plain:?} ({plain_since_request:?} after the request)"
+    );
     assert!(urgent < Duration::from_millis(40), "{urgent:?}");
     assert!(
-        plain >= Duration::from_millis(60),
-        "positive control: {plain:?}"
+        plain_since_request >= MIN_GAP - Duration::from_millis(1),
+        "positive control: {plain_since_request:?}"
     );
 }
 

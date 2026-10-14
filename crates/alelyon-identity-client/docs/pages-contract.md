@@ -32,8 +32,9 @@ own words and never the text itself.
 
 ## Shapes
 
-- An **org** is `{"id", "ticker", "name"}`. A ticker is 2-5 letters A-Z,
-  stored upper case, and unique.
+- An **org** is `{"id", "ticker", "name", "logo"}`. A ticker is 2-5
+  letters A-Z, stored upper case, and unique. `logo` is a photo's address, or
+  null.
 - A **person** has these fields:
   - `id`, `username`, `display_name`;
   - `title`: the person's own text, or empty;
@@ -42,7 +43,8 @@ own words and never the text itself.
     title;
   - `tickers`: the orgs the person chose to show, in their order;
   - `name_line`, for example `[ Founder | CEO ] Ada Lovelace (LACE)`;
-  - `has_page`.
+  - `has_page`;
+  - `avatar`: the page's photo, its address, or null.
 
   A person is never an email address. Draw the verified mark from
   `title_verified` only. A display name is free text and may itself contain
@@ -106,7 +108,7 @@ own words and never the text itself.
 | `open`, `close` | | 200, as `me` |
 | `update` | `title?`, `title_org?` (a ticker; empty for none; an active membership), `bio?` | 200, as `me`; 409 `page-needed`, `not-a-member` |
 | `tickers` | `tickers` (a list, in order) | 200, as `me`; each must be an active membership; every other one is hidden |
-| `notifications` | `before?` | 200 `{"notifications": [{"id", "kind", "actor": person or null, "post": post or null, "org": org or null, "at", "read"}], "more", "unread"}`, newest first. `kind` is `like`, `reply`, `repost`, `quote`, `mention`, `follow`, `org-invite`, `org-request`, `org-joined` or `title-confirmed`. One whose actor cannot be shown, or about a post the reader cannot see now, is left out. Each is deleted 90 days after it was made |
+| `notifications` | `before?` | 200 `{"notifications": [{"id", "kind", "actor": person or null, "post": post or null, "org": org or null, "at", "read", "detail"}], "more", "unread"}`, newest first. `kind` is `like`, `reply`, `repost`, `quote`, `mention`, `follow`, `org-invite`, `org-request`, `org-joined` or `title-confirmed`, or one of the later kinds: `endorsed` (`detail`: the skill), `experience-confirmed` (`detail`: the position; `org`) or `job-application` (to each owner and admin; `post`: the job). A later kind is shown, and counted, only while it is still so (not taken back, edited or withdrawn). One whose actor cannot be shown, or about a post the reader cannot see now, is left out. Each is deleted 90 days after it was made |
 | `bookmark` | `post_id`, `bookmark?` (default `true`) | **204**; saves the post for the reader, or forgets it. Only the reader sees their bookmarks; a plain repost saves what it carries; 404 `no-such-post` |
 | `bookmarks` | `before?` | 200 `{"posts", "more"}`: the reader's bookmarks, the most recently saved first; one the reader can no longer see is left out |
 | `pin` | `post_id` | **204**; pins one's own top-level post, quote or article to the top of one's page, replacing any other; 404 `no-such-post` for anything else |
@@ -130,7 +132,7 @@ own words and never the text itself.
 | `post` | `text`, `kind?`, `title?`, `reply_to?`, `repost_of?`, `as_org?` | 200 `{"post"}`; 409 `already-reposted` (a second plain repost) |
 | `edit` | `post_id`, `text`, `title?` | 200 `{"post"}`; 409 `cannot-edit-repost`, `poll-locked` (a post with a poll) |
 | `delete` | `post_id` | **204**; the author, or an owner or admin of the org it was posted as |
-| `like` | `post_id`, `like` (a JSON boolean, default true) | **204** |
+| `like` | `post_id`, `like` (a JSON boolean, default true), `reaction?` (`like`, `celebrate`, `support`, `love`, `insightful` or `funny`; default `like`) | **204**; reacting again changes how and tells nobody again; `like: false` takes the reaction back. A post says `reactions` (`{reaction: count}`, the ways nobody chose left out; `likes` is the total) and `your_reaction` (null when the reader did not react, or is anonymous). A `like` notification's `detail` says how, when not with a plain like |
 | `thread` | `post_id`, `before?` | 200 `{"post", "parent", "replies", "more"}`: replies oldest first |
 | `feed` | `before?` | 200 a page of posts: the reader's own and those of the people and organizations they follow |
 | `explore` | `before?` | 200 a page of posts: every top-level post |
@@ -154,6 +156,9 @@ own words and never the text itself.
 | `job-applicants` | `post_id` | 200 `{"applicants": [{"person", "note", "applied_at"}]}`, the earliest first; owners and admins only (403 `not-org-admin`); 404 `no-such-job` |
 | `job-close` | `post_id` | **204**; owners and admins only; it takes no more applications |
 | `applications` | | 200 `{"posts"}`: the jobs the reader applied for, the latest first |
+| `media` | `content_type` (`image/jpeg`, `image/png` or `image/webp`), `data` (the image, base64) | 200 `{"media": {"id", "url", "width", "height"}}`: cleaned of metadata, screened, stored; the uploader's to use for a day. The body may be 8 MB. 415 `media-type`, 413 `media-too-large`, 400 `media-malformed`, `media-dimensions`, `media-animated`; 422 `media-refused` (a screen's match); 403 `media-stopped` (uploads stopped by a match, until a moderator clears it); 503 `media-unavailable` (storage or screening not configured, or a screen cannot answer) |
+| `page-media` | `kind` (`avatar` or `banner`), `media_id` (empty clears) | **204**; the photo replaced is deleted; 404 `no-such-media` |
+| `org-media` | `ticker`, `kind` (`logo` or `banner`), `media_id` (empty clears) | **204**; owners and admins only; 404 `no-such-media` |
 | `vote` | `post_id`, `option` (a JSON integer, 0 first) | **204**; one vote, never changed, never in one's own poll; 404 `no-such-poll`, 409 `poll-closed`, `already-voted`, `own-poll` |
 | `report` | `reason` (`spam`\|`harassment`\|`impersonation`\|`illegal`\|`other`), `note?`, one of `post_id`, `username`, `ticker` | 200 `{"report_id"}` |
 
@@ -171,6 +176,8 @@ only, not to the website. Each is `POST /identity/native/pages/<name>`, with
 | `mod-act` | `action`, then the target as `post_id`, `username` or `ticker`, or `report_id` alone (or both, which must agree), `note?` | 200 `{"action": action}`; 404 `no-such-post`, `no-such-person`, `no-such-org`, `no-such-report`; 409 `wrong-target` |
 | `mod-dismiss` | `report_id`, `note?` | 200 `{"action": action}`; 404 `no-such-report`; 409 `report-closed` |
 | `mod-history` | `before?` | 200 `{"actions": [action], "more"}`, newest first |
+| `mod-media-matches` | `all?` | 200 `{"matches": [{"id", "person", "provider", "matched_at", "reported_at", "cleared_at"}]}`, newest first; those not cleared unless `all` |
+| `mod-media-match` | `match_id`, `reported?`, `cleared?` | **204**; records that the match was reported, or clears it (the account may upload again); 404 `no-such-match` |
 
 - **Actions:** `hide-post`, `restore-post`, `suspend-page`, `restore-page`,
   `suspend-org`, `restore-org`. Hiding or suspending closes every open report
@@ -221,6 +228,7 @@ The signed-in routes are limited per account:
 | `post` | 30 per hour |
 | `org-create` | 5 per day |
 | `report` | 20 per hour |
+| `media` | 60 per hour |
 | every other route | 300 per hour |
 
 The moderators' routes are limited to 600 per hour per moderator. The public
@@ -243,6 +251,13 @@ is 429 `rate-limited`, with `Retry-After` in whole seconds.
   conversation's first post sets the rule: its author's (or organization's)
   followers, or the people it mentions, and its author always may reply. A
   reply against the rule is 403 `replies-limited`. A person page says `you_mute`.
+- `post` also takes `media`, up to four photos: `[{"id", "alt"?}]`, each one
+  of the reader's own unused uploads, with alt text of at most 1,000
+  characters; not with a poll, nor on a plain repost (404 `no-such-media`).
+  A post says `media`: `[{"url", "width", "height", "alt"}]`. A person
+  page and an org page say `banner`. Photos are JPEG, PNG or WebP, at most
+  5 MB, without metadata but their rotation; a photo of a hidden post, or of a
+  suspended or closed page, is not served.
 - `post` also takes a `job` on an article posted as an organization:
   `{"workplace": "on-site" | "hybrid" | "remote", "employment": "full-time" |
   "part-time" | "contract" | "temporary" | "internship", "location"?, "pay"?,

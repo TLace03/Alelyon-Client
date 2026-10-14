@@ -15,6 +15,81 @@ use crate::client::{CLIENT_ID, Client};
 pub use super::social::Problem;
 use super::social;
 
+/// Where every photo is served from (ADR-0050): an address anywhere else is never fetched.
+pub const MEDIA_ORIGIN: &str = "https://media.alelyon.com";
+
+/// A photo's address in the media domain's own shape (`https://media.alelyon.com/m/med_<id>.<jpg|png|webp>`), else
+/// None: nothing else the service might send is ever fetched or drawn.
+pub fn photo_url(v: Option<&Value>) -> Option<String> {
+    let url = v?.as_str()?;
+    let rest = url.strip_prefix(MEDIA_ORIGIN)?.strip_prefix("/m/med_")?;
+    let (id, ext) = rest.rsplit_once('.')?;
+    let id_ok = (8..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    (id_ok && matches!(ext, "jpg" | "png" | "webp")).then(|| url.to_string())
+}
+
+/// A photo on a post, as the service sends it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Photo {
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
+    /// Its description, for those who cannot see it.
+    pub alt: String,
+}
+
+impl Photo {
+    /// None when its address is not the media domain's.
+    pub fn from_json(v: &Value) -> Option<Photo> {
+        Some(Photo {
+            url: photo_url(v.get("url"))?,
+            width: v.get("width").and_then(Value::as_u64).unwrap_or(0).min(u32::MAX as u64) as u32,
+            height: v.get("height").and_then(Value::as_u64).unwrap_or(0).min(u32::MAX as u64) as u32,
+            alt: str_of(v, "alt"),
+        })
+    }
+}
+
+/// An upload the service cleaned, screened and stored: the uploader's to use for a day.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Upload {
+    pub id: String,
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A photo a new post carries: one of the reader's own uploads, with its description.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct NewPhoto {
+    pub id: String,
+    pub alt: String,
+}
+
+/// For moderators: a screen's match of known illegal imagery (ADR-0050).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct MediaMatch {
+    pub id: String,
+    pub person: Option<Person>,
+    pub provider: String,
+    pub matched_at: String,
+    pub reported_at: Option<String>,
+    pub cleared_at: Option<String>,
+}
+
+impl MediaMatch {
+    pub fn from_json(v: &Value) -> MediaMatch {
+        MediaMatch {
+            id: str_of(v, "id"),
+            person: v.get("person").filter(|p| p.is_object()).map(Person::from_json),
+            provider: str_of(v, "provider"),
+            matched_at: str_of(v, "matched_at"),
+            reported_at: opt_str(v, "reported_at"),
+            cleared_at: opt_str(v, "cleared_at"),
+        }
+    }
+}
+
 /// An organization as a page shows it.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Org {
@@ -22,12 +97,128 @@ pub struct Org {
     /// 2-5 letters, upper case, unique.
     pub ticker: String,
     pub name: String,
+    /// Its logo's address, when it has one.
+    pub logo: Option<String>,
 }
 
 impl Org {
     pub fn from_json(v: &Value) -> Option<Org> {
         v.as_object()?;
-        Some(Org { id: str_of(v, "id"), ticker: str_of(v, "ticker"), name: str_of(v, "name") })
+        Some(Org { id: str_of(v, "id"), ticker: str_of(v, "ticker"), name: str_of(v, "name"), logo: photo_url(v.get("logo")) })
+    }
+}
+
+/// A community (ADR-0053): a public group, shown as `c/handle`.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Community {
+    pub id: String,
+    /// 3-30 lower-case letters, digits or `_`, beginning with a letter.
+    pub handle: String,
+    pub name: String,
+}
+
+impl Community {
+    pub fn from_json(v: &Value) -> Option<Community> {
+        v.as_object()?;
+        Some(Community { id: str_of(v, "id"), handle: str_of(v, "handle"), name: str_of(v, "name") })
+    }
+}
+
+/// How a community is joined: at once, or by a moderator's approval.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Joining {
+    #[default]
+    Open,
+    Request,
+}
+
+impl Joining {
+    pub const ALL: [Joining; 2] = [Joining::Open, Joining::Request];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Joining::Open => "open",
+            Joining::Request => "request",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Joining {
+        if word == "request" { Joining::Request } else { Joining::Open }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Joining::Open => "Anyone can join",
+            Joining::Request => "Joined by request",
+        }
+    }
+}
+
+impl std::fmt::Display for Joining {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// A community as a list shows it: how many active members it has, and the reader's role and state in it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct CommunitySummary {
+    pub community: Community,
+    pub about: String,
+    pub joining: Joining,
+    pub members: u64,
+    /// `owner`, `moderator` or `member`, and `active`, `requested` or `banned`; None when the reader has none.
+    pub your_role: Option<String>,
+    pub your_state: Option<String>,
+}
+
+impl CommunitySummary {
+    pub fn from_json(v: &Value) -> CommunitySummary {
+        CommunitySummary {
+            community: v.get("community").and_then(Community::from_json).unwrap_or_default(),
+            about: str_of(v, "about"),
+            joining: Joining::from_word(v.get("joining").and_then(Value::as_str).unwrap_or("")),
+            members: v.get("members").and_then(Value::as_u64).unwrap_or(0),
+            your_role: opt_str(v, "your_role"),
+            your_state: opt_str(v, "your_state"),
+        }
+    }
+
+    /// The reader keeps it: an active owner or moderator.
+    pub fn you_keep(&self) -> bool {
+        self.your_state.as_deref() == Some("active") && matches!(self.your_role.as_deref(), Some("owner" | "moderator"))
+    }
+
+    pub fn you_own(&self) -> bool {
+        self.your_state.as_deref() == Some("active") && self.your_role.as_deref() == Some("owner")
+    }
+
+    /// The reader is an active member (any role).
+    pub fn you_belong(&self) -> bool {
+        self.your_state.as_deref() == Some("active")
+    }
+}
+
+/// A community and a page of its posts (the first posts of its conversations), newest first.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct CommunityPage {
+    pub summary: CommunitySummary,
+    pub rules: String,
+    pub created_at: String,
+    pub posts: Posts,
+    /// For its owners and moderators: how many requests to join wait.
+    pub requests: Option<u64>,
+}
+
+impl CommunityPage {
+    pub fn from_json(v: &Value) -> CommunityPage {
+        CommunityPage {
+            summary: CommunitySummary::from_json(v),
+            rules: str_of(v, "rules"),
+            created_at: str_of(v, "created_at"),
+            posts: Posts::from_json(v),
+            requests: v.get("requests").and_then(Value::as_u64),
+        }
     }
 }
 
@@ -49,6 +240,8 @@ pub struct Person {
     pub name_line: String,
     /// The person opened a public page.
     pub has_page: bool,
+    /// Their page's photo, its address.
+    pub avatar: Option<String>,
 }
 
 impl Person {
@@ -63,6 +256,7 @@ impl Person {
             tickers: list_of(v, "tickers").iter().filter_map(Org::from_json).collect(),
             name_line: str_of(v, "name_line"),
             has_page: v.get("has_page").and_then(Value::as_bool).unwrap_or(false),
+            avatar: photo_url(v.get("avatar")),
         }
     }
 
@@ -159,8 +353,12 @@ pub struct Post {
     pub likes: u64,
     pub replies: u64,
     pub reposts: u64,
-    /// Whether the reader liked it.
+    /// Whether the reader liked it (reacted in any way).
     pub liked: bool,
+    /// How many reacted each way, in `Reaction::ALL` order, the ways nobody chose left out; `likes` is the total.
+    pub reactions: Vec<(Reaction, u64)>,
+    /// How the reader reacted.
+    pub your_reaction: Option<Reaction>,
     /// Whether the reader saved it (`bookmark`).
     pub bookmarked: bool,
     /// The poll it carries; boxed, since few posts carry one and a post is often held by value.
@@ -171,6 +369,10 @@ pub struct Post {
     pub you_can_reply: bool,
     /// The job opening it is (an organization's article); boxed, as the poll is.
     pub job: Option<Box<Job>>,
+    /// Its photos, in order, at most four.
+    pub media: Vec<Photo>,
+    /// The community it was posted in: on the first post of a community's conversation while it is in it.
+    pub community: Option<Community>,
 }
 
 impl Post {
@@ -193,11 +395,19 @@ impl Post {
             replies: v.get("replies").and_then(Value::as_u64).unwrap_or(0),
             reposts: v.get("reposts").and_then(Value::as_u64).unwrap_or(0),
             liked: v.get("liked").and_then(Value::as_bool).unwrap_or(false),
+            reactions: Reaction::ALL
+                .into_iter()
+                .filter_map(|r| v.get("reactions").and_then(|m| m.get(r.as_str())).and_then(Value::as_u64).map(|n| (r, n)))
+                .filter(|(_, n)| *n > 0)
+                .collect(),
+            your_reaction: v.get("your_reaction").and_then(Value::as_str).and_then(Reaction::from_word),
             bookmarked: v.get("bookmarked").and_then(Value::as_bool).unwrap_or(false),
             poll: v.get("poll").filter(|p| p.is_object()).map(|p| Box::new(Poll::from_json(p))),
             replies_from: ReplyRule::from_word(v.get("replies_from").and_then(Value::as_str).unwrap_or("")),
             you_can_reply: v.get("you_can_reply").and_then(Value::as_bool).unwrap_or(true),
             job: v.get("job").filter(|j| j.is_object()).map(|j| Box::new(Job::from_json(j))),
+            media: list_of(v, "media").iter().filter_map(Photo::from_json).take(POST_MAX_PHOTOS).collect(),
+            community: v.get("community").and_then(Community::from_json),
         }
     }
 
@@ -477,6 +687,56 @@ pub struct JobsQuery {
     pub workplace: Option<Workplace>,
     pub employment: Option<Employment>,
     pub ticker: Option<String>,
+}
+
+/// How someone reacted to a post, after LinkedIn's reactions; a like is the plain one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Reaction {
+    #[default]
+    Like,
+    Celebrate,
+    Support,
+    Love,
+    Insightful,
+    Funny,
+}
+
+impl Reaction {
+    pub const ALL: [Reaction; 6] =
+        [Reaction::Like, Reaction::Celebrate, Reaction::Support, Reaction::Love, Reaction::Insightful, Reaction::Funny];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Reaction::Like => "like",
+            Reaction::Celebrate => "celebrate",
+            Reaction::Support => "support",
+            Reaction::Love => "love",
+            Reaction::Insightful => "insightful",
+            Reaction::Funny => "funny",
+        }
+    }
+
+    /// None for a word the service would never send.
+    pub fn from_word(word: &str) -> Option<Reaction> {
+        Reaction::ALL.into_iter().find(|r| r.as_str() == word)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Reaction::Like => "Like",
+            Reaction::Celebrate => "Celebrate",
+            Reaction::Support => "Support",
+            Reaction::Love => "Love",
+            Reaction::Insightful => "Insightful",
+            Reaction::Funny => "Funny",
+        }
+    }
+}
+
+impl std::fmt::Display for Reaction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
 }
 
 /// A position on a person's page, as LinkedIn lists one.
@@ -798,8 +1058,8 @@ impl Suggestions {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Notification {
     pub id: String,
-    /// `like`, `reply`, `repost`, `quote`, `mention`, `follow`, `org-invite`, `org-request`, `org-joined` or
-    /// `title-confirmed`.
+    /// `like`, `reply`, `repost`, `quote`, `mention`, `follow`, `org-invite`, `org-request`, `org-joined`,
+    /// `title-confirmed`, `endorsed`, `experience-confirmed` or `job-application`.
     pub kind: String,
     /// Who did it, while they can still be shown.
     pub actor: Option<Person>,
@@ -809,6 +1069,10 @@ pub struct Notification {
     pub org: Option<Org>,
     pub at: String,
     pub read: bool,
+    /// For the later kinds, what it is about in words: the skill endorsed, or the position confirmed.
+    pub detail: Option<String>,
+    /// The community a request to join, or an approval, is about.
+    pub community: Option<Community>,
 }
 
 impl Notification {
@@ -821,6 +1085,8 @@ impl Notification {
             org: v.get("org").and_then(Org::from_json),
             at: str_of(v, "at"),
             read: v.get("read").and_then(Value::as_bool).unwrap_or(false),
+            detail: opt_str(v, "detail"),
+            community: v.get("community").and_then(Community::from_json),
         }
     }
 }
@@ -859,10 +1125,12 @@ pub struct PersonPage {
     pub you_block: bool,
     /// The reader muted this person.
     pub you_mute: bool,
-    /// The post the person pinned to the top of the page (on the first page of posts only).
-    pub pinned: Option<Post>,
+    /// The post the person pinned to the top of the page (on the first page of posts only); boxed, as a post is large.
+    pub pinned: Option<Box<Post>>,
     /// Experience, education and skills (on the first page of posts only).
     pub profile: Option<Profile>,
+    /// The page's banner, its address.
+    pub banner: Option<String>,
 }
 
 impl PersonPage {
@@ -876,8 +1144,9 @@ impl PersonPage {
             you_follow: v.get("you_follow").and_then(Value::as_bool).unwrap_or(false),
             you_block: v.get("you_block").and_then(Value::as_bool).unwrap_or(false),
             you_mute: v.get("you_mute").and_then(Value::as_bool).unwrap_or(false),
-            pinned: v.get("pinned").filter(|p| p.is_object()).map(Post::from_json),
+            pinned: v.get("pinned").filter(|p| p.is_object()).map(|p| Box::new(Post::from_json(p))),
             profile: v.get("profile").filter(|p| p.is_object()).map(Profile::from_json),
+            banner: photo_url(v.get("banner")),
         }
     }
 }
@@ -895,6 +1164,8 @@ pub struct OrgPage {
     /// The reader's role (`owner`, `admin`, `member`) and state (`active`, `requested`, `invited`), when they have one.
     pub your_role: Option<String>,
     pub your_state: Option<String>,
+    /// The organization's banner, its address.
+    pub banner: Option<String>,
 }
 
 impl OrgPage {
@@ -909,6 +1180,7 @@ impl OrgPage {
             you_follow: v.get("you_follow").and_then(Value::as_bool).unwrap_or(false),
             your_role: opt_str(v, "your_role"),
             your_state: opt_str(v, "your_state"),
+            banner: photo_url(v.get("banner")),
         }
     }
 
@@ -922,7 +1194,8 @@ impl OrgPage {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Thread {
     pub post: Post,
-    pub parent: Option<Post>,
+    /// Boxed, as a post is large.
+    pub parent: Option<Box<Post>>,
     pub replies: Posts,
 }
 
@@ -930,7 +1203,7 @@ impl Thread {
     pub fn from_json(v: &Value) -> Thread {
         Thread {
             post: Post::from_json(v.get("post").unwrap_or(&Value::Null)),
-            parent: v.get("parent").filter(|p| p.is_object()).map(Post::from_json),
+            parent: v.get("parent").filter(|p| p.is_object()).map(|p| Box::new(Post::from_json(p))),
             replies: Posts {
                 posts: list_of(v, "replies").iter().map(Post::from_json).collect(),
                 more: v.get("more").and_then(Value::as_bool).unwrap_or(false),
@@ -1170,7 +1443,12 @@ impl ModAction {
 
     /// The act in a few words, as a log line says it.
     pub fn words(&self) -> &'static str {
-        ModAct::from_word(&self.action).map(ModAct::past).unwrap_or(if self.action == "dismiss" { "dismissed a report" } else { "acted" })
+        match self.action.as_str() {
+            "dismiss" => "dismissed a report",
+            "suspend-community" => "suspended a community",
+            "restore-community" => "restored a community",
+            other => ModAct::from_word(other).map(ModAct::past).unwrap_or("acted"),
+        }
     }
 }
 
@@ -1270,6 +1548,11 @@ pub struct NewPost {
     pub poll: Option<NewPoll>,
     /// A job opening, on an article posted as an organization only.
     pub job: Option<NewJob>,
+    /// Up to four photos, the reader's own uploads; not with a poll, nor on a plain repost.
+    pub media: Vec<NewPhoto>,
+    /// The community to post it in (a handle): one's own post or article, not a reply, a repost or an
+    /// organization's.
+    pub community: Option<String>,
 }
 
 impl NewPost {
@@ -1290,6 +1573,12 @@ impl NewPost {
         if let Some(job) = &self.job {
             body["job"] = json!({"location": job.location, "workplace": job.workplace.as_str(),
                                  "employment": job.employment.as_str(), "pay": job.pay, "days": job.days});
+        }
+        if !self.media.is_empty() {
+            body["media"] = Value::Array(self.media.iter().map(|m| json!({"id": m.id, "alt": m.alt})).collect());
+        }
+        if let Some(community) = &self.community {
+            body["community"] = json!(community);
         }
         body
     }
@@ -1477,6 +1766,11 @@ pub async fn like(client: &Client, token: &str, post_id: &str, like: bool) -> Re
     call(client, token, "like", json!({"post_id": post_id, "like": like})).await.map(|_| ())
 }
 
+/// React to a post (a like, or another way); reacting again changes how. Take it back with `like(.., false)`.
+pub async fn react(client: &Client, token: &str, post_id: &str, reaction: Reaction) -> Result<(), Problem> {
+    call(client, token, "like", json!({"post_id": post_id, "reaction": reaction.as_str()})).await.map(|_| ())
+}
+
 /// Save a post for oneself, or forget it. Only the reader sees their bookmarks.
 pub async fn bookmark(client: &Client, token: &str, post_id: &str, bookmark: bool) -> Result<(), Problem> {
     call(client, token, "bookmark", json!({"post_id": post_id, "bookmark": bookmark})).await.map(|_| ())
@@ -1623,6 +1917,276 @@ pub async fn applications(client: &Client, token: &str) -> Result<Vec<Post>, Pro
     call(client, token, "applications", json!({})).await.map(|v| list_of(&v, "posts").iter().map(Post::from_json).collect())
 }
 
+/// The image types the service takes, by their first bytes: JPEG, PNG or WebP; None for anything else.
+pub fn image_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// The largest photo the service takes (ADR-0050).
+pub const PHOTO_MAX_BYTES: usize = 5 * 1024 * 1024;
+/// The most photos on one post.
+pub const POST_MAX_PHOTOS: usize = 4;
+/// The longest description of a photo, in characters.
+pub const ALT_MAX_CHARS: usize = 1_000;
+
+/// Upload a photo (JPEG, PNG or WebP, at most 5 MB). The service removes its metadata and checks it against known
+/// illegal imagery before storing it; it is the reader's to attach to a post, or as a photo or banner, for a day.
+pub async fn upload(client: &Client, token: &str, bytes: &[u8]) -> Result<Upload, Problem> {
+    use base64::Engine as _;
+    let content_type = image_type(bytes).unwrap_or("application/octet-stream");
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    call(client, token, "media", json!({"content_type": content_type, "data": data})).await.map(|v| {
+        let m = v.get("media").unwrap_or(&Value::Null);
+        Upload {
+            id: str_of(m, "id"),
+            url: photo_url(m.get("url")).unwrap_or_default(),
+            width: m.get("width").and_then(Value::as_u64).unwrap_or(0) as u32,
+            height: m.get("height").and_then(Value::as_u64).unwrap_or(0) as u32,
+        }
+    })
+}
+
+/// Set the reader's page `avatar` or `banner` to one of their uploads, or clear it (`media_id` empty).
+pub async fn set_page_media(client: &Client, token: &str, kind: &str, media_id: &str) -> Result<(), Problem> {
+    call(client, token, "page-media", json!({"kind": kind, "media_id": media_id})).await.map(|_| ())
+}
+
+/// An owner or admin sets the organization's `logo` or `banner` to one of their uploads, or clears it.
+pub async fn set_org_media(client: &Client, token: &str, ticker: &str, kind: &str, media_id: &str) -> Result<(), Problem> {
+    call(client, token, "org-media", json!({"ticker": ticker, "kind": kind, "media_id": media_id})).await.map(|_| ())
+}
+
+/// For moderators: screens' matches, the newest first; those not cleared unless `all`.
+pub async fn media_matches(client: &Client, token: &str, all: bool) -> Result<Vec<MediaMatch>, Problem> {
+    call(client, token, "mod-media-matches", json!({"all": all}))
+        .await
+        .map(|v| list_of(&v, "matches").iter().map(MediaMatch::from_json).collect())
+}
+
+/// For moderators: record that a match was reported, or clear it (the account may upload again).
+pub async fn mark_media_match(client: &Client, token: &str, match_id: &str, reported: bool, cleared: bool) -> Result<(), Problem> {
+    call(client, token, "mod-media-match", json!({"match_id": match_id, "reported": reported, "cleared": cleared}))
+        .await
+        .map(|_| ())
+}
+
+/// A list's name and its line about it, at their longest (ADR-0054).
+pub const LIST_NAME_MAX_CHARS: usize = 25;
+pub const LIST_ABOUT_MAX_CHARS: usize = 100;
+
+/// One of the reader's private lists (ADR-0054): a named set of people and organizations read as one stream.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct PageList {
+    pub id: String,
+    pub name: String,
+    pub about: String,
+    pub people: u64,
+    pub orgs: u64,
+    /// Whether the person or organization asked about is on it; None when none was asked about.
+    pub has: Option<bool>,
+}
+
+impl PageList {
+    pub fn from_json(v: &Value) -> PageList {
+        PageList {
+            id: str_of(v, "id"),
+            name: str_of(v, "name"),
+            about: str_of(v, "about"),
+            people: v.get("people").and_then(Value::as_u64).unwrap_or(0),
+            orgs: v.get("orgs").and_then(Value::as_u64).unwrap_or(0),
+            has: v.get("has").and_then(Value::as_bool),
+        }
+    }
+}
+
+/// Who is put on a list or taken off it: a person by username, or an organization by ticker.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ListTarget {
+    Person(String),
+    Org(String),
+}
+
+impl ListTarget {
+    fn with_body(&self, mut body: Value) -> Value {
+        match self {
+            ListTarget::Person(username) => body["username"] = json!(username),
+            ListTarget::Org(ticker) => body["ticker"] = json!(ticker),
+        }
+        body
+    }
+}
+
+/// A list and a page of its stream: its people's and organizations' posts, newest first.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ListPage {
+    pub list: PageList,
+    pub posts: Posts,
+}
+
+/// Who is on a list, in the order they were put on it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ListMembers {
+    pub people: Vec<Person>,
+    pub orgs: Vec<Org>,
+}
+
+/// The reader's lists, by name; with `about`, each says whether that person or organization is on it.
+pub async fn lists(client: &Client, token: &str, about: Option<&ListTarget>) -> Result<Vec<PageList>, Problem> {
+    let body = about.map_or_else(|| json!({}), |target| target.with_body(json!({})));
+    call(client, token, "lists", body).await.map(|v| list_of(&v, "lists").iter().map(PageList::from_json).collect())
+}
+
+/// A list and a page of its stream; `before` asks for the page after that post.
+pub async fn list(client: &Client, token: &str, list_id: &str, before: Option<&str>) -> Result<ListPage, Problem> {
+    call(client, token, "list", paged(json!({"list_id": list_id}), before)).await.map(|v| ListPage {
+        list: PageList::from_json(v.get("list").unwrap_or(&Value::Null)),
+        posts: Posts::from_json(&v),
+    })
+}
+
+/// A new, empty list (a name of at most 25 characters, a line about it of at most 100).
+pub async fn list_create(client: &Client, token: &str, name: &str, about: &str) -> Result<PageList, Problem> {
+    call(client, token, "list-create", json!({"name": name, "about": about}))
+        .await
+        .map(|v| PageList::from_json(v.get("list").unwrap_or(&Value::Null)))
+}
+
+/// Rename a list or change its line; a None is left as it is.
+pub async fn list_update(client: &Client, token: &str, list_id: &str, name: Option<&str>, about: Option<&str>) -> Result<PageList, Problem> {
+    let mut body = json!({"list_id": list_id});
+    if let Some(n) = name {
+        body["name"] = json!(n);
+    }
+    if let Some(a) = about {
+        body["about"] = json!(a);
+    }
+    call(client, token, "list-update", body).await.map(|v| PageList::from_json(v.get("list").unwrap_or(&Value::Null)))
+}
+
+pub async fn list_delete(client: &Client, token: &str, list_id: &str) -> Result<(), Problem> {
+    call(client, token, "list-delete", json!({"list_id": list_id})).await.map(|_| ())
+}
+
+/// Put a person or an organization on a list (`add`), or take them off. Nobody is told either way.
+pub async fn list_add(client: &Client, token: &str, list_id: &str, target: &ListTarget, add: bool) -> Result<(), Problem> {
+    let route = if add { "list-add" } else { "list-remove" };
+    call(client, token, route, target.with_body(json!({"list_id": list_id}))).await.map(|_| ())
+}
+
+pub async fn list_members(client: &Client, token: &str, list_id: &str) -> Result<ListMembers, Problem> {
+    call(client, token, "list-members", json!({"list_id": list_id})).await.map(|v| ListMembers {
+        people: list_of(&v, "people").iter().map(Person::from_json).collect(),
+        orgs: list_of(&v, "orgs").iter().filter_map(Org::from_json).collect(),
+    })
+}
+
+/// Communities (ADR-0053): those with the most members first, or (`mine`) the reader's own and those they asked
+/// to join.
+pub async fn communities(client: &Client, token: &str, mine: bool) -> Result<Vec<CommunitySummary>, Problem> {
+    call(client, token, "communities", json!({"mine": mine}))
+        .await
+        .map(|v| list_of(&v, "communities").iter().map(CommunitySummary::from_json).collect())
+}
+
+/// A community and a page of its posts; `before` asks for the page after that post.
+pub async fn community(client: &Client, token: &str, handle: &str, before: Option<&str>) -> Result<CommunityPage, Problem> {
+    call(client, token, "community", paged(json!({"handle": handle}), before)).await.map(|v| CommunityPage::from_json(&v))
+}
+
+/// Start a community, kept by the reader as its first owner.
+pub async fn community_create(
+    client: &Client,
+    token: &str,
+    handle: &str,
+    name: &str,
+    about: &str,
+    rules: &str,
+    joining: Joining,
+) -> Result<Community, Problem> {
+    let body = json!({"handle": handle, "name": name, "about": about, "rules": rules, "joining": joining.as_str()});
+    call(client, token, "community-create", body).await.map(|v| v.get("community").and_then(Community::from_json).unwrap_or_default())
+}
+
+/// Owners change its name, about, rules or how it is joined; a None is left as it is.
+pub async fn community_update(
+    client: &Client,
+    token: &str,
+    handle: &str,
+    name: Option<&str>,
+    about: Option<&str>,
+    rules: Option<&str>,
+    joining: Option<Joining>,
+) -> Result<Community, Problem> {
+    let mut body = json!({"handle": handle});
+    for (key, value) in [("name", name), ("about", about), ("rules", rules)] {
+        if let Some(text) = value {
+            body[key] = json!(text);
+        }
+    }
+    if let Some(j) = joining {
+        body["joining"] = json!(j.as_str());
+    }
+    call(client, token, "community-update", body).await.map(|v| v.get("community").and_then(Community::from_json).unwrap_or_default())
+}
+
+/// Its active members, owners and moderators first; its owners and moderators also see requests and bans.
+pub async fn community_members(client: &Client, token: &str, handle: &str) -> Result<Vec<Member>, Problem> {
+    call(client, token, "community-members", json!({"handle": handle})).await.map(|v| members_from_json(&v))
+}
+
+/// Join, or ask to join: `"member"` or `"requested"`.
+pub async fn community_join(client: &Client, token: &str, handle: &str) -> Result<String, Problem> {
+    call(client, token, "community-join", json!({"handle": handle})).await.map(|v| state_of(&v))
+}
+
+/// Leave, or withdraw a request.
+pub async fn community_leave(client: &Client, token: &str, handle: &str) -> Result<(), Problem> {
+    call(client, token, "community-leave", json!({"handle": handle})).await.map(|_| ())
+}
+
+/// An owner or moderator approves a request to join, or refuses it.
+pub async fn community_decide(client: &Client, token: &str, handle: &str, member_id: &str, approve: bool) -> Result<(), Problem> {
+    call(client, token, "community-decide", json!({"handle": handle, "member_id": member_id, "approve": approve}))
+        .await
+        .map(|_| ())
+}
+
+/// Owners make a member `member`, `moderator` or `owner`.
+pub async fn community_role(client: &Client, token: &str, handle: &str, member_id: &str, role: &str) -> Result<(), Problem> {
+    call(client, token, "community-role", json!({"handle": handle, "member_id": member_id, "role": role}))
+        .await
+        .map(|_| ())
+}
+
+/// An owner or moderator removes a member (`ban`: and keeps them from joining again), or lifts a ban.
+pub async fn community_remove(client: &Client, token: &str, handle: &str, member_id: &str, ban: bool) -> Result<(), Problem> {
+    call(client, token, "community-remove", json!({"handle": handle, "member_id": member_id, "ban": ban}))
+        .await
+        .map(|_| ())
+}
+
+/// An owner or moderator takes a conversation out of the community (its first post): it leaves the community and
+/// closes to replies, its posts staying their authors'.
+pub async fn community_remove_post(client: &Client, token: &str, post_id: &str) -> Result<(), Problem> {
+    call(client, token, "community-remove-post", json!({"post_id": post_id})).await.map(|_| ())
+}
+
+/// For moderators: suspend a community (it stops for every reader; its posts stay their authors') or restore it.
+pub async fn mod_community(client: &Client, token: &str, suspend: bool, handle: &str, note: &str) -> Result<ModAction, Problem> {
+    let action = if suspend { "suspend-community" } else { "restore-community" };
+    call(client, token, "mod-community", json!({"action": action, "handle": handle, "note": note}))
+        .await
+        .map(|v| ModAction::from_json(v.get("action").unwrap_or(&Value::Null)))
+}
+
 /// Vote in a poll: one vote, never changed, while it is open; never in one's own.
 pub async fn vote(client: &Client, token: &str, post_id: &str, option: usize) -> Result<(), Problem> {
     call(client, token, "vote", json!({"post_id": post_id, "option": option})).await.map(|_| ())
@@ -1725,6 +2289,64 @@ pub async fn confirm_title(client: &Client, token: &str, ticker: &str, member_id
 mod tests {
     use super::*;
 
+    #[test]
+    fn photos_come_only_from_the_media_domain() {
+        let ok = "https://media.alelyon.com/m/med_abcdefghijklmnop.webp";
+        assert_eq!(photo_url(Some(&json!(ok))).as_deref(), Some(ok));
+        for bad in ["https://evil.example/m/med_abcdefghijklmnop.webp", "https://media.alelyon.com/x/med_abcdefghij.png",
+                    "https://media.alelyon.com/m/med_short.png", "https://media.alelyon.com/m/med_abcdefghijklmnop.gif",
+                    "https://media.alelyon.com/m/med_abcdefgh/../x.png"] {
+            assert_eq!(photo_url(Some(&json!(bad))), None, "{bad}");
+        }
+        let post = Post::from_json(&json!({"id": "pst_1", "media": [
+            {"url": ok, "width": 40, "height": 30, "alt": "A red card"},
+            {"url": "https://evil.example/x.png", "width": 1, "height": 1}]}));
+        assert_eq!(post.media, vec![Photo { url: ok.into(), width: 40, height: 30, alt: "A red card".into() }]);
+        let person = Person::from_json(&json!({"id": "a", "avatar": ok}));
+        assert_eq!(person.avatar.as_deref(), Some(ok));
+        assert_eq!(Org::from_json(&json!({"id": "o", "ticker": "BABG", "name": "B", "logo": "x"})).unwrap().logo, None);
+        let new = NewPost { text: "Two".into(), media: vec![NewPhoto { id: "med_1".into(), alt: "A".into() }], ..NewPost::default() };
+        assert_eq!(new.body()["media"], json!([{"id": "med_1", "alt": "A"}]));
+        assert_eq!(NewPost::default().body().get("media"), None);
+        assert_eq!(image_type(b"\x89PNG\r\n\x1a\nrest"), Some("image/png"));
+        assert_eq!(image_type(b"RIFF\0\0\0\0WEBPVP8 "), Some("image/webp"));
+        assert_eq!(image_type(b"GIF89a"), None);
+    }
+
+    #[test]
+    fn a_community_and_its_posts_read_as_the_service_sends_them() {
+        let c = json!({"id": "com_1", "handle": "engines", "name": "Analytical Engines"});
+        let page = CommunityPage::from_json(&json!({
+            "community": c, "about": "Building them.", "joining": "request", "members": 3,
+            "your_role": "moderator", "your_state": "active", "rules": "Be kind.",
+            "created_at": "2026-10-14T00:00:00Z", "requests": 2,
+            "posts": [{"id": "pst_1", "text": "The mill", "community": c}], "more": false}));
+        assert_eq!((page.summary.community.handle.as_str(), page.summary.joining, page.summary.members), ("engines", Joining::Request, 3));
+        assert!(page.summary.you_keep() && !page.summary.you_own() && page.summary.you_belong());
+        assert_eq!((page.rules.as_str(), page.requests), ("Be kind.", Some(2)));
+        assert_eq!(page.posts.posts[0].community.as_ref().map(|c| c.name.as_str()), Some("Analytical Engines"));
+        let anonymous = CommunitySummary::from_json(&json!({"community": c, "joining": "open", "members": 1}));
+        assert!(!anonymous.you_keep() && !anonymous.you_belong() && anonymous.joining == Joining::Open);
+        let new = NewPost { text: "Hi".into(), community: Some("engines".into()), ..NewPost::default() };
+        assert_eq!(new.body()["community"], json!("engines"));
+        assert_eq!(NewPost::default().body().get("community"), None);
+        let n = Notification::from_json(&json!({"id": "ntf_1", "kind": "community-request", "community": c}));
+        assert_eq!(n.community.map(|c| c.handle), Some("engines".to_string()));
+        let act = ModAction { action: "suspend-community".into(), ..ModAction::default() };
+        assert_eq!(act.words(), "suspended a community");
+        assert_eq!(Joining::from_word("anything"), Joining::Open);
+    }
+
+    #[test]
+    fn a_list_reads_as_the_service_sends_it_and_names_its_target() {
+        let found = PageList::from_json(&json!({"id": "lst_1", "name": "Engine people", "about": "Builders",
+                                                "people": 2, "orgs": 1, "has": true}));
+        assert_eq!((found.name.as_str(), found.people, found.orgs, found.has), ("Engine people", 2, 1, Some(true)));
+        assert_eq!(PageList::from_json(&json!({"id": "lst_2", "name": "Looms"})).has, None);
+        assert_eq!(ListTarget::Person("ada".into()).with_body(json!({"list_id": "lst_1"})), json!({"list_id": "lst_1", "username": "ada"}));
+        assert_eq!(ListTarget::Org("BABG".into()).with_body(json!({})), json!({"ticker": "BABG"}));
+    }
+
     fn card(username: &str) -> Value {
         json!({"id": format!("acct_{username}"), "username": username, "display_name": "Ada Lovelace",
                "title": "Founder | CEO", "title_org": {"id": "org_1", "ticker": "LACE", "name": "Lace Labs"},
@@ -1807,6 +2429,23 @@ mod tests {
                                                  "pinned": {"id": "pst_9", "text": "Read me first"}}));
         assert_eq!(page.pinned.as_ref().map(|p| p.id.as_str()), Some("pst_9"));
         assert!(PersonPage::from_json(&json!({"person": card("ada"), "pinned": null})).pinned.is_none());
+    }
+
+    #[test]
+    fn a_post_reads_its_reactions_in_order() {
+        let post = Post::from_json(&json!({"id": "pst_1", "likes": 4, "liked": true,
+            "reactions": {"funny": 1, "like": 2, "celebrate": 1, "angry": 9}, "your_reaction": "celebrate"}));
+        assert_eq!(post.reactions, vec![(Reaction::Like, 2), (Reaction::Celebrate, 1), (Reaction::Funny, 1)]);
+        assert_eq!(post.your_reaction, Some(Reaction::Celebrate));
+        assert_eq!(Post::from_json(&json!({"id": "pst_2", "your_reaction": "angry"})).your_reaction, None);
+        assert_eq!(Reaction::ALL.map(Reaction::as_str).map(Reaction::from_word), Reaction::ALL.map(Some));
+    }
+
+    #[test]
+    fn a_later_kind_of_notification_carries_its_detail() {
+        let n = Notification::from_json(&json!({"id": "ntf_1", "kind": "endorsed", "detail": "Engines", "read": false}));
+        assert_eq!((n.kind.as_str(), n.detail.as_deref()), ("endorsed", Some("Engines")));
+        assert_eq!(Notification::from_json(&json!({"id": "ntf_2", "kind": "like", "detail": null})).detail, None);
     }
 
     #[test]

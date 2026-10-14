@@ -29,7 +29,10 @@
 //! - [`agent`]: `AgentChat`, the `AgentChatService` the interface calls, with
 //!   one agent turn in `turn` and what it shows in `views` (row E11).
 //! - [`tasks`]: the tasks the agent suggests (chips), which run only when the
-//!   reader starts one, as a new conversation.
+//!   reader starts one, as a new conversation; [`task_runs`]: how many run at
+//!   once, and the topic each was started from; [`switch`]: the agent moves
+//!   the work to another project, after the reader agrees; [`task_tools`]: the
+//!   main chat's agent lists, messages, stops and answers the tasks.
 //! - [`artifacts`]: documents the agent saves beside the chat, with their
 //!   versions.
 //! - [`todos`]: the agent's to-do list for the work in hand.
@@ -96,6 +99,12 @@ pub mod log;
 #[cfg(test)]
 mod mcp_tests;
 pub mod memory;
+pub mod recall;
+pub mod summaries;
+#[cfg(test)]
+mod summaries_tests;
+#[cfg(test)]
+mod recall_tests;
 #[cfg(test)]
 mod memory_tests;
 pub mod mentions;
@@ -118,6 +127,13 @@ mod replay_tests;
 pub mod sidecar;
 #[cfg(test)]
 mod skills_tests;
+pub mod switch;
+#[cfg(test)]
+mod switch_tests;
+pub mod task_runs;
+pub mod task_tools;
+#[cfg(test)]
+mod task_tools_tests;
 pub mod tasks;
 #[cfg(test)]
 mod tasks_tests;

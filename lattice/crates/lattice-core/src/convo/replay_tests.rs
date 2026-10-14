@@ -462,11 +462,17 @@ fn the_agent_prompt_matches_its_golden() {
             "ask_question",
             "git_status",
             "git_diff",
+            "recall",
             "remember",
             "forget",
             "spawn_agent",
             "suggest_task",
             "withdraw_task",
+            "switch_project",
+            "list_tasks",
+            "message_task",
+            "stop_task",
+            "answer_task",
             "write_artifact",
             "read_artifact",
             "give_steps",
@@ -479,7 +485,7 @@ fn the_agent_prompt_matches_its_golden() {
         .iter()
         .map(|t| t.name)
         .collect();
-    assert_eq!(agent.len(), 26);
+    assert_eq!(agent.len(), 32);
     assert!(prompt_agent::SYSTEM.contains("PowerShell"));
     assert!(!prompt_agent::SYSTEM.contains("Project rules"));
 }
