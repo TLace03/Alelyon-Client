@@ -13,11 +13,11 @@ use crate::client::{CLIENT_ID, Client};
 /// The account's plan as the service describes it.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Plan {
-    /// `free`, `beta`, `pro`, `team`, `max` or `ultra`.
+    /// `free`, `pro`, `team`, `max` or `ultra`.
     pub key: String,
     /// The plan's name to show (`Pro`).
     pub name: String,
-    /// Whether the plan unlocks the hosted services (hosted DQC-OS and hosted model chat).
+    /// Whether the plan unlocks the hosted services (hosted model chat).
     pub hosted_access: bool,
     /// The plan's hosted chat allowance, in the service's units.
     pub chat_allowance: u64,
@@ -25,7 +25,7 @@ pub struct Plan {
     pub seats: u64,
     /// When the paid period ends (RFC 3339), or None when the plan does not lapse or the service did not say.
     pub paid_through: Option<String>,
-    /// Where the plan came from, in the service's own word (a subscription, a beta key, ...), when it says.
+    /// Where the plan came from, in the service's own word (a subscription, ...), when it says.
     pub source: Option<String>,
     /// The account has a billing record, so the billing portal can open.
     pub manage_available: bool,
@@ -50,9 +50,12 @@ impl Plan {
         }
     }
 
-    /// A plan that is not paid for (Free, or a beta key's access): the one to offer an upgrade from.
+    /// The plans that are paid for.
+    pub const PAID: [&'static str; 4] = ["pro", "team", "max", "ultra"];
+
+    /// A plan that is not paid for (Free, or any key this client does not know): the one to offer an upgrade from.
     pub fn upgradable(&self) -> bool {
-        matches!(self.key.as_str(), "free" | "beta")
+        !Plan::PAID.contains(&self.key.as_str())
     }
 
     /// The paid-through day (`2026-11-10`), when the service gave one.
@@ -193,10 +196,13 @@ mod tests {
     }
 
     #[test]
-    fn free_and_beta_are_upgradable_and_a_missing_field_reads_as_free() {
+    fn free_and_any_unpaid_key_are_upgradable_and_a_missing_field_reads_as_free() {
         let free = Plan::from_json(&json!({"key": "free", "name": "Free", "seats": 1, "paid_through": null}));
         assert!(free.upgradable() && free.paid_through_day().is_none() && !free.manage_available);
-        assert!(Plan::from_json(&json!({"key": "beta", "name": "Beta"})).upgradable());
+        assert!(Plan::from_json(&json!({"key": "retired", "name": "Retired"})).upgradable(), "a key that is not a paid plan");
+        for paid in Plan::PAID {
+            assert!(!Plan::from_json(&json!({"key": paid})).upgradable(), "{paid}");
+        }
         let empty = Plan::from_json(&Value::Null);
         assert_eq!((empty.key.as_str(), empty.name.as_str(), empty.seats), ("free", "Free", 1));
         assert_eq!(Plan::from_json(&json!({"seats": 0})).seats, 1, "never zero seats");

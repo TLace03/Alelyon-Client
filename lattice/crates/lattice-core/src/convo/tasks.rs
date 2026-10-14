@@ -335,6 +335,7 @@ fn withdraw(tools: &TurnTools, args: &WithdrawArgs) -> Result<String, ToolError>
 struct Claimed {
     convo: Arc<Convo>,
     prompt: String,
+    title: String,
     workspace: Option<String>,
     project: Option<String>,
 }
@@ -386,9 +387,19 @@ fn waiting(
 
 fn claim(inner: &Arc<Inner>, conversation: &str, task: &str) -> Result<(Claimed, Claim), Refusal> {
     let convo = inner.load(conversation)?;
+    // The other topics working now; with the tasks being started, what the limit counts.
+    let running = lock(&inner.convos)
+        .iter()
+        .filter(|(id, other)| id.as_str() != conversation && other.state().running.is_some())
+        .count();
+    let limit = inner.task_runs.limit();
     let found = {
         let mut settling = lock(&inner.tasks);
         let found = waiting(inner, &settling, conversation, task)?;
+        if !limit.allows(running + settling.len()) {
+            let super::task_runs::Limit::At(n) = limit else { unreachable!("no limit allows any") };
+            return Err(refuse(RefusalKind::Conflict, &super::task_runs::full(n)));
+        }
         settling.insert(key(conversation, task));
         found
     };
@@ -402,6 +413,7 @@ fn claim(inner: &Arc<Inner>, conversation: &str, task: &str) -> Result<(Claimed,
         Claimed {
             convo,
             prompt: found.prompt,
+            title: found.title,
             workspace,
             project,
         },
@@ -452,6 +464,11 @@ pub(crate) async fn start(
         let outcome = TaskOutcome::Started {
             conversation: started.id.clone(),
         };
+        // Where it came from, for the activity chart; a failure costs only the chart's line.
+        let _ = inner.task_runs.started(
+            &started.id,
+            super::task_runs::Origin { from: conversation.clone(), title: claimed.title.clone(), at: inner.now(), ..Default::default() },
+        );
         let convo = claimed.convo;
         let written = {
             let _settling = lock(&inner.tasks);

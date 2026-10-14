@@ -1,7 +1,7 @@
 # Native sign-in contract (v1, 2026-10-07; email codes 2026-10-09)
 
 The identity service's routes for a native (desktop) client, as `src/client.rs` and `src/loopback.rs` call them.
-The 2026-10-09 additions (`sign-up`, `verify-email`, `resend-code`, `beta-key`, `beta-key/redeem`) are served by the
+The 2026-10-09 additions (`sign-up`, `verify-email`, `resend-code`) are served by the
 identity service; this crate does not call them yet. `sign-up`, `verify-email` and `resend-code` were reworked the same
 day after a security review (handles instead of passwords); no client had built against the earlier shape.
 
@@ -35,8 +35,6 @@ refresh rotates the token: the old one stops working.
 | `POST /identity/native/sign-up` | `{client_id, email, password, display_name?, agree: true, turnstile_token?}` | 202 `{"handle", "expires_at", "code_expires_at"}` (both RFC 3339); 400 `agreement-required`, `invalid-email`, `weak-password`, `invalid-request`, `invalid-client`; 403 `challenge-failed`; 429; 503 `mail-unavailable` |
 | `POST /identity/native/verify-email` | `{client_id, handle, code, stay_signed_in}` (code = the 6 digits mailed) | 200 session (the account now exists); 400 `invalid-code`; 429; 503 |
 | `POST /identity/native/resend-code` | `{client_id, handle, turnstile_token?}` | 202 `{"accepted": true, "code_expires_at": "<RFC 3339>"}`; 410 `sign-up-expired`; 403 `challenge-failed`; 429; 503 `mail-unavailable` |
-| `POST /identity/native/beta-key` | `{client_id, refresh_token}` (no rotation) | 200 `{"state": "ready", "key": "ALN-...", "expires_at": "<RFC 3339>"}` or 200 `{"state": "unverified", "message"}` (an account whose email address is not proven, below); 401 `invalid-token` |
-| `POST /identity/native/beta-key/redeem` | `{key}` (no client id and no session: the key is the credential) | 200 `{"state": "ok" \| "unknown-key" \| "expired" \| "already-redeemed"}`; 429 |
 | `POST /identity/native/refresh` | `{client_id, refresh_token}` | 200 session (rotated); 401 `invalid-token` |
 | `POST /identity/native/sign-out` | `{client_id, refresh_token}` | 204 (the token and its family revoked) |
 | `POST /identity/native/account` | `{client_id, refresh_token}` | 200 `{"account": ...}` (no rotation); 401 |
@@ -114,16 +112,6 @@ Rules the service applies (a client only needs to show the error's `message`):
 
 A sign-in through Google, GitHub, LinkedIn or another provider needs no code when the provider says it verified the
 email address (see Linking for a provider sign-in that meets a password sign-up awaiting its code).
-
-## The hosted beta key (2026-10-09)
-
-A signed-in account with a verified email address gets its hosted DQC-OS beta key automatically: `beta-key` mints it
-on the first ask and returns the same key while it is live (72 hours, not yet redeemed), so the client may ask on
-every sign-in. An expired or redeemed key is replaced by a new one. An account whose real address is not proven (by a
-sign-up code, a used password-reset link, or a provider that verified it) gets `{"state": "unverified"}`: in
-practice a provider account whose provider gave no verified address, or an account an operator brought over from a
-desktop that has not yet reset its password or linked such a provider. The installed app spends a key once with
-`beta-key/redeem`; typed keys are accepted in any case, with or without the `ALN-` prefix and hyphens.
 
 ## Limits and logging
 

@@ -421,3 +421,59 @@ fn a_reopened_conversation_shows_its_tasks_as_they_were_left() {
     assert_eq!(known.len(), 1);
     assert_eq!(known[0].outcome, Some(TaskOutcome::Dismissed));
 }
+
+/// Started tasks are bounded by the reader's limit: with a limit of one, a
+/// second Start while the first task's topic still works is refused with a
+/// sentence and the task still waits; once the first ends, it starts. Each
+/// started topic is recorded with the topic it came from and its title.
+/// Mutants: the limit not checked; the origin topic counted as a task.
+#[test]
+fn tasks_past_the_readers_limit_wait_and_each_records_where_it_came_from() {
+    use super::task_runs::{self, Limit};
+    let h = H::new("tasks-limit");
+    let ws = h.workspace();
+    h.script(vec![suggest("t1"), suggest("t2"), say("Two tasks suggested.")]);
+    let id = h.agent(None, "Fix the build.", &ws);
+    let events = h.turns_end(&id, 1);
+    let tasks: Vec<String> = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            ConversationEventKind::TaskSuggested { task, .. } => Some(task.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tasks.len(), 2);
+    assert_eq!(h.chat.task_limit(), Limit::At(task_runs::DEFAULT_PARALLEL));
+    assert!(h.chat.set_task_limit(Limit::At(0)).is_err(), "at least one");
+    h.chat.set_task_limit(Limit::At(1)).unwrap();
+
+    // The first task's topic works for a while.
+    let slow = std::sync::Arc::new(
+        lattice_agents::testing::ScriptedModel::new([say("The badge now points at build.yml.")])
+            .with_delay(std::time::Duration::from_secs(3)),
+    );
+    h.answer_with(slow.clone());
+    let start = |task: &str| {
+        h.runtime
+            .block_on(h.chat.start_task(&id, task, "local".into(), local(), Mode::Agent))
+    };
+    let Accepted::Started { conversation: first, .. } = start(&tasks[0]).unwrap() else { panic!("started") };
+    let refused = start(&tasks[1]).unwrap_err();
+    assert_eq!((refused.kind, refused.message.as_str()), (RefusalKind::Conflict, task_runs::full(1).as_str()));
+    let listed = h.runtime.block_on(h.chat.list()).unwrap().conversations.len();
+    assert_eq!(listed, 2, "the refused task started nothing");
+
+    // Once it ends, the second starts.
+    h.turns_end(&first.id, 1);
+    slow.enqueue(say("Done."));
+    let Accepted::Started { conversation: second, .. } = start(&tasks[1]).unwrap() else { panic!("started") };
+    h.turns_end(&second.id, 1);
+    let origins = h.chat.task_origins();
+    for topic in [&first.id, &second.id] {
+        let origin = &origins[topic];
+        assert_eq!((origin.from.as_str(), origin.title.as_str()), (id.as_str(), "Fix the stale README badge"));
+    }
+    h.chat.set_task_limit(Limit::None).unwrap();
+    assert_eq!(h.chat.task_limit(), Limit::None);
+    assert!(Limit::None.allows(1_000) && !Limit::At(3).allows(3) && Limit::At(3).allows(2));
+}

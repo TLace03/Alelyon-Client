@@ -437,6 +437,12 @@ pub(crate) struct Inner {
     pub tool_probes: Mutex<HashMap<String, bool>>,
     /// The managed binary's SHA-256, by its path, size and last write.
     pub binary_sha: Mutex<Option<BinaryStamp>>,
+    /// The reader's earlier conversations, searched by their words (`super::recall`).
+    pub recall: Mutex<super::recall::Recall>,
+    /// The topics' summaries and the reader's model for them (`super::summaries`).
+    pub summaries: super::summaries::Summaries,
+    /// How many started tasks run at once, and where each came from (`super::task_runs`).
+    pub task_runs: super::task_runs::TaskRuns,
     pub changed: Changed,
     pub claims: Mutex<HashSet<String>>,
     /// The agent turns' traces (`<native>/chat/runs`).
@@ -483,6 +489,12 @@ impl Inner {
         view.running = self.config.local.running();
         view.failed = self.config.local.failed();
         view
+    }
+
+    /// A choice resolved for work the reader does not see happen (a topic's
+    /// summary): no picker label to hold it to.
+    pub(crate) fn resolve_quiet(&self, choice: &str) -> Resolution {
+        vocab::resolve(choice, self.config.env.as_ref(), &self.config.state, &self.keys, self.config.development, &self.view())
     }
 
     /// Prepare (a): the choice resolved once, held to what was shown (N10).
@@ -953,6 +965,46 @@ impl AgentChat {
         super::memory::list(&super::memory::file(&self.inner.config.state, workspace))
     }
 
+    /// Which topic the reader's message `text` goes to on one chat surface,
+    /// `current` being the topic shown (`super::recall::Recall::route`).
+    /// Blocking (it may read the store).
+    pub fn route(&self, text: &str, current: Option<&str>) -> super::recall::Route {
+        let route = {
+            let mut recall = lock(&self.inner.recall);
+            recall.refresh(&*self.inner.config.store);
+            recall.route(text, current)
+        };
+        // A task's thread is the task's own: the reader's messages never go there.
+        match route {
+            super::recall::Route::Return(id) if super::task_tools::is_task(&self.inner, &id) => super::recall::Route::Continue,
+            route => route,
+        }
+    }
+
+    /// The reader's model for topic summaries (`super::summaries`); `None`:
+    /// Lattice's own on this PC when it is ready, else the turn's model.
+    pub fn summaries_choice(&self) -> Option<String> {
+        self.inner.summaries.choice()
+    }
+
+    pub fn set_summaries_choice(&self, choice: Option<String>) -> Result<(), String> {
+        self.inner.summaries.set_choice(choice)
+    }
+
+    /// How many started tasks may run at once (`super::task_runs`).
+    pub fn task_limit(&self) -> super::task_runs::Limit {
+        self.inner.task_runs.limit()
+    }
+
+    pub fn set_task_limit(&self, limit: super::task_runs::Limit) -> Result<(), String> {
+        self.inner.task_runs.set_limit(limit)
+    }
+
+    /// Each started task's topic, with the topic it was started from.
+    pub fn task_origins(&self) -> std::collections::HashMap<String, super::task_runs::Origin> {
+        self.inner.task_runs.origins()
+    }
+
     /// The reader's Forget on one of them; `Ok(false)` when none has that id.
     pub fn forget_memory(&self, workspace: &str, id: &str) -> Result<bool, String> {
         super::memory::remove(&super::memory::file(&self.inner.config.state, workspace), id)
@@ -1140,6 +1192,9 @@ impl AgentChat {
                 no_vision: Mutex::default(),
                 tool_probes: Mutex::default(),
                 binary_sha: Mutex::default(),
+                recall: Mutex::default(),
+                summaries: super::summaries::Summaries::new(&config.state),
+                task_runs: super::task_runs::TaskRuns::new(&config.state),
                 changed: Changed::default(),
                 claims: Mutex::default(),
                 mcp: Arc::new(McpHub::new(

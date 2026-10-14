@@ -186,3 +186,37 @@ fn a_reference_file_whose_real_place_is_lattices_own_is_left_out() {
     );
     assert!(!text.contains("SECRET_TOKEN"));
 }
+
+#[test]
+fn a_project_holds_more_folders_its_own_first_each_once_and_only_local_ones() {
+    let dir = TempDir::new("projects-folders");
+    let (projects, _) = store(&dir);
+    let made = projects.create("Payments").unwrap();
+    assert!(made.folders().is_empty());
+    let own = dir.path().join("web").display().to_string();
+    let api = dir.path().join("api").display().to_string();
+    let changed = projects
+        .change(
+            &made.id,
+            Change {
+                folder: Some(Some(own.clone())),
+                more_folders: Some(vec![api.clone(), own.to_uppercase()]),
+                ..Change::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(changed.folders(), [own.as_str(), api.as_str()], "its own folder first, each once");
+    assert!(
+        projects
+            .change(&made.id, Change { more_folders: Some(vec!["relative/path".into()]), ..Change::default() })
+            .is_err(),
+        "a folder is an absolute path on this PC"
+    );
+    let many: Vec<String> = (0..=MAX_FOLDERS).map(|n| dir.path().join(format!("f{n}")).display().to_string()).collect();
+    assert!(projects.change(&made.id, Change { more_folders: Some(many), ..Change::default() }).is_err());
+    // A file written before projects held more folders still reads.
+    let path = projects.path.clone();
+    let text = std::fs::read_to_string(&path).unwrap().replace("\"more_folders\"", "\"ignored_by_old\"");
+    std::fs::write(&path, text).unwrap();
+    assert!(projects.list().unwrap()[0].more_folders.is_empty());
+}
