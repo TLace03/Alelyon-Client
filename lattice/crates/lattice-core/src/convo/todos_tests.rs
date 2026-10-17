@@ -46,6 +46,8 @@ fn step(content: &str, status: TodoStatus) -> TodoItem {
     TodoItem {
         content: content.to_owned(),
         status,
+        decision: None,
+        chosen: None,
     }
 }
 

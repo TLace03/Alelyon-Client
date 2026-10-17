@@ -135,6 +135,7 @@ fn command_detail() -> ApprovalDetail {
         remote: None,
         staged_waiting: 0,
         background: false,
+        cost: None,
     }
 }
 
@@ -175,6 +176,8 @@ fn event_type(kind: &ConversationEventKind) -> &'static str {
         K::TaskSettled { .. } => "task_settled",
         K::ArtifactSaved { .. } => "artifact_saved",
         K::TodosUpdated { .. } => "todos_updated",
+        K::ChoiceOffered { .. } => "choice_offered",
+        K::ChoiceMade { .. } => "choice_made",
         K::PlanProposed { .. } => "plan_proposed",
         K::PlanSettled { .. } => "plan_settled",
         K::StepsGiven { .. } => "steps_given",
@@ -200,7 +203,7 @@ fn event_type(kind: &ConversationEventKind) -> &'static str {
     }
 }
 
-const EVENT_TYPES: [&str; 37] = [
+const EVENT_TYPES: [&str; 39] = [
     "turn_started",
     "stage",
     "delta",
@@ -238,6 +241,8 @@ const EVENT_TYPES: [&str; 37] = [
     "step_checked",
     "steps_notify",
     "steps_done",
+    "choice_offered",
+    "choice_made",
 ];
 
 fn sample_events() -> Vec<ConversationEventKind> {
@@ -381,6 +386,7 @@ fn sample_events() -> Vec<ConversationEventKind> {
             title: "Fix the stale README badge".into(),
             summary: "The README's build badge still names the old workflow.".into(),
             prompt: "In README.md, the build badge points at .github/workflows/ci.yml, which was renamed to build.yml. Point the badge at build.yml and check that nothing else names ci.yml.".into(),
+            group: None,
         },
         K::TaskSettled {
             task: "task_0011223344556677".into(),
@@ -400,14 +406,20 @@ fn sample_events() -> Vec<ConversationEventKind> {
                 TodoItem {
                     content: "Read how the explorer sorts its rows".into(),
                     status: TodoStatus::Done,
+                    decision: None,
+                    chosen: None,
                 },
                 TodoItem {
                     content: "Compare digit runs by value".into(),
                     status: TodoStatus::InProgress,
+                    decision: None,
+                    chosen: None,
                 },
                 TodoItem {
                     content: "Add a test for file2 before file10".into(),
                     status: TodoStatus::Pending,
+                    decision: None,
+                    chosen: None,
                 },
             ],
         },
@@ -446,6 +458,18 @@ fn sample_events() -> Vec<ConversationEventKind> {
         K::StepsDone {
             list: "steps_0011223344556677".into(),
         },
+        K::ChoiceOffered {
+            choice: "call_8".into(),
+            area: "database".into(),
+            options: vec![
+                ChoiceFit { option: "postgres".into(), fit: "Orders join customers.".into(), used: false },
+                ChoiceFit { option: "sqlite".into(), fit: String::new(), used: false },
+            ],
+            recommended: "postgres".into(),
+            why: "Orders must not be half-written.".into(),
+            step: Some(1),
+        },
+        K::ChoiceMade { choice: "call_8".into(), option: "postgres".into(), by_agent: false },
     ]
 }
 

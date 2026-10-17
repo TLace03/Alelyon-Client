@@ -124,6 +124,566 @@ impl Community {
     }
 }
 
+/// A product (ADR-0056): what someone builds, with a public page, shown as `p/handle`.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Product {
+    pub id: String,
+    /// 3-40 lower-case letters, digits or `-`, beginning and ending with a letter or digit.
+    pub handle: String,
+    pub name: String,
+    /// Its logo's address, when it has one.
+    pub logo: Option<String>,
+}
+
+impl Product {
+    pub fn from_json(v: &Value) -> Option<Product> {
+        v.as_object()?;
+        Some(Product { id: str_of(v, "id"), handle: str_of(v, "handle"), name: str_of(v, "name"), logo: photo_url(v.get("logo")) })
+    }
+}
+
+/// Where a product is: being built, in testing (it takes testers), or launched (a launch sets it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Stage {
+    #[default]
+    Building,
+    Testing,
+    Launched,
+}
+
+impl Stage {
+    pub const ALL: [Stage; 3] = [Stage::Building, Stage::Testing, Stage::Launched];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Stage::Building => "building",
+            Stage::Testing => "testing",
+            Stage::Launched => "launched",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Stage {
+        match word {
+            "testing" => Stage::Testing,
+            "launched" => Stage::Launched,
+            _ => Stage::Building,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Stage::Building => "Building",
+            Stage::Testing => "Testing",
+            Stage::Launched => "Launched",
+        }
+    }
+}
+
+impl std::fmt::Display for Stage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// The platforms a product may list, in the order the service keeps them.
+pub const PLATFORMS: [&str; 10] = ["web", "windows", "macos", "linux", "ios", "android", "api", "cli", "library", "plugin"];
+
+/// A platform as a person reads it.
+pub fn platform_label(platform: &str) -> &str {
+    match platform {
+        "web" => "Web",
+        "windows" => "Windows",
+        "macos" => "macOS",
+        "linux" => "Linux",
+        "ios" => "iOS",
+        "android" => "Android",
+        "api" => "API",
+        "cli" => "Command line",
+        "library" => "Library",
+        "plugin" => "Plug-in",
+        other => other,
+    }
+}
+
+/// A product's name, tagline, words and links at their longest, in characters after trimming; how many
+/// technologies, screenshots and makers it lists; and how many products one owner has while Pages Premium is not
+/// sold.
+pub const PRODUCT_NAME_MAX_CHARS: usize = 60;
+pub const PRODUCT_TAGLINE_MAX_CHARS: usize = 80;
+pub const PRODUCT_ABOUT_MAX_CHARS: usize = 2000;
+pub const PRODUCT_LINK_MAX_CHARS: usize = 200;
+pub const MAX_PRODUCT_TECH: usize = 12;
+pub const PRODUCT_TECH_MAX_CHARS: usize = 30;
+pub const MAX_PRODUCT_SHOTS: usize = 8;
+pub const MAX_PRODUCT_MAKERS: usize = 20;
+pub const MAX_OWNED_PRODUCTS: usize = 3;
+pub const LAUNCH_VERSION_MAX_CHARS: usize = 20;
+pub const TESTER_NOTE_MAX_CHARS: usize = 300;
+pub const TESTER_INVITE_MAX_CHARS: usize = 500;
+
+/// A post that launches a version of its product: supported for a day after its launch.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Launch {
+    pub version: String,
+    /// The first number in the version: a product launches once for each.
+    pub major: u64,
+    pub launched_at: String,
+    /// Supported until then (RFC 3339).
+    pub ends_at: String,
+    pub live: bool,
+    pub supports: u64,
+    pub you_support: bool,
+}
+
+impl Launch {
+    pub fn from_json(v: &Value) -> Launch {
+        Launch {
+            version: str_of(v, "version"),
+            major: v.get("major").and_then(Value::as_u64).unwrap_or(1),
+            launched_at: str_of(v, "launched_at"),
+            ends_at: str_of(v, "ends_at"),
+            live: v.get("live").and_then(Value::as_bool).unwrap_or(false),
+            supports: v.get("supports").and_then(Value::as_u64).unwrap_or(0),
+            you_support: v.get("you_support").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+}
+
+/// What a piece of feedback is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FeedbackCategory {
+    #[default]
+    Idea,
+    Bug,
+    Question,
+}
+
+impl FeedbackCategory {
+    pub const ALL: [FeedbackCategory; 3] = [FeedbackCategory::Idea, FeedbackCategory::Bug, FeedbackCategory::Question];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FeedbackCategory::Idea => "idea",
+            FeedbackCategory::Bug => "bug",
+            FeedbackCategory::Question => "question",
+        }
+    }
+
+    pub fn from_word(word: &str) -> FeedbackCategory {
+        match word {
+            "bug" => FeedbackCategory::Bug,
+            "question" => FeedbackCategory::Question,
+            _ => FeedbackCategory::Idea,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FeedbackCategory::Idea => "Idea",
+            FeedbackCategory::Bug => "Bug",
+            FeedbackCategory::Question => "Question",
+        }
+    }
+}
+
+impl std::fmt::Display for FeedbackCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// Where a piece of feedback stands: open until a keeper of its product sets another status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FeedbackStatus {
+    #[default]
+    Open,
+    UnderReview,
+    Planned,
+    InProgress,
+    Done,
+    WontDo,
+}
+
+impl FeedbackStatus {
+    pub const ALL: [FeedbackStatus; 6] = [
+        FeedbackStatus::Open,
+        FeedbackStatus::UnderReview,
+        FeedbackStatus::Planned,
+        FeedbackStatus::InProgress,
+        FeedbackStatus::Done,
+        FeedbackStatus::WontDo,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FeedbackStatus::Open => "open",
+            FeedbackStatus::UnderReview => "under-review",
+            FeedbackStatus::Planned => "planned",
+            FeedbackStatus::InProgress => "in-progress",
+            FeedbackStatus::Done => "done",
+            FeedbackStatus::WontDo => "wont-do",
+        }
+    }
+
+    pub fn from_word(word: &str) -> FeedbackStatus {
+        FeedbackStatus::ALL.into_iter().find(|s| s.as_str() == word).unwrap_or_default()
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FeedbackStatus::Open => "Open",
+            FeedbackStatus::UnderReview => "Under review",
+            FeedbackStatus::Planned => "Planned",
+            FeedbackStatus::InProgress => "In progress",
+            FeedbackStatus::Done => "Done",
+            FeedbackStatus::WontDo => "Won't do",
+        }
+    }
+}
+
+impl std::fmt::Display for FeedbackStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// A post of feedback on a product: its category, the status its keepers set, and its votes.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Feedback {
+    pub category: FeedbackCategory,
+    pub status: FeedbackStatus,
+    pub votes: u64,
+    pub you_voted: bool,
+    pub status_at: Option<String>,
+}
+
+impl Feedback {
+    pub fn from_json(v: &Value) -> Feedback {
+        Feedback {
+            category: FeedbackCategory::from_word(&str_of(v, "category")),
+            status: FeedbackStatus::from_word(&str_of(v, "status")),
+            votes: v.get("votes").and_then(Value::as_u64).unwrap_or(0),
+            you_voted: v.get("you_voted").and_then(Value::as_bool).unwrap_or(false),
+            status_at: opt_str(v, "status_at"),
+        }
+    }
+}
+
+/// A product as a list shows it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ProductSummary {
+    pub product: Product,
+    pub tagline: String,
+    pub stage: Stage,
+    /// Its owner: a person, or an organization.
+    pub owner: Option<Person>,
+    pub org: Option<Org>,
+    pub followers: u64,
+    /// Its reviews' average stars, None without any; and how many there are.
+    pub rating: Option<f64>,
+    pub reviews: u64,
+    pub tech: Vec<String>,
+    /// When it last launched.
+    pub launched_at: Option<String>,
+    pub you_follow: bool,
+    /// The reader keeps it: owns it, or makes it.
+    pub you_keep: bool,
+}
+
+impl ProductSummary {
+    pub fn from_json(v: &Value) -> ProductSummary {
+        ProductSummary {
+            product: v.get("product").and_then(Product::from_json).unwrap_or_default(),
+            tagline: str_of(v, "tagline"),
+            stage: Stage::from_word(&str_of(v, "stage")),
+            owner: v.get("owner").filter(|o| o.is_object()).map(Person::from_json),
+            org: v.get("org").and_then(Org::from_json),
+            followers: v.get("followers").and_then(Value::as_u64).unwrap_or(0),
+            rating: v.get("rating").and_then(Value::as_f64),
+            reviews: v.get("reviews").and_then(Value::as_u64).unwrap_or(0),
+            tech: list_of(v, "tech").iter().filter_map(|t| t.as_str().map(str::to_string)).collect(),
+            launched_at: opt_str(v, "launched_at"),
+            you_follow: v.get("you_follow").and_then(Value::as_bool).unwrap_or(false),
+            you_keep: v.get("you_keep").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+}
+
+/// A product's maker: shown once they confirmed the listing (`active`); keepers and the person also see one invited.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ProductMaker {
+    pub person: Person,
+    pub active: bool,
+    pub since: String,
+}
+
+impl ProductMaker {
+    pub fn from_json(v: &Value) -> ProductMaker {
+        ProductMaker {
+            person: Person::from_json(v.get("person").unwrap_or(&Value::Null)),
+            active: str_of(v, "state") == "active",
+            since: str_of(v, "since"),
+        }
+    }
+}
+
+/// What a product's page lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ProductShow {
+    /// Its build-in-public changelog: its updates and its launches.
+    #[default]
+    Updates,
+    Launches,
+    Feedback,
+    Reviews,
+}
+
+impl ProductShow {
+    pub const ALL: [ProductShow; 4] = [ProductShow::Updates, ProductShow::Launches, ProductShow::Feedback, ProductShow::Reviews];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProductShow::Updates => "updates",
+            ProductShow::Launches => "launches",
+            ProductShow::Feedback => "feedback",
+            ProductShow::Reviews => "reviews",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            ProductShow::Updates => "Updates",
+            ProductShow::Launches => "Launches",
+            ProductShow::Feedback => "Feedback",
+            ProductShow::Reviews => "Reviews",
+        }
+    }
+
+    fn from_word(word: &str) -> ProductShow {
+        ProductShow::ALL.into_iter().find(|s| s.as_str() == word).unwrap_or_default()
+    }
+}
+
+/// How a feedback board is ordered: the most voted first, or the newest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FeedbackSort {
+    #[default]
+    Top,
+    New,
+}
+
+impl FeedbackSort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FeedbackSort::Top => "top",
+            FeedbackSort::New => "new",
+        }
+    }
+}
+
+/// A product and a page of what `show` lists.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ProductPage {
+    pub summary: ProductSummary,
+    pub about: String,
+    /// Its website and its source repository: https addresses, or empty.
+    pub website: String,
+    pub source: String,
+    pub platforms: Vec<String>,
+    pub shots: Vec<Photo>,
+    pub makers: Vec<ProductMaker>,
+    pub created_at: String,
+    /// How many gave one, two, three, four and five stars.
+    pub stars: [u64; 5],
+    /// Its latest launch; boxed, as a post is often held by value.
+    pub latest_launch: Option<Box<Post>>,
+    pub show: ProductShow,
+    pub posts: Posts,
+    /// `owner`, `maker` or `invited`, None otherwise.
+    pub your_role: Option<String>,
+    /// The reader's ask to test it (`asked` or `invited`) and, once invited, the keepers' note of how to join.
+    pub your_test: Option<String>,
+    pub your_invite: Option<String>,
+    /// The post of the reader's review of it.
+    pub your_review: Option<String>,
+    /// For its keepers: how many asks to test wait.
+    pub testers: Option<u64>,
+}
+
+impl ProductPage {
+    pub fn from_json(v: &Value) -> ProductPage {
+        let mut stars = [0u64; 5];
+        for (i, n) in list_of(v, "stars").iter().take(5).enumerate() {
+            stars[i] = n.as_u64().unwrap_or(0);
+        }
+        ProductPage {
+            summary: ProductSummary::from_json(v),
+            about: str_of(v, "about"),
+            website: str_of(v, "website"),
+            source: str_of(v, "source"),
+            platforms: list_of(v, "platforms").iter().filter_map(|p| p.as_str().map(str::to_string)).collect(),
+            shots: list_of(v, "shots").iter().filter_map(Photo::from_json).take(MAX_PRODUCT_SHOTS).collect(),
+            makers: list_of(v, "makers").iter().map(ProductMaker::from_json).collect(),
+            created_at: str_of(v, "created_at"),
+            stars,
+            latest_launch: v.get("latest_launch").filter(|p| p.is_object()).map(|p| Box::new(Post::from_json(p))),
+            show: ProductShow::from_word(&str_of(v, "show")),
+            posts: Posts::from_json(v),
+            your_role: opt_str(v, "your_role"),
+            your_test: opt_str(v, "your_test"),
+            your_invite: opt_str(v, "your_invite"),
+            your_review: opt_str(v, "your_review"),
+            testers: v.get("testers").and_then(Value::as_u64),
+        }
+    }
+
+    /// The reader keeps it: owns it, or makes it.
+    pub fn you_keep(&self) -> bool {
+        self.summary.you_keep
+    }
+
+    /// The reader owns it: the person who does, or an owner or admin of its organization.
+    pub fn you_own(&self) -> bool {
+        self.your_role.as_deref() == Some("owner")
+    }
+}
+
+/// An ask to test a product in testing, as its keepers see it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Tester {
+    pub person: Person,
+    pub invited: bool,
+    /// The asker's note to the keepers, and the keepers' note of how to join.
+    pub note: String,
+    pub invite: String,
+    pub asked_at: String,
+    pub invited_at: Option<String>,
+}
+
+impl Tester {
+    pub fn from_json(v: &Value) -> Tester {
+        Tester {
+            person: Person::from_json(v.get("person").unwrap_or(&Value::Null)),
+            invited: str_of(v, "state") == "invited",
+            note: str_of(v, "note"),
+            invite: str_of(v, "invite"),
+            asked_at: str_of(v, "asked_at"),
+            invited_at: opt_str(v, "invited_at"),
+        }
+    }
+}
+
+/// A page of products, newest first, and whether more remain.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Products {
+    pub products: Vec<ProductSummary>,
+    pub more: bool,
+}
+
+impl Products {
+    pub fn from_json(v: &Value) -> Products {
+        Products {
+            products: list_of(v, "products").iter().map(ProductSummary::from_json).collect(),
+            more: v.get("more").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+
+    /// The handle to ask the next page `before`, when more remain.
+    pub fn next(&self) -> Option<String> {
+        self.more.then(|| self.products.last().map(|p| p.product.handle.clone())).flatten()
+    }
+}
+
+/// Which products a list holds: every one that shows, the reader's own, or those they follow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ProductList {
+    #[default]
+    Newest,
+    Mine,
+    Following,
+}
+
+impl ProductList {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProductList::Newest => "newest",
+            ProductList::Mine => "mine",
+            ProductList::Following => "following",
+        }
+    }
+}
+
+/// What a new post is to the product it names: its keepers' update, a launch of a version, a piece of feedback,
+/// or a review's stars.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub enum About {
+    #[default]
+    Update,
+    Launch(String),
+    Feedback(FeedbackCategory),
+    Review(u8),
+}
+
+/// A product to start: owned by the reader or (`as_org`, a ticker) by an organization they own or administer.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct NewProduct {
+    pub handle: String,
+    pub name: String,
+    pub tagline: String,
+    pub about: String,
+    pub website: String,
+    pub source: String,
+    pub platforms: Vec<String>,
+    pub tech: Vec<String>,
+    pub stage: Stage,
+    pub as_org: Option<String>,
+}
+
+impl NewProduct {
+    pub fn body(&self) -> Value {
+        let mut body = json!({"handle": self.handle, "name": self.name, "tagline": self.tagline, "about": self.about,
+                              "website": self.website, "source": self.source, "platforms": self.platforms,
+                              "tech": self.tech, "stage": self.stage.as_str()});
+        if let Some(org) = &self.as_org {
+            body["as_org"] = json!(org);
+        }
+        body
+    }
+}
+
+/// Changes to a product's page; a None is left as it is.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ProductChanges {
+    pub name: Option<String>,
+    pub tagline: Option<String>,
+    pub about: Option<String>,
+    pub website: Option<String>,
+    pub source: Option<String>,
+    pub platforms: Option<Vec<String>>,
+    pub tech: Option<Vec<String>>,
+    pub stage: Option<Stage>,
+}
+
+impl ProductChanges {
+    pub fn body(&self, handle: &str) -> Value {
+        let mut body = json!({"handle": handle});
+        for (key, value) in [("name", &self.name), ("tagline", &self.tagline), ("about", &self.about), ("website", &self.website), ("source", &self.source)] {
+            if let Some(text) = value {
+                body[key] = json!(text);
+            }
+        }
+        for (key, value) in [("platforms", &self.platforms), ("tech", &self.tech)] {
+            if let Some(list) = value {
+                body[key] = json!(list);
+            }
+        }
+        if let Some(stage) = self.stage {
+            body["stage"] = json!(stage.as_str());
+        }
+        body
+    }
+}
+
 /// How a community is joined: at once, or by a moderator's approval.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Joining {
@@ -373,6 +933,14 @@ pub struct Post {
     pub media: Vec<Photo>,
     /// The community it was posted in: on the first post of a community's conversation while it is in it.
     pub community: Option<Community>,
+    /// The product it is about (ADR-0056), while the product shows; and what it is to it: a launch, feedback, or a
+    /// review's stars (none of them for an update). Boxed, as the poll is.
+    pub product: Option<Product>,
+    pub launch: Option<Box<Launch>>,
+    pub feedback: Option<Box<Feedback>>,
+    pub stars: Option<u8>,
+    /// A reply by one of the keepers of the product the post it answers is about.
+    pub maker: bool,
 }
 
 impl Post {
@@ -408,6 +976,16 @@ impl Post {
             job: v.get("job").filter(|j| j.is_object()).map(|j| Box::new(Job::from_json(j))),
             media: list_of(v, "media").iter().filter_map(Photo::from_json).take(POST_MAX_PHOTOS).collect(),
             community: v.get("community").and_then(Community::from_json),
+            product: v.get("product").and_then(Product::from_json),
+            launch: v.get("launch").filter(|l| l.is_object()).map(|l| Box::new(Launch::from_json(l))),
+            feedback: v.get("feedback").filter(|f| f.is_object()).map(|f| Box::new(Feedback::from_json(f))),
+            stars: v
+                .get("review")
+                .and_then(|r| r.get("stars"))
+                .and_then(Value::as_u64)
+                .filter(|s| (1..=5).contains(s))
+                .map(|s| s as u8),
+            maker: v.get("maker").and_then(Value::as_bool).unwrap_or(false),
         }
     }
 
@@ -894,6 +1472,8 @@ impl NewEducation {
 pub struct Found {
     pub people: Vec<Person>,
     pub orgs: Vec<Org>,
+    /// The products that match (on an `All` search or their own).
+    pub products: Vec<ProductSummary>,
     pub posts: Posts,
 }
 
@@ -902,6 +1482,7 @@ impl Found {
         Found {
             people: list_of(v, "people").iter().map(Person::from_json).collect(),
             orgs: list_of(v, "orgs").iter().filter_map(Org::from_json).collect(),
+            products: list_of(v, "products").iter().map(ProductSummary::from_json).collect(),
             posts: Posts::from_json(v),
         }
     }
@@ -916,10 +1497,11 @@ pub enum SearchKind {
     Posts,
     People,
     Orgs,
+    Products,
 }
 
 impl SearchKind {
-    pub const ALL: [SearchKind; 4] = [SearchKind::All, SearchKind::Posts, SearchKind::People, SearchKind::Orgs];
+    pub const ALL: [SearchKind; 5] = [SearchKind::All, SearchKind::Posts, SearchKind::People, SearchKind::Orgs, SearchKind::Products];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -927,6 +1509,7 @@ impl SearchKind {
             SearchKind::Posts => "posts",
             SearchKind::People => "people",
             SearchKind::Orgs => "orgs",
+            SearchKind::Products => "products",
         }
     }
 
@@ -936,6 +1519,7 @@ impl SearchKind {
             SearchKind::Posts => "Posts",
             SearchKind::People => "People",
             SearchKind::Orgs => "Organizations",
+            SearchKind::Products => "Products",
         }
     }
 }
@@ -1073,6 +1657,9 @@ pub struct Notification {
     pub detail: Option<String>,
     /// The community a request to join, or an approval, is about.
     pub community: Option<Community>,
+    /// The product a builders' notification is about (ADR-0056): `maker-invited`, `product-launched`,
+    /// `feedback-status`, `product-feedback`, `product-review`, `tester-request` or `tester-invited`.
+    pub product: Option<Product>,
 }
 
 impl Notification {
@@ -1087,6 +1674,7 @@ impl Notification {
             read: v.get("read").and_then(Value::as_bool).unwrap_or(false),
             detail: opt_str(v, "detail"),
             community: v.get("community").and_then(Community::from_json),
+            product: v.get("product").and_then(Product::from_json),
         }
     }
 }
@@ -1240,6 +1828,16 @@ pub struct Me {
     pub unread_notifications: u64,
     /// The reader's own experience, education and skills.
     pub profile: Profile,
+    /// The reader's drafts (ADR-0055).
+    pub drafts: DraftCounts,
+}
+
+/// How many drafts the reader keeps, how many of them are scheduled, and how many could not be posted at their time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct DraftCounts {
+    pub saved: u64,
+    pub scheduled: u64,
+    pub failed: u64,
 }
 
 impl Me {
@@ -1262,6 +1860,11 @@ impl Me {
             ai_training: v.get("ai_training").and_then(Value::as_bool).unwrap_or(true),
             unread_notifications: v.get("unread_notifications").and_then(Value::as_u64).unwrap_or(0),
             profile: Profile::from_json(v.get("profile").unwrap_or(&Value::Null)),
+            drafts: v.get("drafts").map_or_else(DraftCounts::default, |d| DraftCounts {
+                saved: d.get("saved").and_then(Value::as_u64).unwrap_or(0),
+                scheduled: d.get("scheduled").and_then(Value::as_u64).unwrap_or(0),
+                failed: d.get("failed").and_then(Value::as_u64).unwrap_or(0),
+            }),
         }
     }
 
@@ -1447,6 +2050,8 @@ impl ModAction {
             "dismiss" => "dismissed a report",
             "suspend-community" => "suspended a community",
             "restore-community" => "restored a community",
+            "suspend-product" => "suspended a product",
+            "restore-product" => "restored a product",
             other => ModAct::from_word(other).map(ModAct::past).unwrap_or("acted"),
         }
     }
@@ -1553,6 +2158,10 @@ pub struct NewPost {
     /// The community to post it in (a handle): one's own post or article, not a reply, a repost or an
     /// organization's.
     pub community: Option<String>,
+    /// The product it is about (a handle), and what it is to it (ADR-0056): one's own top-level post or article,
+    /// not a reply, a repost or a community's.
+    pub product: Option<String>,
+    pub about: About,
 }
 
 impl NewPost {
@@ -1579,6 +2188,15 @@ impl NewPost {
         }
         if let Some(community) = &self.community {
             body["community"] = json!(community);
+        }
+        if let Some(product) = &self.product {
+            body["product"] = json!(product);
+            match &self.about {
+                About::Update => {}
+                About::Launch(version) => body["launch"] = json!({"version": version}),
+                About::Feedback(category) => body["feedback"] = json!({"category": category.as_str()}),
+                About::Review(stars) => body["review"] = json!({"stars": stars}),
+            }
         }
         body
     }
@@ -1719,8 +2337,38 @@ fn paged(mut body: Value, before: Option<&str>) -> Value {
     body
 }
 
-pub async fn person(client: &Client, token: &str, username: &str, before: Option<&str>) -> Result<PersonPage, Problem> {
-    call(client, token, "person", paged(json!({"username": username}), before)).await.map(|v| PersonPage::from_json(&v))
+/// What a person's page lists, as the social sites' tabs do: their posts and reposts, their replies, their posts
+/// with photos, their articles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PersonShow {
+    #[default]
+    Posts,
+    Replies,
+    Media,
+    Articles,
+}
+
+impl PersonShow {
+    pub const ALL: [PersonShow; 4] = [PersonShow::Posts, PersonShow::Replies, PersonShow::Media, PersonShow::Articles];
+
+    /// The word the service reads (`show`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PersonShow::Posts => "posts",
+            PersonShow::Replies => "replies",
+            PersonShow::Media => "media",
+            PersonShow::Articles => "articles",
+        }
+    }
+}
+
+/// A person's page and a page of what `show` lists; `before` asks for the page after that post.
+pub async fn person(client: &Client, token: &str, username: &str, before: Option<&str>, show: PersonShow) -> Result<PersonPage, Problem> {
+    let mut body = json!({"username": username});
+    if show != PersonShow::Posts {
+        body["show"] = json!(show.as_str());
+    }
+    call(client, token, "person", paged(body, before)).await.map(|v| PersonPage::from_json(&v))
 }
 
 pub async fn org(client: &Client, token: &str, ticker: &str, before: Option<&str>) -> Result<OrgPage, Problem> {
@@ -2088,6 +2736,121 @@ pub async fn list_members(client: &Client, token: &str, list_id: &str) -> Result
     })
 }
 
+// ------------------------------------------------------------------- drafts and scheduled posts (ADR-0055)
+
+/// How many drafts an account keeps, and how many of them may be scheduled at once.
+pub const MAX_DRAFTS: usize = 100;
+pub const MAX_SCHEDULED: usize = 30;
+
+/// A photo on a draft: its upload, where it is shown (None while a moderator holds it), its size and its alt text.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct DraftPhoto {
+    pub id: String,
+    pub url: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    pub alt: String,
+}
+
+/// A draft or scheduled post, as only its author sees it: what the composer held (`post`, its quote as
+/// `repost_of`), its photos as shown, when it is to be posted (RFC 3339), and why a scheduled one could not be: a
+/// refusal code and its words.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Draft {
+    pub id: String,
+    pub post: NewPost,
+    pub photos: Vec<DraftPhoto>,
+    pub publish_at: Option<String>,
+    pub failed: Option<(String, String)>,
+    pub updated_at: String,
+}
+
+impl Draft {
+    pub fn from_json(v: &Value) -> Draft {
+        let photos: Vec<DraftPhoto> = list_of(v, "photos")
+            .iter()
+            .map(|p| DraftPhoto {
+                id: str_of(p, "id"),
+                url: opt_str(p, "url"),
+                width: p.get("width").and_then(Value::as_u64).unwrap_or(0).min(u32::MAX as u64) as u32,
+                height: p.get("height").and_then(Value::as_u64).unwrap_or(0).min(u32::MAX as u64) as u32,
+                alt: str_of(p, "alt"),
+            })
+            .collect();
+        let poll = v.get("poll").filter(|p| p.is_object()).map(|p| NewPoll {
+            options: list_of(p, "options").iter().filter_map(|o| o.as_str().map(str::to_string)).collect(),
+            hours: p.get("hours").and_then(Value::as_u64).unwrap_or(0).min(u32::MAX as u64) as u32,
+        });
+        Draft {
+            id: str_of(v, "id"),
+            post: NewPost {
+                kind: Kind::from_word(v.get("kind").and_then(Value::as_str)),
+                text: str_of(v, "text"),
+                title: opt_str(v, "title"),
+                repost_of: opt_str(v, "quote_of"),
+                as_org: opt_str(v, "as_org"),
+                replies: ReplyRule::from_word(&str_of(v, "replies")),
+                poll,
+                media: photos.iter().map(|p| NewPhoto { id: p.id.clone(), alt: p.alt.clone() }).collect(),
+                community: opt_str(v, "community"),
+                product: opt_str(v, "product"),
+                about: opt_str(v, "launch").map(About::Launch).unwrap_or_default(),
+                ..NewPost::default()
+            },
+            photos,
+            publish_at: opt_str(v, "publish_at"),
+            failed: v.get("failed").filter(|f| f.is_object()).map(|f| (str_of(f, "code"), str_of(f, "words"))),
+            updated_at: str_of(v, "updated_at"),
+        }
+    }
+}
+
+/// The `draft-save` body: the composer's fields as `post` sends them, but the quoted post as `quote_of`; a reply and
+/// a job opening are not drafted.
+fn draft_body(draft_id: Option<&str>, new: &NewPost, publish_at: Option<&str>) -> Value {
+    let mut body = new.body();
+    if let Some(fields) = body.as_object_mut() {
+        fields.remove("reply_to");
+        fields.remove("job");
+        // Feedback and reviews are written in place; an update or a launch is drafted (ADR-0056).
+        fields.remove("feedback");
+        fields.remove("review");
+        if let Some(quote) = fields.remove("repost_of") {
+            fields.insert("quote_of".into(), quote);
+        }
+    }
+    if let Some(id) = draft_id {
+        body["draft_id"] = json!(id);
+    }
+    if let Some(at) = publish_at {
+        body["publish_at"] = json!(at);
+    }
+    body
+}
+
+/// The reader's drafts: the scheduled first, the soonest first, then the rest, the latest changed first.
+pub async fn drafts(client: &Client, token: &str) -> Result<Vec<Draft>, Problem> {
+    call(client, token, "drafts", json!({})).await.map(|v| list_of(&v, "drafts").iter().map(Draft::from_json).collect())
+}
+
+/// Keep what the composer holds as a draft: a new one, or `draft_id` rewritten. `publish_at` (RFC 3339, with its
+/// offset) schedules it, a minute to a year ahead; None keeps it unscheduled.
+pub async fn draft_save(client: &Client, token: &str, draft_id: Option<&str>, new: &NewPost, publish_at: Option<&str>) -> Result<Draft, Problem> {
+    call(client, token, "draft-save", draft_body(draft_id, new, publish_at))
+        .await
+        .map(|v| Draft::from_json(v.get("draft").unwrap_or(&Value::Null)))
+}
+
+/// Delete a draft, scheduled or not, and the photos only it held.
+pub async fn draft_delete(client: &Client, token: &str, draft_id: &str) -> Result<(), Problem> {
+    call(client, token, "draft-delete", json!({"draft_id": draft_id})).await.map(|_| ())
+}
+
+/// Post a draft now, as it would be posted now; the draft goes.
+pub async fn draft_publish(client: &Client, token: &str, draft_id: &str) -> Result<Post, Problem> {
+    call(client, token, "draft-publish", json!({"draft_id": draft_id})).await.map(|v| post_of(&v))
+}
+
 /// Communities (ADR-0053): those with the most members first, or (`mine`) the reader's own and those they asked
 /// to join.
 pub async fn communities(client: &Client, token: &str, mine: bool) -> Result<Vec<CommunitySummary>, Problem> {
@@ -2183,6 +2946,148 @@ pub async fn community_remove_post(client: &Client, token: &str, post_id: &str) 
 pub async fn mod_community(client: &Client, token: &str, suspend: bool, handle: &str, note: &str) -> Result<ModAction, Problem> {
     let action = if suspend { "suspend-community" } else { "restore-community" };
     call(client, token, "mod-community", json!({"action": action, "handle": handle, "note": note}))
+        .await
+        .map(|v| ModAction::from_json(v.get("action").unwrap_or(&Value::Null)))
+}
+
+/// Products (ADR-0056) that show, the newest first: every one, the reader's own or those they follow; built with
+/// `tech`, made by `username`, owned by `ticker`. `before` is the handle that ends the page before.
+pub async fn products(
+    client: &Client,
+    token: &str,
+    list: ProductList,
+    tech: Option<&str>,
+    username: Option<&str>,
+    ticker: Option<&str>,
+    before: Option<&str>,
+) -> Result<Products, Problem> {
+    let mut body = json!({"view": list.as_str()});
+    for (key, value) in [("tech", tech), ("username", username), ("ticker", ticker), ("before", before)] {
+        if let Some(text) = value {
+            body[key] = json!(text);
+        }
+    }
+    call(client, token, "products", body).await.map(|v| Products::from_json(&v))
+}
+
+/// A product and a page of what `show` lists; a feedback board by `sort`, of one `status` or all.
+pub async fn product(
+    client: &Client,
+    token: &str,
+    handle: &str,
+    show: ProductShow,
+    sort: FeedbackSort,
+    status: Option<FeedbackStatus>,
+    before: Option<&str>,
+) -> Result<ProductPage, Problem> {
+    let mut body = json!({"handle": handle, "show": show.as_str(), "sort": sort.as_str()});
+    if let Some(s) = status {
+        body["status"] = json!(s.as_str());
+    }
+    call(client, token, "product", paged(body, before)).await.map(|v| ProductPage::from_json(&v))
+}
+
+/// The day's launches (or the week's), the most supported first.
+pub async fn launches(client: &Client, token: &str, week: bool, tech: Option<&str>) -> Result<Vec<Post>, Problem> {
+    let mut body = json!({"window": if week { "week" } else { "day" }});
+    if let Some(t) = tech {
+        body["tech"] = json!(t);
+    }
+    call(client, token, "launches", body).await.map(|v| list_of(&v, "posts").iter().map(Post::from_json).collect())
+}
+
+/// Start a product; the reader is its first maker.
+pub async fn product_create(client: &Client, token: &str, new: &NewProduct) -> Result<Product, Problem> {
+    call(client, token, "product-create", new.body()).await.map(|v| v.get("product").and_then(Product::from_json).unwrap_or_default())
+}
+
+/// Its keepers change its page.
+pub async fn product_update(client: &Client, token: &str, handle: &str, changes: &ProductChanges) -> Result<Product, Problem> {
+    call(client, token, "product-update", changes.body(handle))
+        .await
+        .map(|v| v.get("product").and_then(Product::from_json).unwrap_or_default())
+}
+
+/// Its owners delete it: the posts about it stay their authors', without it.
+pub async fn product_delete(client: &Client, token: &str, handle: &str) -> Result<(), Problem> {
+    call(client, token, "product-delete", json!({"handle": handle})).await.map(|_| ())
+}
+
+/// A keeper sets its logo (`logo`) or the screenshot at `position` to one of their own uploads, or clears it (None).
+pub async fn product_media(client: &Client, token: &str, handle: &str, logo: bool, position: usize, media_id: Option<&str>, alt: &str) -> Result<(), Problem> {
+    let body = json!({"handle": handle, "slot": if logo { "logo" } else { "shot" }, "position": position,
+                      "media_id": media_id.unwrap_or(""), "alt": alt});
+    call(client, token, "product-media", body).await.map(|_| ())
+}
+
+/// Its makers: the confirmed, and for its keepers and the person invited, the invited.
+pub async fn product_makers(client: &Client, token: &str, handle: &str) -> Result<Vec<ProductMaker>, Problem> {
+    call(client, token, "product-makers", json!({"handle": handle}))
+        .await
+        .map(|v| list_of(&v, "makers").iter().map(ProductMaker::from_json).collect())
+}
+
+/// A keeper lists someone as a maker; the listing shows once they confirm it.
+pub async fn maker_invite(client: &Client, token: &str, handle: &str, username: &str) -> Result<String, Problem> {
+    call(client, token, "product-maker-invite", json!({"handle": handle, "username": username})).await.map(|v| state_of(&v))
+}
+
+/// Confirm being listed as a maker, or decline.
+pub async fn maker_answer(client: &Client, token: &str, handle: &str, accept: bool) -> Result<(), Problem> {
+    call(client, token, "product-maker-answer", json!({"handle": handle, "accept": accept})).await.map(|_| ())
+}
+
+/// A keeper takes a maker off (or withdraws a listing); a maker leaves.
+pub async fn maker_remove(client: &Client, token: &str, handle: &str, member_id: &str) -> Result<(), Problem> {
+    call(client, token, "product-maker-remove", json!({"handle": handle, "member_id": member_id})).await.map(|_| ())
+}
+
+pub async fn product_follow(client: &Client, token: &str, handle: &str, follow: bool) -> Result<(), Problem> {
+    call(client, token, "product-follow", json!({"handle": handle, "follow": follow})).await.map(|_| ())
+}
+
+/// Support a launch, once, while its day lasts; or take the support back.
+pub async fn launch_support(client: &Client, token: &str, post_id: &str, support: bool) -> Result<(), Problem> {
+    call(client, token, "launch-support", json!({"post_id": post_id, "support": support})).await.map(|_| ())
+}
+
+/// Vote a piece of feedback up (never one's own), or take the vote back.
+pub async fn feedback_vote(client: &Client, token: &str, post_id: &str, vote: bool) -> Result<(), Problem> {
+    call(client, token, "feedback-vote", json!({"post_id": post_id, "vote": vote})).await.map(|_| ())
+}
+
+/// A keeper sets a piece of feedback's status; its author and voters are told.
+pub async fn feedback_status(client: &Client, token: &str, post_id: &str, status: FeedbackStatus) -> Result<(), Problem> {
+    call(client, token, "feedback-status", json!({"post_id": post_id, "status": status.as_str()})).await.map(|_| ())
+}
+
+/// Change one's review's stars (1-5).
+pub async fn review_stars(client: &Client, token: &str, post_id: &str, stars: u8) -> Result<(), Problem> {
+    call(client, token, "review-stars", json!({"post_id": post_id, "stars": stars})).await.map(|_| ())
+}
+
+/// Ask to test a product in testing, with a note to its keepers (`Some("asked")`); or withdraw (None).
+pub async fn product_test(client: &Client, token: &str, handle: &str, ask: bool, note: &str) -> Result<Option<String>, Problem> {
+    call(client, token, "product-test", json!({"handle": handle, "ask": ask, "note": note})).await.map(|v| opt_str(&v, "state"))
+}
+
+/// For its keepers: who asked to test it, the waiting first, and who is invited.
+pub async fn product_testers(client: &Client, token: &str, handle: &str) -> Result<Vec<Tester>, Problem> {
+    call(client, token, "product-testers", json!({"handle": handle}))
+        .await
+        .map(|v| list_of(&v, "testers").iter().map(Tester::from_json).collect())
+}
+
+/// A keeper invites someone who asked to test it, with a note of how to join; or declines the ask.
+pub async fn tester_answer(client: &Client, token: &str, handle: &str, member_id: &str, invite: bool, note: &str) -> Result<(), Problem> {
+    let body = json!({"handle": handle, "member_id": member_id, "invite": invite, "note": note});
+    call(client, token, "product-tester-invite", body).await.map(|_| ())
+}
+
+/// For moderators: suspend a product (it stops for every reader; its posts stay their authors') or restore it.
+pub async fn mod_product(client: &Client, token: &str, suspend: bool, handle: &str, note: &str) -> Result<ModAction, Problem> {
+    let action = if suspend { "suspend-product" } else { "restore-product" };
+    call(client, token, "mod-product", json!({"action": action, "handle": handle, "note": note}))
         .await
         .map(|v| ModAction::from_json(v.get("action").unwrap_or(&Value::Null)))
 }
@@ -2345,6 +3250,40 @@ mod tests {
         assert_eq!(PageList::from_json(&json!({"id": "lst_2", "name": "Looms"})).has, None);
         assert_eq!(ListTarget::Person("ada".into()).with_body(json!({"list_id": "lst_1"})), json!({"list_id": "lst_1", "username": "ada"}));
         assert_eq!(ListTarget::Org("BABG".into()).with_body(json!({})), json!({"ticker": "BABG"}));
+    }
+
+    #[test]
+    fn a_page_view_is_named_as_the_service_names_it() {
+        let words: Vec<&str> = PersonShow::ALL.iter().map(|s| s.as_str()).collect();
+        assert_eq!(words, ["posts", "replies", "media", "articles"], "the views a person's page takes on the service");
+        assert_eq!(PersonShow::default(), PersonShow::Posts);
+    }
+
+    #[test]
+    fn a_draft_reads_as_the_composer_held_it_and_saves_its_quote_as_quote_of() {
+        let found = Draft::from_json(&json!({
+            "id": "drf_1", "kind": "post", "text": "Well put", "title": null, "quote_of": "pst_9", "as_org": null,
+            "community": "engines", "replies": "followers", "poll": null,
+            "photos": [{"id": "med_1", "url": "https://media.test/m/1.png", "width": 40, "height": 30, "alt": "A loom"}],
+            "publish_at": "2026-10-15T09:00:00Z",
+            "failed": {"code": "not-org-admin", "words": "Only this organization's owners or admins can do that."},
+            "updated_at": "2026-10-14T23:00:00Z"}));
+        assert_eq!((found.post.repost_of.as_deref(), found.post.community.as_deref()), (Some("pst_9"), Some("engines")));
+        assert_eq!(found.post.replies, ReplyRule::Followers);
+        assert_eq!(found.post.media, vec![NewPhoto { id: "med_1".into(), alt: "A loom".into() }]);
+        assert_eq!(found.photos[0].url.as_deref(), Some("https://media.test/m/1.png"));
+        assert_eq!(found.failed.as_ref().map(|(code, _)| code.as_str()), Some("not-org-admin"));
+        let polled = Draft::from_json(&json!({"id": "drf_2", "kind": "post", "text": "Which?",
+                                              "poll": {"options": ["Yes", "No"], "hours": 3}, "failed": null}));
+        assert_eq!(polled.post.poll, Some(NewPoll { options: vec!["Yes".into(), "No".into()], hours: 3 }));
+        assert!(polled.failed.is_none() && polled.publish_at.is_none());
+        let body = draft_body(Some("drf_1"), &found.post, Some("2026-10-15T09:00:00Z"));
+        assert_eq!(body["quote_of"], json!("pst_9"));
+        assert!(body.get("repost_of").is_none() && body.get("reply_to").is_none());
+        assert_eq!((body["draft_id"].clone(), body["publish_at"].clone()), (json!("drf_1"), json!("2026-10-15T09:00:00Z")));
+        let me = Me::from_json(&json!({"drafts": {"saved": 3, "scheduled": 1, "failed": 1}}));
+        assert_eq!(me.drafts, DraftCounts { saved: 3, scheduled: 1, failed: 1 });
+        assert_eq!(Me::from_json(&json!({})).drafts, DraftCounts::default());
     }
 
     fn card(username: &str) -> Value {
@@ -2524,7 +3463,7 @@ mod tests {
         assert_eq!(found.posts.next().as_deref(), Some("pst_1"));
         let people_only = Found::from_json(&json!({"people": []}));
         assert!(people_only.orgs.is_empty() && people_only.posts.posts.is_empty());
-        assert_eq!(SearchKind::ALL.map(SearchKind::as_str), ["all", "posts", "people", "orgs"]);
+        assert_eq!(SearchKind::ALL.map(SearchKind::as_str), ["all", "posts", "people", "orgs", "products"]);
         let tagged = Tagged::from_json(&json!({"tag": "looms", "posts": [{"id": "pst_1"}], "more": false}));
         assert_eq!((tagged.tag.as_str(), tagged.posts.posts.len()), ("looms", 1));
     }
@@ -2624,6 +3563,64 @@ mod tests {
         for act in ModAct::ALL {
             assert_eq!(ModAct::from_word(act.as_str()), Some(act));
         }
+    }
+
+    #[test]
+    fn a_product_page_its_posts_and_its_notifications_read() {
+        let page = ProductPage::from_json(&json!({
+            "product": {"id": "prd_1", "handle": "query-planner", "name": "Query Planner", "logo": null},
+            "tagline": "Plans, explained", "stage": "testing", "owner": card("ada"), "org": null, "followers": 3,
+            "rating": 4.5, "reviews": 2, "tech": ["Rust"], "launched_at": null, "you_follow": true, "you_keep": false,
+            "about": "Words", "website": "https://planner.example", "source": "", "platforms": ["web", "cli"],
+            "shots": [{"url": "https://elsewhere.example/a.png"}], "makers": [{"person": card("ada"), "state": "active", "since": "t"}],
+            "created_at": "t", "stars": [0, 0, 0, 1, 1], "latest_launch": null, "show": "feedback", "more": false,
+            "posts": [{"id": "pst_1", "text": "Show the index", "product": {"id": "prd_1", "handle": "query-planner", "name": "Query Planner"},
+                       "feedback": {"category": "bug", "status": "in-progress", "votes": 7, "you_voted": true}}],
+            "your_role": null, "your_test": "invited", "your_invite": "Code T-7", "your_review": null, "testers": null
+        }));
+        assert_eq!((page.summary.stage, page.summary.rating, page.stars), (Stage::Testing, Some(4.5), [0, 0, 0, 1, 1]));
+        assert!(page.shots.is_empty(), "a photo outside the media domain is never drawn");
+        assert!(page.makers[0].active && !page.you_keep() && !page.you_own());
+        assert_eq!(page.show, ProductShow::Feedback);
+        let fb = page.posts.posts[0].feedback.as_deref().cloned().unwrap_or_default();
+        assert_eq!((fb.category, fb.status, fb.votes, fb.you_voted), (FeedbackCategory::Bug, FeedbackStatus::InProgress, 7, true));
+        assert_eq!(page.posts.posts[0].product.as_ref().map(|p| p.handle.as_str()), Some("query-planner"));
+        let launch = Post::from_json(&json!({"id": "pst_2", "launch": {"version": "v2.0", "major": 2, "live": true, "supports": 5},
+                                              "review": null, "maker": false}));
+        assert_eq!(launch.launch.as_deref().map(|l| (l.major, l.live, l.supports)), Some((2, true, 5)));
+        let review = Post::from_json(&json!({"id": "pst_3", "review": {"stars": 4}}));
+        assert_eq!(review.stars, Some(4));
+        assert_eq!(Post::from_json(&json!({"review": {"stars": 9}})).stars, None, "stars outside 1-5 read as none");
+        let told = Notification::from_json(&json!({"id": "n", "kind": "maker-invited", "product": {"id": "prd_1", "handle": "query-planner", "name": "Q"}}));
+        assert_eq!(told.product.map(|p| p.handle), Some("query-planner".into()));
+        for status in FeedbackStatus::ALL {
+            assert_eq!(FeedbackStatus::from_word(status.as_str()), status);
+        }
+        assert_eq!(SearchKind::ALL.map(SearchKind::as_str).last(), Some(&"products"));
+    }
+
+    #[test]
+    fn a_post_about_a_product_names_it_and_what_it_is() {
+        let mut new = NewPost { text: "1.0".into(), product: Some("query-planner".into()), about: About::Launch("1.0".into()), ..NewPost::default() };
+        assert_eq!(new.body()["launch"], json!({"version": "1.0"}));
+        new.about = About::Feedback(FeedbackCategory::Question);
+        assert_eq!((new.body()["product"].clone(), new.body()["feedback"].clone()), (json!("query-planner"), json!({"category": "question"})));
+        new.about = About::Review(5);
+        assert_eq!(new.body()["review"], json!({"stars": 5}));
+        new.about = About::Update;
+        assert!(new.body().get("launch").is_none() && new.body().get("review").is_none());
+        let plain = NewPost { text: "x".into(), about: About::Review(3), ..NewPost::default() };
+        assert!(plain.body().get("review").is_none(), "without a product, nothing about one");
+        // Feedback and reviews are written in place, never drafted.
+        new.about = About::Review(5);
+        let drafted = draft_body(None, &new, None);
+        assert!(drafted.get("review").is_none() && drafted.get("product").is_some());
+        let draft = Draft::from_json(&json!({"id": "drf_1", "kind": "post", "text": "Launch", "product": "query-planner", "launch": "2.0"}));
+        assert_eq!((draft.post.product.as_deref(), draft.post.about.clone()), (Some("query-planner"), About::Launch("2.0".into())));
+        let made = NewProduct { handle: "loom".into(), name: "Loom".into(), as_org: Some("LACE".into()), ..NewProduct::default() };
+        assert_eq!((made.body()["stage"].clone(), made.body()["as_org"].clone()), (json!("building"), json!("LACE")));
+        let changes = ProductChanges { stage: Some(Stage::Testing), tech: Some(vec!["Rust".into()]), ..ProductChanges::default() };
+        assert_eq!(changes.body("loom"), json!({"handle": "loom", "stage": "testing", "tech": ["Rust"]}));
     }
 
     #[test]

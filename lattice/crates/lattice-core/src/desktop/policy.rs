@@ -81,6 +81,26 @@ pub fn protected(exe: Option<&Path>, pid: u32, own: u32) -> Option<&'static str>
     None
 }
 
+/// Why the agent may not open a program of this name (as typed in the Start
+/// menu), or `None` when it may: Alelyon's own, a password manager, or
+/// Windows' own prompts.
+pub fn protected_name(name: &str) -> Option<&'static str> {
+    let name: String = name.to_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+    if ALELYON.iter().any(|own| name.contains(own)) {
+        return Some("That is Alelyon itself, which the agent never controls.");
+    }
+    if PASSWORD_MANAGERS
+        .iter()
+        .any(|manager| name.contains(&manager.replace(' ', "")))
+    {
+        return Some("That is a password manager, which the agent never controls.");
+    }
+    if WINDOWS_PROMPTS.iter().any(|prompt| name.contains(prompt)) {
+        return Some("That is Windows' own sign-in or permission prompt, which only you answer.");
+    }
+    None
+}
+
 /// Whether an action of `effect` waits for the reader in auto mode.
 pub fn asks(effect: Effect) -> bool {
     matches!(effect, Effect::Buy | Effect::Account)
@@ -144,6 +164,16 @@ mod tests {
             None,
             "an unnamed program is judged by its acts"
         );
+    }
+
+    #[test]
+    fn alelyon_password_managers_and_windows_prompts_are_never_opened_by_name() {
+        for name in ["Alelyon", "CENTCOM", "1Password", "Bitwarden", "Proton Pass", "KeePassXC"] {
+            assert!(protected_name(name).is_some(), "{name}");
+        }
+        for name in ["Notepad", "Paint", "Microsoft Edge", "Calculator"] {
+            assert_eq!(protected_name(name), None, "{name}");
+        }
     }
 
     #[test]

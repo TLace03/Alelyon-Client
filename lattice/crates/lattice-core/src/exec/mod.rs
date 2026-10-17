@@ -23,6 +23,7 @@
 
 pub mod allowlist;
 pub mod command;
+pub mod cost;
 pub mod resolve;
 pub mod run;
 pub mod spawn;

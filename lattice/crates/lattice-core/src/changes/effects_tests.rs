@@ -146,6 +146,7 @@ impl Rig {
             env: &self.env,
             globals: &self.globals,
             remote: None,
+            allow_all: false,
         }
     }
 
@@ -209,6 +210,7 @@ impl Rig {
             guards: &guards,
             confirmer: &self.confirmer,
             clock: &self.clock,
+            allow_all: false,
         };
         block_on(review(&ctx, ops))
             .results

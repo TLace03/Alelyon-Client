@@ -144,6 +144,13 @@ pub struct Standing {
     pub command_entry: Option<String>,
     /// The MCP tool is on its server's allowlist.
     pub mcp_allowlisted: bool,
+    /// The conversation's project allows all actions (the reader's switch on
+    /// the project): a command, an MCP call and the Keep of any change go ahead
+    /// without asking. The refusals still stand (Ask mode, an untrusted folder,
+    /// a refused path, the lease elsewhere, a command running), and the
+    /// callers keep what moves money asking (a browser's or the desktop's
+    /// purchase), and the agent never types a password or card number.
+    pub allow_all: bool,
 }
 
 /// Why a call may go ahead.
@@ -164,6 +171,8 @@ pub enum Because {
     /// A desktop action in auto mode whose effect does not ask.
     AutoMode,
     Keep,
+    /// The project allows all actions ([`Standing::allow_all`]).
+    AllowAll,
 }
 
 /// What the reader is asked.
@@ -249,6 +258,7 @@ impl Verdict {
             Verdict::Allow(Because::Browser) => "browser view or edit",
             Verdict::Allow(Because::AutoMode) => "auto mode",
             Verdict::Allow(Because::Keep) => "keep",
+            Verdict::Allow(Because::AllowAll) => "allow all",
             Verdict::Ask(AskKind::Command) => "ask command",
             Verdict::Ask(AskKind::GateStaged { .. }) => "staged changes first",
             Verdict::Ask(AskKind::KeepAuthority) => "keep authority file",
@@ -322,6 +332,9 @@ pub fn decide(
                 Refuse(Reason::LeaseElsewhere)
             } else if gates.command_running {
                 Refuse(Reason::CommandRunning)
+            } else if standing.allow_all {
+                // Changes are kept as they are staged under allow all, so the staged gate does not hold.
+                Allow(Because::AllowAll)
             } else if gates.staged_waiting > 0 {
                 Ask(AskKind::GateStaged {
                     waiting: gates.staged_waiting,
@@ -335,6 +348,7 @@ pub fn decide(
             }
         }
         ToolClass::Mcp if standing.mcp_allowlisted => Allow(Because::Mcp),
+        ToolClass::Mcp if standing.allow_all => Allow(Because::AllowAll),
         ToolClass::Mcp => Ask(AskKind::Mcp),
         ToolClass::Browser { sensitive: true } => Ask(AskKind::Browser),
         ToolClass::Browser { sensitive: false } => Allow(Because::Browser),
@@ -345,6 +359,8 @@ pub fn decide(
                 Refuse(Reason::LeaseElsewhere)
             } else if gates.command_running {
                 Refuse(Reason::KeepWhileCommand)
+            } else if authority && standing.allow_all {
+                Allow(Because::AllowAll)
             } else if authority && tool == ToolClass::KeepAll {
                 Refuse(Reason::AuthorityKeptAlone)
             } else if authority {

@@ -43,6 +43,7 @@ fn approval(call: &str) -> ConversationEventKind {
             remote: None,
             staged_waiting: 0,
             background: false,
+            cost: None,
         },
         allow_always_offer: false,
     }

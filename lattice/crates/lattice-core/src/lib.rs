@@ -91,6 +91,7 @@
 #![deny(unsafe_code)]
 
 pub mod acp;
+pub mod advice;
 pub mod bound;
 pub mod browser;
 pub mod calc;
@@ -140,7 +141,9 @@ pub mod store;
 mod testkit;
 pub mod text;
 pub mod tools;
+pub mod readpdf;
 pub mod user_steps;
+pub mod webfetch;
 pub mod workspace;
 
 pub use catalog::Catalog;

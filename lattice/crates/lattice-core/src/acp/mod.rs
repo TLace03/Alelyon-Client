@@ -18,9 +18,11 @@
 //! Each agent's login stays its CLI's own: Lattice never reads, copies or sends
 //! a token. The adapters live in Lattice's own folder ([`agents_dir`]),
 //! installed there only by the reader's action. An agent runs in a Job Object
-//! with the safe environment (`crate::exec::spawn`) plus what a CLI needs to
-//! find its own login and the network ([`AGENT_ENV_NAMES`]), and never
-//! `CLAUDECODE` (Claude Code refuses to start inside another Claude Code).
+//! sized for the builds and test suites it runs ([`limits`]), with the safe
+//! environment (`crate::exec::spawn`) plus what a CLI needs to find its own
+//! login and the network, and what a build needs to find the system's
+//! toolchains ([`AGENT_ENV_NAMES`]), and never `CLAUDECODE` (Claude Code
+//! refuses to start inside another Claude Code).
 
 pub mod connection;
 pub mod models;
@@ -39,16 +41,42 @@ use crate::exec::spawn::child_environment;
 use crate::state::StateRoot;
 pub use session::Model;
 
-/// An agent's Job: a Node runtime and the CLI's own processes.
-pub const LIMITS: JobLimits = JobLimits {
-    active_processes: 128,
-    job_memory: 8 * 1024 * 1024 * 1024,
-};
+/// The processes an agent's Job may hold at once: its Node runtime and CLI,
+/// and what it runs, a build's compilers and a test suite's workers among them.
+pub const ACTIVE_PROCESSES: u32 = 1024;
+
+/// The least memory an agent's Job is given, and what it is given where the
+/// machine's memory cannot be read.
+pub const MEMORY_FLOOR: u64 = 8 * 1024 * 1024 * 1024;
+pub const MEMORY_FALLBACK: u64 = 16 * 1024 * 1024 * 1024;
+
+/// An agent's Job: the agent and everything it runs, together. A large
+/// build or a parallel test run can take more than ten gigabytes on its own,
+/// so the Job may commit three quarters of the machine's memory (never less
+/// than [`MEMORY_FLOOR`]): room for that work, while a runaway agent still
+/// leaves the reader a working machine. Every process in it still ends when
+/// Lattice closes the Job.
+pub fn limits() -> JobLimits {
+    JobLimits {
+        active_processes: ACTIVE_PROCESSES,
+        job_memory: memory_share(lattice_sys::process::physical_memory()),
+    }
+}
+
+/// Three quarters of `physical` bytes, at least [`MEMORY_FLOOR`];
+/// [`MEMORY_FALLBACK`] when the machine's memory is unknown.
+pub fn memory_share(physical: Option<u64>) -> u64 {
+    physical.map_or(MEMORY_FALLBACK, |bytes| (bytes / 4 * 3).max(MEMORY_FLOOR))
+}
 
 /// What an agent may read of Lattice's environment beyond the safe names:
 /// where Windows keeps a user's settings (a CLI's login lives under them), a
-/// CLI's own config folder when one is set, and the proxy settings.
-pub const AGENT_ENV_NAMES: [&str; 8] = [
+/// CLI's own config folder when one is set, and the proxy settings; and what
+/// the builds an agent runs read to find the system's toolchains: Windows'
+/// own folders (a Rust build finds Visual Studio's linker through
+/// `ProgramData`), the processor's description, PowerShell's module path, and
+/// the Vulkan SDK's location. None of these carries a secret.
+pub const AGENT_ENV_NAMES: [&str; 21] = [
     "APPDATA",
     "LOCALAPPDATA",
     "CLAUDE_CONFIG_DIR",
@@ -57,6 +85,19 @@ pub const AGENT_ENV_NAMES: [&str; 8] = [
     "HTTP_PROXY",
     "NO_PROXY",
     "NODE_EXTRA_CA_CERTS",
+    "ProgramData",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "CommonProgramFiles",
+    "CommonProgramFiles(x86)",
+    "CommonProgramW6432",
+    "SystemDrive",
+    "ALLUSERSPROFILE",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "PSModulePath",
+    "VULKAN_SDK",
 ];
 
 /// One of the labs' agents.
@@ -214,7 +255,7 @@ pub fn start(
         argv: &argv,
         cwd,
         env: &block,
-        limits: LIMITS,
+        limits: limits(),
     })
 }
 
@@ -272,7 +313,7 @@ pub fn install(agent: Agent, state: &StateRoot, env: &dyn Env) -> Result<(), Str
         args: &args,
         cwd: &dir,
         env: &block,
-        limits: LIMITS,
+        limits: limits(),
     })
     .map_err(|error| format!("npm could not start: {error}."))?;
     drop(child.take_stdin());

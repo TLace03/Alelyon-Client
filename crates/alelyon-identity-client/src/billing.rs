@@ -31,6 +31,67 @@ pub struct Plan {
     pub manage_available: bool,
     /// The service can take a payment now.
     pub purchase_available: bool,
+    /// What the plan allows of the harness on this machine.
+    pub harness: Harness,
+    /// On a seat of somebody else's Team (`source` `team-seat`): the username of the Team's admin, when the service says.
+    pub team_owner: Option<String>,
+}
+
+/// What a plan allows of the harness on the person's own machine (the plan catalog's `background_tasks`,
+/// `fleet_agents`, `schedules` and `project_manager`): tasks running at once, helper agents working at once, and
+/// whether schedules and the project manager are on. Free runs 2 tasks and 4 helpers, with neither; a count of
+/// [`Harness::UNLIMITED`] has no limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Harness {
+    pub background_tasks: u32,
+    pub helper_agents: u32,
+    pub schedules: bool,
+    pub project_manager: bool,
+}
+
+impl Harness {
+    /// A count with no limit (the service's `null`).
+    pub const UNLIMITED: u32 = u32::MAX;
+
+    /// Free's.
+    pub const FREE: Harness = Harness { background_tasks: 2, helper_agents: 4, schedules: false, project_manager: false };
+
+    /// The catalog's numbers for a plan key, for a service that does not send them; Free's for a key this client does
+    /// not know.
+    pub fn of_key(key: &str) -> Harness {
+        let paid = |background_tasks, helper_agents| Harness { background_tasks, helper_agents, schedules: true, project_manager: true };
+        match key {
+            "pro" | "team" => paid(6, 12),
+            "max" | "ultra" => paid(Harness::UNLIMITED, Harness::UNLIMITED),
+            _ => Harness::FREE,
+        }
+    }
+
+    /// The service's `allowances` object, each number or flag it lacks taken from the catalog's for `key`.
+    fn from_allowances(key: &str, a: Option<&Value>) -> Harness {
+        let known = Harness::of_key(key);
+        let Some(a) = a.filter(|a| a.is_object()) else {
+            return known;
+        };
+        let count = |k: &str, or: u32| match a.get(k) {
+            Some(Value::Null) => Harness::UNLIMITED,
+            Some(n) => n.as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(or),
+            None => or,
+        };
+        let flag = |k: &str, or: bool| a.get(k).and_then(Value::as_bool).unwrap_or(or);
+        Harness {
+            background_tasks: count("background_tasks", known.background_tasks),
+            helper_agents: count("fleet_agents", known.helper_agents),
+            schedules: flag("schedules", known.schedules),
+            project_manager: flag("project_manager", known.project_manager),
+        }
+    }
+}
+
+impl Default for Harness {
+    fn default() -> Self {
+        Harness::FREE
+    }
 }
 
 impl Plan {
@@ -47,6 +108,8 @@ impl Plan {
             source: opt("source"),
             manage_available: flag("manage_available"),
             purchase_available: flag("purchase_available"),
+            harness: Harness::from_allowances(opt("key").as_deref().unwrap_or("free"), v.get("allowances")),
+            team_owner: opt("team_owner"),
         }
     }
 
@@ -180,9 +243,172 @@ pub async fn portal(client: &Client, token: &str) -> Result<String, Problem> {
     url_from_json(&v)
 }
 
+/// One person on a Team, as its admin sees them: their public handle, never an address.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Member {
+    /// The account id the service names them by: what removing them takes.
+    pub id: String,
+    pub username: Option<String>,
+    pub display_name: String,
+    /// `pending` (invited, not yet accepted) or `active`.
+    pub status: String,
+    pub invite_id: Option<i64>,
+    /// When an invitation lapses (RFC 3339), while it is pending.
+    pub expires_at: Option<String>,
+    /// Whether the seat gives them the plan now.
+    pub has_access: bool,
+}
+
+impl Member {
+    fn from_json(v: &Value) -> Member {
+        let text = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+        Member {
+            id: text("id").unwrap_or_default(),
+            username: text("username"),
+            display_name: text("display_name").unwrap_or_default(),
+            status: text("status").unwrap_or_else(|| "pending".into()),
+            invite_id: v.get("invite_id").and_then(Value::as_i64),
+            expires_at: text("expires_at"),
+            has_access: v.get("has_access").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+
+    /// How the person is named: `@username`, else their display name, else "someone".
+    pub fn name(&self) -> String {
+        match (&self.username, self.display_name.is_empty()) {
+            (Some(u), _) => format!("@{u}"),
+            (None, false) => self.display_name.clone(),
+            (None, true) => "someone".into(),
+        }
+    }
+
+    pub fn pending(&self) -> bool {
+        self.status != "active"
+    }
+}
+
+/// The caller's Team: its seats, how many are taken, and the people on it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Team {
+    pub seats: u32,
+    pub used: u32,
+    /// More people hold seats than the plan pays for (after the admin lowered the seats).
+    pub over_limit: bool,
+    pub members: Vec<Member>,
+}
+
+impl Team {
+    fn from_json(v: &Value) -> Team {
+        let count = |k: &str| v.get(k).and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()).unwrap_or(0);
+        Team {
+            seats: count("seats"),
+            used: count("used"),
+            over_limit: v.get("over_limit").and_then(Value::as_bool).unwrap_or(false),
+            members: v.get("members").and_then(Value::as_array).map(|m| m.iter().map(Member::from_json).collect()).unwrap_or_default(),
+        }
+    }
+}
+
+/// An invitation to somebody's Team, waiting for the caller.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Invite {
+    pub invite_id: i64,
+    /// The username of who invited them (the Team's admin).
+    pub from: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+/// The caller's Team. An account without a Team plan is refused (`not-team-owner`).
+pub async fn team(client: &Client, token: &str) -> Result<Team, Problem> {
+    call(client, token, "/identity/native/billing/team", json!({}))
+        .await
+        .map(|v| Team::from_json(v.get("team").unwrap_or(&Value::Null)))
+}
+
+/// Invite a person to a seat by their exact username; they have a pending seat until they accept.
+pub async fn invite(client: &Client, token: &str, username: &str) -> Result<Member, Problem> {
+    call(client, token, "/identity/native/billing/team/invite", json!({"username": username.trim().trim_start_matches('@')}))
+        .await
+        .map(|v| Member::from_json(v.get("member").unwrap_or(&Value::Null)))
+}
+
+/// End a person's seat, or cancel their invitation, by the id the Team names them by.
+pub async fn remove(client: &Client, token: &str, member_id: &str) -> Result<(), Problem> {
+    call(client, token, "/identity/native/billing/team/remove", json!({"member_id": member_id})).await.map(|_| ())
+}
+
+/// Give up the caller's own seat on somebody else's Team.
+pub async fn leave(client: &Client, token: &str) -> Result<(), Problem> {
+    call(client, token, "/identity/native/billing/team/leave", json!({})).await.map(|_| ())
+}
+
+/// The invitations waiting for the caller.
+pub async fn invites(client: &Client, token: &str) -> Result<Vec<Invite>, Problem> {
+    let v = call(client, token, "/identity/native/billing/team/invites", json!({})).await?;
+    Ok(v.get("invites")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|i| {
+                    Some(Invite {
+                        invite_id: i.get("invite_id").and_then(Value::as_i64)?,
+                        from: i.get("from").and_then(Value::as_str).map(str::to_string),
+                        expires_at: i.get("expires_at").and_then(Value::as_str).map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Take the seat an invitation offers.
+pub async fn accept(client: &Client, token: &str, invite_id: i64) -> Result<(), Problem> {
+    call(client, token, "/identity/native/billing/team/accept", json!({"invite_id": invite_id})).await.map(|_| ())
+}
+
+/// Turn an invitation down.
+pub async fn decline(client: &Client, token: &str, invite_id: i64) -> Result<(), Problem> {
+    call(client, token, "/identity/native/billing/team/decline", json!({"invite_id": invite_id})).await.map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_team_and_its_people_are_read_as_the_service_shows_them() {
+        let team = Team::from_json(&json!({"seats": 3, "used": 2, "over_limit": false, "members": [
+            {"id": "acct_a", "username": "ada", "display_name": "Ada", "status": "active", "invite_id": 4, "has_access": true},
+            {"id": "acct_b", "username": null, "display_name": "Bob", "status": "pending", "invite_id": 5,
+             "expires_at": "2026-10-30T00:00:00Z", "has_access": false}
+        ]}));
+        assert_eq!((team.seats, team.used, team.over_limit), (3, 2, false));
+        assert_eq!(team.members[0].name(), "@ada");
+        assert!(!team.members[0].pending() && team.members[1].pending());
+        assert_eq!((team.members[1].name(), team.members[1].invite_id), ("Bob".to_string(), Some(5)));
+        assert_eq!(Member::default().name(), "someone");
+        assert_eq!(Team::from_json(&Value::Null), Team::default());
+        let refused = interpret(409, None, r#"{"error": "seats-full", "message": "Every seat on the team is taken."}"#).unwrap_err();
+        assert_eq!((refused.code(), refused.words().as_str()), (Some("seats-full"), "Every seat on the team is taken."));
+    }
+
+    #[test]
+    fn a_plans_harness_allowances_come_from_the_service_or_else_the_catalog() {
+        let free = Plan::from_json(&json!({"key": "free"}));
+        assert_eq!(free.harness, Harness::FREE);
+        assert_eq!((free.harness.background_tasks, free.harness.helper_agents), (2, 4));
+        assert!(!free.harness.schedules && !free.harness.project_manager);
+        let pro = Plan::from_json(&json!({"key": "pro"}));
+        assert_eq!(pro.harness, Harness { background_tasks: 6, helper_agents: 12, schedules: true, project_manager: true });
+        let max = Plan::from_json(&json!({"key": "max", "allowances": {"background_tasks": null, "fleet_agents": null}}));
+        assert_eq!((max.harness.background_tasks, max.harness.helper_agents), (Harness::UNLIMITED, Harness::UNLIMITED), "null: unlimited");
+        assert_eq!(Plan::from_json(&json!({"key": "max"})).harness.background_tasks, Harness::UNLIMITED);
+        let told = Plan::from_json(&json!({"key": "max", "allowances": {"background_tasks": 12, "fleet_agents": 30, "schedules": true}}));
+        assert_eq!((told.harness.background_tasks, told.harness.helper_agents), (12, 30), "the service's numbers win");
+        assert!(told.harness.project_manager, "a flag it lacks comes from the catalog");
+        assert_eq!(Plan::from_json(&json!({"key": "enterprise-x"})).harness, Harness::FREE, "an unknown plan is Free's");
+        assert_eq!(Plan::default().harness, Harness::FREE);
+    }
 
     #[test]
     fn a_plan_is_read_with_its_seats_and_paid_through_day() {

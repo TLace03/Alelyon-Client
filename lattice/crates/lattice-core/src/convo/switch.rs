@@ -183,6 +183,8 @@ pub(crate) fn tool(tools: Arc<TurnTools>, call: String, args: Value) -> BoxFutur
             project: Some(project.id.clone()),
         };
         let _ = inner.task_runs.started(&started.id, origin);
+        // In the other project, the work is a group of its own.
+        let _ = inner.groups.add(&started.id, &super::groups::Placement::New, Some(&project.id), inner.now());
         let mut said = moved(&project.name);
         if !trusted {
             said.push_str(UNTRUSTED);

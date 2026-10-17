@@ -252,3 +252,63 @@ fn alelyon_and_a_password_box_are_refused_in_a_turn_and_ask_mode_has_no_desktop(
             .any(|name| name.starts_with("desktop_"))
     );
 }
+
+#[test]
+fn the_clipboard_is_read_only_after_the_users_yes_and_is_redacted_and_a_drag_of_money_asks() {
+    let _keys = crate::testkit::stop_keys();
+    let (h, fake) = harness("auto-clipboard", 11);
+    let ws = h.workspace();
+    switch_on(&h);
+    // Built here, so no key-shaped text sits in the source.
+    let key = ["sk", "ant", "api03", &"A".repeat(36)].join("-");
+    *fake.clipboard.lock().unwrap() = Some(format!("COPIED {key}"));
+    let model = h.script(vec![
+        call("desktop_click", json!({"x": 100, "y": 50, "what": "the file", "effect": "view", "button": "right"}), "c0"),
+        call("desktop_clipboard", json!({}), "c1"),
+        call("desktop_clipboard", json!({"text": "PUT THERE"}), "c2"),
+        call("desktop_drag", json!({"from_x": 10, "from_y": 20, "to_x": 300, "to_y": 200, "what": "the item into the cart", "effect": "buy"}), "c3"),
+        say("Done."),
+    ]);
+    let id = h.agent(None, "Use the clipboard.", &ws);
+    let events = h.events_until(&id, |events| approval(events).is_some());
+    let (call_id, detail, _) = approval(&events).unwrap();
+    assert_eq!(call_id, "c3");
+    assert!(matches!(&detail, ApprovalDetail::Desktop { action, .. } if action == "drag from (10, 20) to (300, 200) of the screen's picture"), "{detail:?}");
+    h.runtime.block_on(h.chat.decide(&id, "c3", Decision::Reject { note: None })).unwrap();
+    h.turns_end(&id, 1);
+    let result = |call_id: &str| {
+        model
+            .calls()
+            .iter()
+            .flat_map(|request| request.input.clone())
+            .find_map(|item| match item {
+                InputItem::ToolResult { call_id: id, output } if id == call_id => Some(output),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let read = result("c1");
+    assert!(read.contains("COPIED") && !read.contains(&key), "{read}");
+    assert!(h.confirm.asked().iter().any(|request| matches!(
+        request,
+        ConfirmRequest::ClipboardRead { front } if front == "notes.txt - Notepad"
+    )));
+    assert_eq!(fake.clipboard.lock().unwrap().as_deref(), Some("PUT THERE"));
+    assert!(!fake.sent().iter().any(|sent| sent.starts_with("drag")), "a refused drag sends nothing");
+    assert_eq!(fake.sent()[0], "click 200,100 right", "the button the agent named");
+    // A no reads nothing.
+    *h.confirm.answer.lock().unwrap() = false;
+    let model = h.script(vec![call("desktop_clipboard", json!({}), "c4"), say("Fine.")]);
+    h.agent(Some(&id), "Read it again.", &ws);
+    h.turns_end(&id, 2);
+    let refused = model
+        .calls()
+        .iter()
+        .flat_map(|request| request.input.clone())
+        .find_map(|item| match item {
+            InputItem::ToolResult { call_id, output } if call_id == "c4" => Some(output),
+            _ => None,
+        })
+        .unwrap();
+    assert!(refused.contains("did not allow reading the clipboard"), "{refused}");
+}

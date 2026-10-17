@@ -117,6 +117,71 @@ impl Background {
             .collect()
     }
 
+    /// The loopback ports `convo`'s running background commands listen on:
+    /// its dev servers, which the agent's browser may open.
+    pub fn ports(&self, convo: &str) -> Vec<u16> {
+        let pids: Vec<u32> = lock(&self.runs)
+            .values()
+            .filter(|run| run.convo == convo && run.ended.is_none())
+            .flat_map(|run| run.stop.process_ids())
+            .collect();
+        if pids.is_empty() {
+            return Vec::new();
+        }
+        let mut ports: Vec<u16> = lattice_sys::net::tcp_listeners_v4()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|l| pids.contains(&l.pid) && (l.address == [127, 0, 0, 1] || l.address == [0, 0, 0, 0]))
+            .map(|l| l.port)
+            .chain(
+                lattice_sys::net::tcp_listeners_v6()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|l| pids.contains(&l.pid) && (l.address == std::net::Ipv6Addr::LOCALHOST.octets() || l.address == [0; 16]))
+                    .map(|l| l.port),
+            )
+            .collect();
+        ports.sort_unstable();
+        ports.dedup();
+        ports
+    }
+
+    /// `watch_command`: wait until `convo`'s background command `call` writes
+    /// a line holding `until` (any case), ends, or `wait` passes; what was
+    /// seen. Its newest 1 MiB of output is searched, so a line written before
+    /// the watch began counts.
+    pub async fn watch(&self, convo: &str, call: &str, until: &str, wait: std::time::Duration) -> Result<String, ToolError> {
+        let needle = until.trim().to_lowercase();
+        if needle.is_empty() || needle.chars().count() > 200 {
+            return Err(ToolError::new("Say what to wait for, in 1 to 200 characters."));
+        }
+        let started = std::time::Instant::now();
+        loop {
+            let (text, ended) = {
+                let runs = lock(&self.runs);
+                let run = runs.get(call).filter(|run| run.convo == convo).ok_or_else(|| ToolError::new(UNKNOWN))?;
+                let buffer = lock(&run.buffer);
+                let total = usize::try_from(buffer.total()).unwrap_or(usize::MAX);
+                let bytes = buffer.tail(total.min(1 << 20));
+                (crate::secrets::redact(&ansi_strip::strip(&output_text(&bytes))), run.ended.clone())
+            };
+            if let Some(line) = text.lines().rev().find(|l| l.to_lowercase().contains(&needle)) {
+                let line: String = line.chars().take(500).collect();
+                return Ok(format!("Seen after {} s: {line}", started.elapsed().as_secs()));
+            }
+            if let Some(how) = ended {
+                return Ok(format!("It ended before writing that. {how}"));
+            }
+            if started.elapsed() >= wait {
+                return Ok(format!(
+                    "Not seen in {} s; it is still running. Read it with command_output, or watch again.",
+                    wait.as_secs()
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+    }
+
     /// End one of `convo`'s background commands; `false` when none runs by that id.
     pub fn stop(&self, convo: &str, call: &str) -> bool {
         let runs = lock(&self.runs);

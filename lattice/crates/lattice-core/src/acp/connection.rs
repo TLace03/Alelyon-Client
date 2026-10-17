@@ -96,17 +96,23 @@ struct Shared {
 }
 
 impl Shared {
+    /// Mark it closed and end every waiting request, both under the
+    /// `pending` lock, which [`Connection::request`] also holds while it
+    /// checks for a close and registers: so a request either sees the close
+    /// or is registered in time to be ended by it, and never waits out its
+    /// timeout on an agent that has gone. The locks are always taken
+    /// `pending`, then `closed`.
     fn close(&self, why: &str) {
-        {
-            let mut closed = lock(&self.closed);
-            if closed.is_none() {
-                *closed = Some(why.to_owned());
+        let waiting: Vec<Answer> = {
+            let mut pending = lock(&self.pending);
+            {
+                let mut closed = lock(&self.closed);
+                if closed.is_none() {
+                    *closed = Some(why.to_owned());
+                }
             }
-        }
-        let waiting: Vec<Answer> = lock(&self.pending)
-            .drain()
-            .map(|(_, sender)| sender)
-            .collect();
+            pending.drain().map(|(_, sender)| sender).collect()
+        };
         drop(waiting);
         let _ = self.out.send(Out::Close);
     }
@@ -321,12 +327,21 @@ impl Connection {
             self.closed()
                 .unwrap_or_else(|| "The agent stopped.".to_owned())
         };
-        if self.closed().is_some() {
-            return Err(CallError::Closed(gone()));
-        }
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (sender, answer) = oneshot::channel();
-        lock(&self.shared.pending).insert(id, sender);
+        {
+            // The check and the registration are one step under the
+            // `pending` lock (see `Shared::close`).
+            let mut pending = lock(&self.shared.pending);
+            if self.closed().is_some() {
+                return Err(CallError::Closed(gone()));
+            }
+            pending.insert(id, sender);
+        }
+        #[cfg(test)]
+        if let Some(hook) = AFTER_REGISTERING.with(|hook| hook.borrow_mut().take()) {
+            hook();
+        }
         if self
             .shared
             .out
@@ -344,6 +359,22 @@ impl Connection {
         lock(&self.shared.pending).remove(&id);
         result
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Run once by the next [`Connection::request`] on this thread, just after
+    /// it has found the connection open and registered, before it sends and
+    /// waits: where a test makes the agent end, to hold the request at the
+    /// point a close used to slip past it (tests).
+    static AFTER_REGISTERING: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
+/// Run `hook` at that point of this thread's next request (tests).
+#[cfg(test)]
+pub(crate) fn after_registering(hook: impl FnOnce() + 'static) {
+    AFTER_REGISTERING.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
 }
 
 impl Drop for Connection {

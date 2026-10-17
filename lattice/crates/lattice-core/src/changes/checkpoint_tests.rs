@@ -177,6 +177,7 @@ impl Fixture {
             guards: &guards,
             confirmer: &confirmer,
             clock: &self.clock,
+            allow_all: false,
         };
         block_on(review(&ctx, vec![ReviewOp::KeepAll]))
             .results

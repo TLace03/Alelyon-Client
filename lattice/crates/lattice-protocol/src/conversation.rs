@@ -393,6 +393,10 @@ pub enum ApprovalDetail {
         /// It keeps running after the agent's call returns, until stopped.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         background: bool,
+        /// Why it may cost money (lattice-core `exec::cost`), when the list
+        /// of billed commands names it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost: Option<String>,
     },
     Mcp {
         server: String,
@@ -814,6 +818,24 @@ pub struct TodoItem {
     /// One line of at most 100 characters.
     pub content: String,
     pub status: TodoStatus,
+    /// The stack decision this step needs (an area of the advisor's catalog,
+    /// lattice-core `advice`), until it is made.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<String>,
+    /// What was chosen for it (an option's name), once it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen: Option<String>,
+}
+
+/// One option a stack decision offers: its id in the catalog, the agent's
+/// line on how it fits this project, and whether the project uses it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChoiceFit {
+    pub option: String,
+    /// At most 160 characters; may be empty.
+    pub fit: String,
+    #[serde(default)]
+    pub used: bool,
 }
 
 /// What became of a plan the agent proposed. A plan settles once.
@@ -927,6 +949,11 @@ pub enum ConversationEventKind {
         title: String,
         summary: String,
         prompt: String,
+        /// An idea from the brainstorm chat: Start sends the prompt to this
+        /// group's session (a group's id, or `new` for a group of its own),
+        /// not to a task.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
     },
     /// A suggested task was started, dismissed or withdrawn.
     TaskSettled {
@@ -948,6 +975,24 @@ pub enum ConversationEventKind {
     /// An empty list clears it.
     TodosUpdated {
         items: Vec<TodoItem>,
+    },
+    /// A stack decision for the reader (the advisor's catalog): an area,
+    /// at most four options, the recommended one, why, and the to-do step
+    /// (from 1) it belongs to. Answered as a question is, with an option's id.
+    ChoiceOffered {
+        choice: CallId,
+        area: String,
+        options: Vec<ChoiceFit>,
+        recommended: String,
+        why: String,
+        step: Option<u32>,
+    },
+    /// The option chosen for a stack decision; `by_agent` when it was made
+    /// without the reader (allowed to act on its own).
+    ChoiceMade {
+        choice: CallId,
+        option: String,
+        by_agent: bool,
     },
     /// The reader attached images to the user turn `turn`: how many, and
     /// their size in all. The pictures stay in the conversation's record.

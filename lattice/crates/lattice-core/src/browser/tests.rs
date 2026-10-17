@@ -748,7 +748,39 @@ fn answer(mut stream: std::net::TcpStream) {
     let mut request = [0u8; 4096];
     let n = stream.read(&mut request).unwrap_or(0);
     let head = String::from_utf8_lossy(&request[..n]);
-    let page = if head.starts_with("GET /two") {
+    // A redirect, and an image: answered here, not as a page.
+    if head.starts_with("GET /moved") {
+        let _ = stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: /two\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        return;
+    }
+    if head.starts_with("GET /away") {
+        let _ = stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://intranet/inside\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        return;
+    }
+    if head.starts_with("GET /image") {
+        let png: &[u8] = &[0x89, b'P', b'N', b'G', 13, 10, 26, 10];
+        let _ = stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", png.len()).as_bytes());
+        let _ = stream.write_all(png);
+        return;
+    }
+    let json = head.starts_with("GET /api");
+    let page = if json {
+        r#"{"ok": true, "items": [1, 2, 3]}"#.to_owned()
+    } else if head.starts_with("GET /dev") {
+        // The devtools page: console lines, a thrown error, a request, a form, a password and a dark scheme.
+        r#"<html><head><title>Dev page</title><meta name="viewport" content="width=device-width">
+<style>@media (prefers-color-scheme: dark) { body { background: black } }</style></head>
+<body><label for="e">Email address</label><input id="e" name="email">
+<input id="pw" name="password" type="password" aria-label="Password field">
+<select id="colour" aria-label="Colour choice"><option value="r">Red</option><option value="b">Blue</option></select>
+<label><input id="agree" type="checkbox" aria-label="Agree box">Agree</label>
+<script>console.log('hello devtools'); console.error('bad thing happened');
+fetch('/api').then(r => r.json()).then(j => console.log('items', j.items.length));
+setTimeout(() => { throw new Error('late failure'); }, 10);</script></body></html>"#
+            .to_owned()
+    } else if head.starts_with("GET /upload") {
+        r#"<html><head><title>Upload page</title></head><body><input id="f" type="file" aria-label="Report file"></body></html>"#.to_owned()
+    } else if head.starts_with("GET /two") {
         "<html><head><title>Page two</title></head><body>two</body></html>".to_owned()
     } else if head.starts_with("GET /search") {
         // Bing's results page, as `web_search` reads it: an ad (not a web
@@ -783,7 +815,8 @@ fn answer(mut stream: std::net::TcpStream) {
             .to_owned()
     };
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Type: {}; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        if json { "application/json" } else { "text/html" },
         page.len(),
         page
     );
@@ -1411,3 +1444,212 @@ fn a_real_search_on_bing_gives_results() {
     runtime.block_on(browser.stop());
 }
 
+
+/// The script guard: words that reach a password, a card, cookies or a site's
+/// stored data refuse a script; others pass.
+/// Mutants: the guard missing a word; refusing an ordinary script.
+#[test]
+fn a_script_that_reaches_sign_ins_or_stored_data_is_refused() {
+    use super::policy::script_looks;
+    for bad in [
+        "document.querySelector('input[type=password]').value",
+        "document.cookie",
+        "localStorage.getItem('token')",
+        "sessionStorage.clear()",
+        "indexedDB.open('x')",
+        "navigator.credentials.get({password: true})",
+        "document.querySelector('[autocomplete=cc-number]').value",
+    ] {
+        assert!(script_looks(bad).is_some(), "{bad}");
+    }
+    for fine in ["document.title", "[...document.querySelectorAll('a')].length", "fetch('/api').then(r => r.status)"] {
+        assert_eq!(script_looks(fine), None, "{fine}");
+    }
+}
+
+/// The console and network records read from the page's events, and how they
+/// are listed. No browser needed.
+#[test]
+fn console_and_network_events_are_kept_and_listed_newest_last() {
+    use super::cdp::Event;
+    use super::devtools::{console_text, network_text, on_console, on_network};
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+    let ev = |method: &str, params: serde_json::Value| Event { method: method.into(), params, session: None };
+    let console = Mutex::new(VecDeque::new());
+    on_console(&console, &ev("Runtime.consoleAPICalled", serde_json::json!({"type": "log", "args": [{"value": "hi"}, {"value": 3}]})));
+    on_console(&console, &ev("Runtime.exceptionThrown", serde_json::json!({"exceptionDetails": {"text": "Uncaught", "url": "http://x/app.js", "lineNumber": 9, "exception": {"description": "Error: boom"}}})));
+    // A key of the shape the redaction knows, made here so no key is written in the source.
+    let key = ["sk", "ant", "api03", &"A".repeat(36)].join("-");
+    on_console(&console, &ev("Runtime.consoleAPICalled", serde_json::json!({"type": "log", "args": [{"value": format!("token {key}")}]})));
+    let lines = console.lock().unwrap();
+    let all = console_text(&lines, false);
+    assert!(all.contains("[log] hi 3") && all.contains("[error] Error: boom (http://x/app.js:10)"), "{all}");
+    assert!(!all.contains(key.as_str()), "secrets are redacted: {all}");
+    assert_eq!(console_text(&lines, true).lines().count(), 1);
+    let network = Mutex::new(VecDeque::new());
+    on_network(&network, &ev("Network.requestWillBeSent", serde_json::json!({"requestId": "7", "type": "Fetch", "request": {"method": "GET", "url": "http://x/api"}})));
+    on_network(&network, &ev("Network.responseReceived", serde_json::json!({"requestId": "7", "response": {"status": 404, "mimeType": "application/json"}})));
+    on_network(&network, &ev("Network.requestWillBeSent", serde_json::json!({"requestId": "8", "type": "Script", "request": {"method": "GET", "url": "http://x/app.js"}})));
+    on_network(&network, &ev("Network.loadingFailed", serde_json::json!({"requestId": "8", "errorText": "net::ERR_ABORTED"})));
+    let requests = network.lock().unwrap();
+    let listed = network_text(&requests, None);
+    assert!(listed.contains("7 GET 404 http://x/api [Fetch]") && listed.contains("8 GET failed: net::ERR_ABORTED"), "{listed}");
+    assert_eq!(network_text(&requests, Some("API")).lines().count(), 1, "filtered by address");
+}
+
+/// A real browser: the console and the network of a page, a script's value,
+/// a refused script, elements found and filled (never a password), and a
+/// phone-sized dark page.
+/// Mutants: events not recorded; the guard skipped; fill typing a password.
+#[test]
+fn a_real_browser_gives_the_agent_its_console_network_scripts_forms_and_viewport() {
+    use crate::env::ProcessEnv;
+    use crate::state::StateRoot;
+    use crate::testkit::TempDir;
+
+    let _one = crate::testkit::one_real_browser();
+    let env: Arc<dyn crate::env::Env> = Arc::new(ProcessEnv);
+    if super::launch::find_browser(env.as_ref()).is_none() {
+        eprintln!("no Edge or Chrome installed: skipped");
+        return;
+    }
+    let dir = TempDir::new("agent-devtools");
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let port = serve();
+    let browser = super::AgentBrowser::new(StateRoot::at(dir.path()), env, runtime.handle().clone()).with_config(super::BrowserConfig {
+        headless: true,
+        allow_local: true,
+        profile: Some(dir.path().join("profile")),
+        program: None,
+        start_wait: crate::testkit::BROWSER_START_WAIT,
+        load_wait: crate::testkit::BROWSER_LOAD_WAIT,
+    });
+    let shot = runtime.block_on(browser.open(&format!("http://127.0.0.1:{port}/dev"))).unwrap();
+    assert_eq!(shot.title, "Dev page");
+    // The fetch and the late error land after the load.
+    let mut console = String::new();
+    for _ in 0..50 {
+        console = runtime.block_on(browser.console(false)).unwrap();
+        if console.contains("late failure") && console.contains("items 3") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(console.contains("hello devtools") && console.contains("items 3") && console.contains("late failure"), "{console}");
+    let problems = runtime.block_on(browser.console(true)).unwrap();
+    assert!(problems.contains("bad thing happened") && !problems.contains("hello devtools"), "{problems}");
+    let listed = runtime.block_on(browser.network(Some("/api"))).unwrap();
+    assert!(listed.contains(" GET 200 ") && listed.contains("/api"), "{listed}");
+    let id = listed.lines().last().unwrap().split_whitespace().next().unwrap().to_owned();
+    assert!(runtime.block_on(browser.response_text(&id)).unwrap().contains("\"ok\": true"));
+
+    assert_eq!(runtime.block_on(browser.run_script("document.title", Effect::View)).unwrap(), "\"Dev page\"");
+    assert_eq!(runtime.block_on(browser.run_script("Promise.resolve(2 + 2)", Effect::View)).unwrap(), "4");
+    assert!(runtime.block_on(browser.run_script("document.cookie", Effect::View)).unwrap_err().contains("cookies"));
+    assert!(runtime.block_on(browser.run_script("(() => { throw new Error('nope') })()", Effect::View)).unwrap_err().contains("threw"));
+
+    let found = runtime.block_on(browser.find("email")).unwrap();
+    let email = found.iter().find(|f| f.tag == "input").expect("the email field");
+    runtime.block_on(browser.fill(&email.reference, "me@example.com")).unwrap();
+    assert_eq!(runtime.block_on(browser.run_script("document.getElementById('e').value", Effect::View)).unwrap(), "\"me@example.com\"");
+    let password = runtime.block_on(browser.find("password field")).unwrap();
+    assert_eq!(password[0].kind, "password");
+    assert!(runtime.block_on(browser.fill(&password[0].reference, "hunter2")).unwrap_err().contains("password"));
+    let colour = runtime.block_on(browser.find("colour choice")).unwrap();
+    runtime.block_on(browser.fill(&colour[0].reference, "Blue")).unwrap();
+    let agree = runtime.block_on(browser.find("agree box")).unwrap();
+    runtime.block_on(browser.fill(&agree.iter().find(|f| f.tag == "input").unwrap().reference, "true")).unwrap();
+    assert_eq!(
+        runtime.block_on(browser.run_script("[document.getElementById('colour').value, document.getElementById('agree').checked]", Effect::View)).unwrap(),
+        "[\"b\",true]"
+    );
+
+    let shot = runtime.block_on(browser.set_viewport(390, 844, Some(true))).unwrap();
+    assert_eq!(shot.size, (390, 844));
+    assert!(shot.summary().contains("390 x 844"));
+    assert_eq!(runtime.block_on(browser.run_script("[innerWidth, matchMedia('(prefers-color-scheme: dark)').matches]", Effect::View)).unwrap(), "[390,true]");
+    assert!(runtime.block_on(browser.set_viewport(100, 100, None)).is_err());
+    runtime.block_on(browser.stop());
+}
+
+/// Which addresses are this PC's own servers, and their ports.
+/// Mutants: a remote name taken for this PC; a port not read.
+#[test]
+fn a_local_address_is_known_with_its_port() {
+    use super::policy::local_port;
+    assert_eq!(local_port("http://localhost:5173/app"), Some(5173));
+    assert_eq!(local_port("localhost:3000"), Some(3000));
+    assert_eq!(local_port("http://127.0.0.1/"), Some(80));
+    assert_eq!(local_port("https://[::1]:8443/"), Some(8443));
+    for not_local in [
+        "https://localhost.example.com/",
+        "http://10.0.0.1:8080/",
+        "http://127.0.0.2:80/",
+        "http://user:pw@localhost:3000/",
+        "ftp://localhost/",
+        "https://example.com/",
+    ] {
+        assert_eq!(local_port(not_local), None, "{not_local}");
+    }
+}
+
+/// A real browser: tabs listed, opened, selected and closed (never the last),
+/// and a file put in a page's file field by reference.
+/// Mutants: a select that does not move the agent; the last tab closed; a
+/// file that never reaches the field.
+#[test]
+fn a_real_browser_works_in_tabs_and_uploads_a_file() {
+    use super::devtools::TabAct;
+    use crate::env::ProcessEnv;
+    use crate::state::StateRoot;
+    use crate::testkit::TempDir;
+
+    let _one = crate::testkit::one_real_browser();
+    let env: Arc<dyn crate::env::Env> = Arc::new(ProcessEnv);
+    if super::launch::find_browser(env.as_ref()).is_none() {
+        eprintln!("no Edge or Chrome installed: skipped");
+        return;
+    }
+    let dir = TempDir::new("agent-tabs");
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let port = serve();
+    let browser = super::AgentBrowser::new(StateRoot::at(dir.path()), env, runtime.handle().clone()).with_config(super::BrowserConfig {
+        headless: true,
+        allow_local: true,
+        profile: Some(dir.path().join("profile")),
+        program: None,
+        start_wait: crate::testkit::BROWSER_START_WAIT,
+        load_wait: crate::testkit::BROWSER_LOAD_WAIT,
+    });
+    runtime.block_on(browser.open(&format!("http://127.0.0.1:{port}/two"))).unwrap();
+    let listed = runtime.block_on(browser.tabs(TabAct::New(format!("http://127.0.0.1:{port}/upload")))).unwrap();
+    assert!(listed.contains("Opened a new tab") && listed.contains("Upload page (the agent's)"), "{listed}");
+    let title = || runtime.block_on(browser.run_script("document.title", Effect::View)).unwrap();
+    assert_eq!(title(), "\"Upload page\"");
+    // Upload a file of its own into the field.
+    let file = dir.path().join("report.txt");
+    std::fs::write(&file, "numbers").unwrap();
+    let found = runtime.block_on(browser.find("report file")).unwrap();
+    runtime.block_on(browser.upload(&found[0].reference, &file)).unwrap();
+    assert_eq!(
+        runtime.block_on(browser.run_script("[document.getElementById('f').files.length, document.getElementById('f').files[0].name]", Effect::View)).unwrap(),
+        "[1,\"report.txt\"]"
+    );
+    // Back to the first tab, then close the upload tab: the agent stays where it is.
+    let pages = runtime.block_on(browser.tabs(TabAct::List)).unwrap();
+    let two = pages.lines().find(|l| l.contains("Page two")).and_then(|l| l.split('.').next()).and_then(|n| n.parse::<usize>().ok()).unwrap();
+    let upload = pages.lines().find(|l| l.contains("Upload page")).and_then(|l| l.split('.').next()).and_then(|n| n.parse::<usize>().ok()).unwrap();
+    runtime.block_on(browser.tabs(TabAct::Select(two))).unwrap();
+    assert_eq!(title(), "\"Page two\"");
+    let closed = runtime.block_on(browser.tabs(TabAct::Close(upload))).unwrap();
+    assert!(closed.contains("Closed tab") && !closed.contains("Upload page ("), "{closed}");
+    assert_eq!(title(), "\"Page two\"");
+    let only = runtime.block_on(browser.tabs(TabAct::List)).unwrap();
+    let left = only.lines().filter(|l| l.contains(". ")).count();
+    if left == 1 {
+        assert!(runtime.block_on(browser.tabs(TabAct::Close(1))).unwrap_err().contains("only tab"));
+    }
+    assert!(runtime.block_on(browser.tabs(TabAct::Select(99))).unwrap_err().contains("no tab 99"));
+    runtime.block_on(browser.stop());
+}

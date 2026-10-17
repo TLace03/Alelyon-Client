@@ -1,0 +1,27 @@
+# alelyon-cli: Alelyon from a terminal, and an MCP server through which a person's own AI agent uses Alelyon Pages
+# with a developer token the person made in the developer console.
+#
+# Its own workspace and lockfile, so it builds and tests on its own.
+[workspace]
+resolver = "3"
+
+[package]
+name = "alelyon-cli"
+description = "Command line and MCP server for Alelyon: read and act on Alelyon Pages with a scoped developer token."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "alelyon-cli"
+path = "src/main.rs"
+
+[dependencies]
+# The service's address and the sealed store for a kept token (Windows' DPAPI).
+alelyon-identity-client = { path = "../alelyon-identity-client" }
+clap = { version = "4.6.6", features = ["derive"] }
+# HTTPS through the system's TLS, one call at a time.
+reqwest = { version = "0.13.5", default-features = false, features = ["native-tls", "http2", "charset", "system-proxy", "blocking"] }
+serde_json = "1.0.151"

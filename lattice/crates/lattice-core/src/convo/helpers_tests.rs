@@ -74,7 +74,10 @@ fn a_helper_reads_the_folder_on_its_own_and_only_its_answer_comes_back() {
         calls[2].input
     );
     // Only its answer comes back to the agent.
-    assert_eq!(result_of(&calls[3..], "c1"), "a.txt holds the letter a.");
+    assert_eq!(
+        result_of(&calls[3..], "c1"),
+        "a.txt holds the letter a.\n\n[This was helper a1: send_agent asks it more.]"
+    );
     assert!(
         !format!("{:?}", calls[3].input).contains("h1"),
         "the helper's steps stay out of the agent's run"
@@ -163,7 +166,7 @@ fn an_editing_helper_stages_its_change_for_review_and_names_it() {
     assert_eq!(
         answer,
         format!(
-            "Changed the letter in a.txt from a to b.{}",
+            "Changed the letter in a.txt from a to b.{}\n\n[This was helper a1: send_agent asks it more.]",
             staged_line(&["a.txt".to_string()])
         )
     );

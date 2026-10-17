@@ -71,7 +71,25 @@ const WORDS: [&str; 12] = [
 const TIMEOUTS: [&str; 2] = ["timeout", "timeout_at"];
 
 /// The sites outside [`ALLOWED`]: (file, exact trimmed line, times, why).
-const LISTED: [(&str, &str, usize, &str); 22] = [
+const LISTED: [(&str, &str, usize, &str); 25] = [
+    (
+        "lattice-core/src/convo/helpers.rs",
+        "let _ = tokio::time::timeout(Duration::from_secs(seconds), all_done).await;",
+        1,
+        "wait_agent: the agent's own wait for its helpers, only inside the tool call that asked for it, woken when a helper ends and bounded by its seconds",
+    ),
+    (
+        "lattice-core/src/convo/schedules.rs",
+        "() = tokio::time::sleep(pause) => {}",
+        1,
+        "a schedule's wait: armed only while a schedule exists, until the earliest is due (or, while a due one waits for a task slot, its next look); with nothing scheduled the runner waits on a notification and arms no timer",
+    ),
+    (
+        "lattice-core/src/convo/background.rs",
+        "tokio::time::sleep(std::time::Duration::from_millis(300)).await;",
+        1,
+        "watch_command: the agent's own wait on its background command's output, only inside the tool call that asked for it, bounded by its timeout",
+    ),
     (
         "lattice-core/src/llama/bench.rs",
         "tokio::time::sleep(Duration::from_millis(200)).await;",

@@ -70,17 +70,21 @@ pub mod words {
     pub const DISMISSED: &str = "That task was dismissed.";
     pub const WITHDRAWN: &str = "The agent withdrew that task.";
     pub const UNREADABLE: &str = "Lattice could not read this conversation's record.";
+    pub const NO_GROUP: &str = "That group is no longer listed, so nothing was sent.";
     pub const NOT_SAVED: &str = "Lattice could not save that, so the task still waits.";
     pub const START_NOT_SAVED: &str =
         "The task started, but Lattice could not record that here; its chip may offer it again.";
 }
 
-/// `suggest_task`'s arguments.
+/// `suggest_task`'s arguments, and `offer_to_group`'s with its group.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SuggestArgs {
     pub title: String,
     pub summary: String,
     pub prompt: String,
+    /// `offer_to_group`: a group's id, or `new`.
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 /// `withdraw_task`'s arguments.
@@ -97,6 +101,8 @@ pub struct Task {
     pub id: String,
     pub title: String,
     pub prompt: String,
+    /// An idea for a group (`offer_to_group`): the group its Start sends to.
+    pub group: Option<String>,
     /// What became of it; `None` while it waits.
     pub outcome: Option<TaskOutcome>,
 }
@@ -112,11 +118,13 @@ pub fn tasks(items: &[Item]) -> Vec<Task> {
                 task,
                 title,
                 prompt,
+                group,
                 ..
             } if !out.iter().any(|known| &known.id == task) => out.push(Task {
                 id: task.clone(),
                 title: title.clone(),
                 prompt: prompt.clone(),
+                group: group.clone(),
                 outcome: None,
             }),
             Item::TaskSettled { task, outcome, .. } => {
@@ -203,10 +211,23 @@ pub(crate) fn tool(
     call: &str,
     args: &Value,
 ) -> Result<String, ToolError> {
-    if name == "withdraw_task" {
-        withdraw(tools, &parse_args(args)?)
-    } else {
-        suggest(tools, call, &parse_args(args)?)
+    match name {
+        "withdraw_task" => withdraw(tools, &parse_args(args)?),
+        "offer_to_group" => {
+            let args: SuggestArgs = parse_args(args)?;
+            let group = args.group.as_deref().map(str::trim).unwrap_or_default();
+            if group != super::groups::NEW {
+                let project = tools.inner.projects.of_chat(&tools.convo.id).map(|p| p.id);
+                let known = tools.inner.groups.list().into_iter().any(|g| g.id == group && !g.archived && g.project == project);
+                if !known {
+                    return Err(ToolError::new(
+                        "That is not one of this project's groups: use a group's id as listed for you, or new.",
+                    ));
+                }
+            }
+            suggest(tools, call, &SuggestArgs { group: Some(group.to_owned()), ..args })
+        }
+        _ => suggest(tools, call, &SuggestArgs { group: None, ..parse_args(args)? }),
     }
 }
 
@@ -264,6 +285,7 @@ fn suggest(tools: &TurnTools, call: &str, args: &SuggestArgs) -> Result<String, 
         summary: summary.clone(),
         prompt: prompt.clone(),
         at: inner.now(),
+        group: args.group.clone(),
     };
     if !write(convo, &item) {
         return Err(ToolError::new(
@@ -275,10 +297,13 @@ fn suggest(tools: &TurnTools, call: &str, args: &SuggestArgs) -> Result<String, 
         title,
         summary,
         prompt,
+        group: args.group.clone(),
     });
-    let mut said = format!(
-        "Suggested as {task}. Nothing runs until the user starts it; withdraw it with withdraw_task if it is no longer needed."
-    );
+    let mut said = if args.group.is_some() {
+        format!("Offered as {task}. Nothing is sent until the user presses it; withdraw it with withdraw_task if it is no longer needed.")
+    } else {
+        format!("Suggested as {task}. Nothing runs until the user starts it; withdraw it with withdraw_task if it is no longer needed.")
+    };
     if redacted {
         said.push_str(&format!(
             " Text that looked like a secret was replaced with {}.",
@@ -336,6 +361,8 @@ struct Claimed {
     convo: Arc<Convo>,
     prompt: String,
     title: String,
+    /// An idea for a group: where its Start sends it.
+    group: Option<String>,
     workspace: Option<String>,
     project: Option<String>,
 }
@@ -392,13 +419,12 @@ fn claim(inner: &Arc<Inner>, conversation: &str, task: &str) -> Result<(Claimed,
         .iter()
         .filter(|(id, other)| id.as_str() != conversation && other.state().running.is_some())
         .count();
-    let limit = inner.task_runs.limit();
+    let limit = inner.task_limit();
     let found = {
         let mut settling = lock(&inner.tasks);
         let found = waiting(inner, &settling, conversation, task)?;
         if !limit.allows(running + settling.len()) {
-            let super::task_runs::Limit::At(n) = limit else { unreachable!("no limit allows any") };
-            return Err(refuse(RefusalKind::Conflict, &super::task_runs::full(n)));
+            return Err(refuse(RefusalKind::Conflict, &super::task_runs::full_of(inner)));
         }
         settling.insert(key(conversation, task));
         found
@@ -414,6 +440,7 @@ fn claim(inner: &Arc<Inner>, conversation: &str, task: &str) -> Result<(Claimed,
             convo,
             prompt: found.prompt,
             title: found.title,
+            group: found.group,
             workspace,
             project,
         },
@@ -421,9 +448,63 @@ fn claim(inner: &Arc<Inner>, conversation: &str, task: &str) -> Result<(Claimed,
     ))
 }
 
+/// A Start past the reader's limit, waiting for a slot.
+#[derive(Clone, Debug)]
+pub struct Waiting {
+    conversation: String,
+    task: String,
+    choice: String,
+    shown: Shown,
+    mode: Mode,
+}
+
+/// Where a waiting task stands in line: its group's place in the reader's
+/// order (an idea's group; a task's, the group of the topic it came from).
+fn rank_of(inner: &Inner, waiting: &Waiting, ranks: &std::collections::HashMap<String, usize>) -> usize {
+    let idea = read(inner, &waiting.conversation)
+        .map(|items| tasks(&items))
+        .and_then(|known| known.into_iter().find(|t| t.id == waiting.task))
+        .and_then(|t| t.group);
+    let group = idea.or_else(|| inner.groups.of(&waiting.conversation).map(|g| g.id));
+    group.and_then(|g| ranks.get(&g).copied()).unwrap_or(usize::MAX)
+}
+
+/// A slot freed: start the waiting tasks while the limit allows, the
+/// highest-priority group's first (in the order they waited within one
+/// group). One that cannot start any more is dropped, and its chip offers its
+/// Start again.
+pub(crate) fn start_next(inner: Arc<Inner>) -> futures::future::BoxFuture<'static, ()> {
+    use futures::FutureExt;
+    async move {
+        let waiting = lock(&inner.task_queue).len();
+        for _ in 0..waiting {
+            let next = {
+                let ranks = inner.groups.ranks();
+                let mut queue = lock(&inner.task_queue);
+                let Some(at) = (0..queue.len()).min_by_key(|i| (rank_of(&inner, &queue[*i], &ranks), *i)) else { return };
+                queue.remove(at)
+            };
+            let full = next.clone();
+            match start(inner.clone(), next.conversation, next.task, next.choice, next.shown, next.mode).await {
+                // Still no slot: it waits again, where it was in line.
+                Err(refusal) if refusal.message == super::task_runs::full_of(&inner) => {
+                    let mut queue = lock(&inner.task_queue);
+                    queue.retain(|w| !(w.conversation == full.conversation && w.task == full.task));
+                    queue.insert(0, full);
+                    return;
+                }
+                _ => {}
+            }
+        }
+    }
+    .boxed()
+}
+
 /// Start `task` of `conversation`: a send of its recorded prompt to a new
 /// conversation in the same folder and project, with `choice` in `mode`; the
-/// task is then settled as started.
+/// task is then settled as started. Past the reader's limit it waits for a
+/// slot ([`start_next`]) and the Start is answered with the sentence that
+/// says so.
 pub(crate) async fn start(
     inner: Arc<Inner>,
     conversation: String,
@@ -433,7 +514,7 @@ pub(crate) async fn start(
     mode: Mode,
 ) -> Result<Accepted, Refusal> {
     check_ids(&conversation, &task)?;
-    let (claimed, held) = {
+    let claimed = {
         let inner = inner.clone();
         let (conversation, task) = (conversation.clone(), task.clone());
         inner
@@ -441,21 +522,58 @@ pub(crate) async fn start(
             .clone()
             .spawn_blocking(move || claim(&inner, &conversation, &task))
             .await
-            .unwrap_or_else(|_| Err(refuse(RefusalKind::Unavailable, refusals::RUNTIME)))?
+            .unwrap_or_else(|_| Err(refuse(RefusalKind::Unavailable, refusals::RUNTIME)))
+    };
+    let (claimed, held) = match claimed {
+        Err(refusal) if refusal.message == super::task_runs::full_of(&inner) => {
+            let mut queue = lock(&inner.task_queue);
+            if !queue.iter().any(|w| w.conversation == conversation && w.task == task) {
+                queue.push(Waiting { conversation, task, choice, shown, mode });
+            }
+            return Err(refusal);
+        }
+        other => other?,
+    };
+    // An idea for a group goes to that group's session: its newest topic, or a new topic in it.
+    let target = match claimed.group.as_deref() {
+        None => None,
+        Some(group) => Some(group_target(&inner, group, claimed.project.as_deref())?),
     };
     let request = SendRequest {
-        conversation: None,
+        conversation: target.as_ref().and_then(|t| t.topic.clone()),
         text: claimed.prompt,
         choice,
         shown,
         mode,
-        workspace: claimed.workspace,
+        workspace: target.as_ref().and_then(|t| t.workspace.clone()).or(claimed.workspace),
         edit_of: None,
-        project: claimed.project,
+        project: if target.as_ref().is_some_and(|t| t.topic.is_some()) { None } else { claimed.project.clone() },
         images: Vec::new(),
     };
     validate_send(&request, inner.config.development)?;
     let accepted = super::agent::start(inner.clone(), Ask::Send(request)).await?;
+    // Sent to a group: it is in that group, and it is no task. A busy session takes it in turn.
+    if let Some(target) = &target {
+        let sent = match &accepted {
+            Accepted::Started { conversation, .. } => Some(conversation.id.clone()),
+            Accepted::Queued { conversation, .. } => Some(conversation.clone()),
+        };
+        if let Some(sent) = sent {
+            let _ = inner.groups.add(&sent, &target.placement, claimed.project.as_deref(), inner.now());
+            let outcome = TaskOutcome::Started { conversation: sent };
+            let convo = claimed.convo;
+            let written = {
+                let _settling = lock(&inner.tasks);
+                settle(&inner, &convo, &task, outcome.clone())
+            };
+            if !written {
+                convo.log.push(ConversationEventKind::TaskSettled { task, outcome });
+                convo.log.push(ConversationEventKind::Notice { text: words::START_NOT_SAVED.to_owned() });
+            }
+        }
+        drop(held);
+        return Ok(accepted);
+    }
     if let Accepted::Started {
         conversation: started,
         ..
@@ -469,6 +587,8 @@ pub(crate) async fn start(
             &started.id,
             super::task_runs::Origin { from: conversation.clone(), title: claimed.title.clone(), at: inner.now(), ..Default::default() },
         );
+        // It joins the group of the topic it was started from.
+        let _ = inner.groups.follow(&started.id, &conversation, inner.now());
         let convo = claimed.convo;
         let written = {
             let _settling = lock(&inner.tasks);
@@ -486,6 +606,34 @@ pub(crate) async fn start(
     }
     drop(held);
     Ok(accepted)
+}
+
+/// Where an idea for a group is sent.
+struct GroupTarget {
+    /// The group's newest topic (`None`: a new topic).
+    topic: Option<String>,
+    /// That topic's folder.
+    workspace: Option<String>,
+    placement: super::groups::Placement,
+}
+
+fn group_target(inner: &Arc<Inner>, group: &str, project: Option<&str>) -> Result<GroupTarget, Refusal> {
+    use super::groups::Placement;
+    if group == super::groups::NEW {
+        return Ok(GroupTarget { topic: None, workspace: None, placement: Placement::New });
+    }
+    let found = inner
+        .groups
+        .list()
+        .into_iter()
+        .find(|g| g.id == group && !g.archived && g.project.as_deref() == project)
+        .ok_or_else(|| refuse(RefusalKind::NotFound, words::NO_GROUP))?;
+    let topic = super::groups::newest_topic(inner, &found);
+    let workspace = topic
+        .as_deref()
+        .and_then(|t| inner.load(t).ok())
+        .and_then(|convo| convo.state().workspace.as_ref().map(|w| w.id.clone()));
+    Ok(GroupTarget { topic, workspace, placement: Placement::Group(found.id) })
 }
 
 /// Set `task` of `conversation` aside.

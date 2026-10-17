@@ -847,6 +847,7 @@ mod tests {
                     remote: None,
                     staged_waiting: 0,
                     background: false,
+                    cost: None,
                 },
                 at: 2.0,
             },

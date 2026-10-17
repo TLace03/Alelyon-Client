@@ -111,12 +111,14 @@ pub(crate) fn seed(convo: &Convo, items: &[Item]) {
                 title,
                 summary,
                 prompt,
+                group,
                 ..
             } => ConversationEventKind::TaskSuggested {
                 task: task.clone(),
                 title: title.clone(),
                 summary: summary.clone(),
                 prompt: prompt.clone(),
+                group: group.clone(),
             },
             Item::ArtifactSaved {
                 name,
@@ -150,6 +152,21 @@ pub(crate) fn seed(convo: &Convo, items: &[Item]) {
             },
             Item::TodosUpdated { items, .. } => ConversationEventKind::TodosUpdated {
                 items: items.clone(),
+            },
+            Item::ChoiceOffered { call_id, area, options, recommended, why, step, .. } => {
+                ConversationEventKind::ChoiceOffered {
+                    choice: call_id.clone(),
+                    area: area.clone(),
+                    options: options.clone(),
+                    recommended: recommended.clone(),
+                    why: why.clone(),
+                    step: *step,
+                }
+            }
+            Item::ChoiceMade { call_id, option, by_agent, .. } => ConversationEventKind::ChoiceMade {
+                choice: call_id.clone(),
+                option: option.clone(),
+                by_agent: *by_agent,
             },
             Item::StepsGiven { list, title, steps, notify, .. } => ConversationEventKind::StepsGiven {
                 list: list.clone(),
@@ -518,6 +535,22 @@ pub(crate) fn call_summary(tool: &str, arguments: &str) -> (String, Option<Strin
                 None => key,
             }),
             "browser_scroll" | "desktop_scroll" => field("direction"),
+            "browser_script" => field("script"),
+            "browser_upload" => field("path"),
+            "browser_tabs" => field("action").map(|a| match field("url").or_else(|| value.get("tab").map(|t| t.to_string())) {
+                Some(more) => format!("{a} {more}"),
+                None => a,
+            }),
+            "browser_find" => field("query"),
+            "browser_fill" => field("ref").map(|r| match field("value") {
+                Some(value) => format!("{r}: {value}"),
+                None => r,
+            }),
+            "browser_network" => field("request_id").or_else(|| field("filter")),
+            "browser_viewport" => match (value.get("width"), value.get("height")) {
+                (Some(w), Some(h)) => Some(format!("{w} x {h}")),
+                _ => None,
+            },
             _ => None,
         };
         let short = target

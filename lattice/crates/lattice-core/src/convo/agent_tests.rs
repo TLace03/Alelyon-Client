@@ -471,7 +471,8 @@ fn an_agent_turn_reads_answers_and_records_its_trail() {
         .iter()
         .map(|tool| tool.name.clone())
         .collect();
-    assert_eq!(tools.len(), 32, "Agent mode offers every tool: {tools:?}");
+    // Every built-in tool, and a model that can see gets view_image and read_pdf.
+    assert_eq!(tools.len(), 52, "Agent mode offers every tool: {tools:?}");
     assert!(
         matches!(&calls[1].input.last(), Some(InputItem::ToolResult { output, .. }) if output.contains("1\ta"))
     );
@@ -549,13 +550,22 @@ fn ask_mode_offers_no_staging_tool_and_no_command() {
             "glob",
             "read_file",
             "grep",
+            "read_notebook",
             "ask_question",
             "git_status",
             "git_diff",
+            "schedule_prompt",
+            "list_schedules",
+            "cancel_schedule",
+            "web_fetch",
             "recall",
             "remember",
             "forget",
             "spawn_agent",
+            "spawn_agents",
+            "send_agent",
+            "wait_agent",
+            "close_agent",
             "suggest_task",
             "withdraw_task",
             "switch_project",
@@ -564,11 +574,18 @@ fn ask_mode_offers_no_staging_tool_and_no_command() {
             "stop_task",
             "answer_task",
             "write_artifact",
+            "find_connectors",
+            "suggest_connector",
+            "write_walkthrough",
             "read_artifact",
             "give_steps",
             "read_steps",
             "update_todos",
-            "propose_plan"
+            "recommend_stack",
+            "review_stack",
+            "propose_plan",
+            "view_image",
+            "read_pdf"
         ]
     );
 }

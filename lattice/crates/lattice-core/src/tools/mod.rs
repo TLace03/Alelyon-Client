@@ -16,6 +16,7 @@
 
 pub mod ask;
 pub mod edit;
+pub mod notebook;
 pub mod read;
 
 #[cfg(test)]

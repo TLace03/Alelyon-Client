@@ -8,8 +8,10 @@
 //!
 //! What the interface is told about a choice:
 //! - `ready`: an OpenAI-compatible endpoint is ready when the registry says it
-//!   is (enabled, a model name, an address, its key present); an Anthropic
-//!   endpoint never is, because this runtime speaks only Chat Completions; a
+//!   is (enabled, a model name, an address, its key present), the built-in
+//!   Anthropic row among them (Anthropic's OpenAI-compatible Chat Completions
+//!   endpoint); a row of the older `anthropic` kind (Anthropic's Messages API)
+//!   never is, because this runtime speaks only Chat Completions; a
 //!   saved Ollama row never is, because Ollama is retired (ADR-0041); and the
 //!   managed llama.cpp row is not ready HERE, because this runtime does not yet
 //!   start that server (the platform's Python side does). A llama-server a
@@ -351,6 +353,7 @@ mod tests {
                 {"id": "groq", "enabled": true, "model": ""},
                 {"id": "mine", "label": "Mine", "base_url": "http://localhost:1/v1"},
                 {"id": "anthropic", "enabled": true},
+                {"id": "messages-api", "label": "Anthropic (Messages API)", "kind": "anthropic", "model": "m", "api_key_name": "ANTHROPIC_API_KEY", "enabled": true},
                 {"id": "old", "label": "Old Ollama", "kind": "ollama", "base_url": "http://localhost:11434", "model": "m"}
             ]}"#,
         );
@@ -370,11 +373,16 @@ mod tests {
         );
         assert_eq!(
             refusal("endpoint:anthropic"),
+            "It needs an API key, and none is set.",
+            "the built-in Anthropic row is OpenAI-compatible: only its key is missing"
+        );
+        assert_eq!(
+            refusal("endpoint:messages-api"),
             "The Agents runtime needs an OpenAI-compatible Chat Completions endpoint; this one speaks Anthropic's Messages API."
         );
         assert!(
-            !choice(&all, "endpoint:anthropic").ready,
-            "an Anthropic endpoint is never ready, key or no key"
+            !choice(&all, "endpoint:messages-api").ready,
+            "a Messages API row is never ready, key or no key"
         );
         let everything =
             serde_json::to_string(&all.iter().map(|r| &r.choice).collect::<Vec<_>>()).unwrap();
@@ -406,6 +414,55 @@ mod tests {
         assert!(openai.ready && openai.refusal.is_none());
         assert_eq!(openai.locality, Locality::Remote);
         assert_eq!(openai.kind, ModelKind::OpenaiCompatible);
+    }
+
+    /// Every major vendor takes the reader's own key: with it, each built-in
+    /// vendor row is ready once enabled, Anthropic's included (its
+    /// OpenAI-compatible endpoint), and its client calls the vendor's address.
+    #[test]
+    fn each_vendor_row_is_ready_with_its_own_key() {
+        let dir = TempDir::new("choices-vendors");
+        let vendors = [
+            ("anthropic", "ANTHROPIC_API_KEY", "https://api.anthropic.com/v1", "claude-sonnet-5-5"),
+            ("openai", "OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-6.1-sol"),
+            ("google", "GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.8-flash"),
+            ("xai", "XAI_API_KEY", "https://api.x.ai/v1", ""),
+            ("deepseek", "DEEPSEEK_API_KEY", "https://api.deepseek.com/v1", ""),
+            ("mistral", "MISTRAL_API_KEY", "https://api.mistral.ai/v1", ""),
+            ("cohere", "COHERE_API_KEY", "https://api.cohere.ai/compatibility/v1", ""),
+        ];
+        let mut env = MapEnv::new();
+        for (_, key, _, _) in vendors {
+            env = env.with(key, "fixture-value");
+        }
+        let (env, state, keys) = setup(env, dir.path());
+        let rows: Vec<String> = vendors
+            .iter()
+            .map(|(id, ..)| format!(r#"{{"id": "{id}", "enabled": true}}"#))
+            .collect();
+        write_registry(
+            &state,
+            &format!(r#"{{"version": 1, "endpoints": [{}]}}"#, rows.join(", ")),
+        );
+        let all = resolve_all(env.as_ref(), &state, &keys, false);
+        for (id, _, base, model) in vendors {
+            let resolved = all
+                .iter()
+                .find(|r| r.choice.id == format!("endpoint:{id}"))
+                .unwrap();
+            assert!(
+                resolved.choice.ready && resolved.choice.refusal.is_none(),
+                "{id}: {:?}",
+                resolved.choice.refusal
+            );
+            assert_eq!(resolved.choice.kind, ModelKind::OpenaiCompatible, "{id}");
+            assert_eq!(resolved.choice.locality, Locality::Remote, "{id}");
+            let endpoint = resolved.endpoint.as_ref().unwrap();
+            assert_eq!(api_base(endpoint, env.as_ref()), base, "{id}");
+            if !model.is_empty() {
+                assert_eq!(endpoint.model, model, "{id}");
+            }
+        }
     }
 
     #[test]

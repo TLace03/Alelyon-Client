@@ -63,6 +63,37 @@ impl Default for JobLimits {
     }
 }
 
+/// The machine's physical memory in bytes, as Windows counts it
+/// (`GlobalMemoryStatusEx`), or `None` where it cannot say: what a Job's
+/// memory limit is sized from when it should follow the machine.
+#[cfg(windows)]
+pub fn physical_memory() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+
+    let mut status = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        dwMemoryLoad: 0,
+        ullTotalPhys: 0,
+        ullAvailPhys: 0,
+        ullTotalPageFile: 0,
+        ullAvailPageFile: 0,
+        ullTotalVirtual: 0,
+        ullAvailVirtual: 0,
+        ullAvailExtendedVirtual: 0,
+    };
+    // SAFETY: `status` is a live, writable MEMORYSTATUSEX whose `dwLength`
+    // is its own size, as GlobalMemoryStatusEx requires; it writes nothing
+    // beyond the structure.
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+    (ok != 0 && status.ullTotalPhys > 0).then_some(status.ullTotalPhys)
+}
+
+/// Elsewhere the machine's memory is not read: callers take their fallback.
+#[cfg(not(windows))]
+pub fn physical_memory() -> Option<u64> {
+    None
+}
+
 /// What to start.
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnRequest<'a> {

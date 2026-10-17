@@ -77,7 +77,11 @@ pub mod follow;
 pub mod git_tools;
 #[cfg(test)]
 mod git_tools_tests;
+pub mod connectors;
 pub mod helpers;
+pub mod plan_limits;
+pub mod walkthrough;
+pub mod terminal;
 pub mod steps;
 #[cfg(test)]
 mod steps_tests;
@@ -85,7 +89,19 @@ pub(crate) mod hooked;
 #[cfg(test)]
 mod hooks_tests;
 #[cfg(test)]
+mod connectors_tests;
+#[cfg(test)]
 mod helpers_tests;
+#[cfg(test)]
+mod notebook_tests;
+#[cfg(test)]
+mod walkthrough_tests;
+#[cfg(test)]
+mod terminal_tests;
+#[cfg(test)]
+mod helpers_steer_tests;
+#[cfg(test)]
+mod plan_limits_tests;
 #[cfg(test)]
 mod follow_tests;
 pub mod images;
@@ -130,11 +146,32 @@ mod skills_tests;
 pub mod switch;
 #[cfg(test)]
 mod switch_tests;
+pub mod allow;
+#[cfg(test)]
+mod allow_tests;
+pub mod choices;
+#[cfg(test)]
+mod choices_tests;
+pub mod board;
+#[cfg(test)]
+mod board_tests;
+#[cfg(test)]
+mod plans_group_tests;
+pub mod groups;
+#[cfg(test)]
+mod brainstorm_tests;
+#[cfg(test)]
+mod groups_tests;
 pub mod task_runs;
 pub mod task_tools;
 #[cfg(test)]
 mod task_tools_tests;
+pub mod schedules;
+#[cfg(test)]
+mod schedules_tests;
 pub mod tasks;
+#[cfg(test)]
+mod sight_tests;
 #[cfg(test)]
 mod tasks_tests;
 pub mod todos;

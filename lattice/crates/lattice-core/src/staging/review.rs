@@ -154,6 +154,9 @@ pub struct ReviewContext<'a> {
     /// The native dialogs, with CP3's memory of refusals.
     pub confirmer: &'a Confirmer,
     pub clock: &'a Clock,
+    /// The conversation's project allows all actions: an authority file is kept
+    /// without its dialog (`convo::allow`).
+    pub allow_all: bool,
 }
 
 const CHECKPOINT_FAILED: &str =
@@ -694,7 +697,7 @@ fn prepare(
         tool,
         &Target::Path(class),
         &gates,
-        &Standing::default(),
+        &Standing { allow_all: ctx.allow_all, ..Standing::default() },
     ) {
         Verdict::Refuse(Reason::AuthorityKeptAlone) => {
             Prepared::Done(Done::of(ReviewResult::Skipped {

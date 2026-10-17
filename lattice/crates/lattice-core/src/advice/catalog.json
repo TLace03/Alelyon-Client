@@ -1,0 +1,1021 @@
+{
+  "as_of": "2026-10-14",
+  "areas": [
+    {
+      "id": "language",
+      "group": "Languages and runtimes",
+      "title": "Programming language",
+      "question": "Which language should this be written in?",
+      "triggers": ["language", "rewrite in", "port to", "which runtime", "new service", "new project", "scaffold"],
+      "needs": {
+        "performance": "Speed and low memory matter",
+        "safety": "Memory and type safety matter",
+        "fast-iteration": "Quick to write and change",
+        "data-ml": "Data work or machine learning",
+        "web-full-stack": "One language for browser and server",
+        "concurrency": "Many things at once (servers, I/O)",
+        "enterprise": "Large teams and long-lived code",
+        "small-binary": "One small binary to ship",
+        "hiring": "Easy to find people who know it"
+      },
+      "options": [
+        {
+          "id": "rust", "name": "Rust",
+          "summary": "Compiled, memory-safe without a garbage collector; fast and predictable.",
+          "best_for": ["performance", "safety", "small-binary", "concurrency"],
+          "poor_for": ["fast-iteration", "hiring"],
+          "pros": ["Speed close to C and C++ with memory safety checked at compile time", "One self-contained binary; no runtime to install", "Strong types and a helpful compiler catch many bugs before they run"],
+          "cons": ["Slower to learn and to write at first", "Longer compile times", "Fewer people know it than Python or TypeScript"],
+          "licence": "MIT or Apache-2.0 (open source)", "cost": "Free",
+          "signals": ["cargo.toml"],
+          "guide": ["Install Rust with rustup from rust-lang.org", "Run `cargo new <name>` to create the project", "Run `cargo build` and `cargo test` to check it builds", "Add dependencies with `cargo add <crate>`"],
+          "checks": [
+            {"id": "rust-lock", "files_absent": ["cargo.lock"], "suggest": "Commit Cargo.lock", "why": "A binary or service builds the same versions everywhere only with its lock file committed."}
+          ]
+        },
+        {
+          "id": "typescript", "name": "TypeScript (Node.js)",
+          "summary": "JavaScript with types; runs in the browser and on the server.",
+          "best_for": ["web-full-stack", "fast-iteration", "hiring", "concurrency"],
+          "poor_for": ["performance", "small-binary"],
+          "pros": ["One language for the browser and the server", "Huge package ecosystem and many developers", "Types catch mistakes while staying quick to write"],
+          "cons": ["Slower and hungrier for memory than compiled languages", "Dependency trees grow large and need care", "Types are checked at build time only, not at run time"],
+          "licence": "Apache-2.0 (TypeScript), MIT (Node.js)", "cost": "Free",
+          "signals": ["package.json", "tsconfig.json"],
+          "guide": ["Install Node.js (LTS) from nodejs.org", "Run `npm init -y` and `npm install --save-dev typescript`", "Run `npx tsc --init` to create tsconfig.json", "Add a build script to package.json and run it"],
+          "checks": [
+            {"id": "node-lock", "files_absent": ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"], "suggest": "Commit a lock file", "why": "Without package-lock.json (or pnpm's or yarn's), each install may pull different versions."},
+            {"id": "ts-strict", "present": ["tsconfig.json"], "absent": ["\"strict\": true", "\"strict\":true"], "suggest": "Turn on TypeScript's strict mode", "why": "strict catches null and type mistakes the default settings let through."}
+          ]
+        },
+        {
+          "id": "python", "name": "Python",
+          "summary": "Readable, quick to write, with the strongest data and machine-learning ecosystem.",
+          "best_for": ["fast-iteration", "data-ml", "hiring"],
+          "poor_for": ["performance", "small-binary"],
+          "pros": ["Quick to write and read", "The leading ecosystem for data and machine learning", "Many developers know it"],
+          "cons": ["Slower than compiled languages for CPU-heavy work", "Packaging and environments need care", "Types are optional hints unless a checker is run"],
+          "licence": "PSF Licence (open source)", "cost": "Free",
+          "signals": ["pyproject.toml", "requirements.txt", "setup.py", "pipfile"],
+          "guide": ["Install Python 3 from python.org", "Create a virtual environment: `python -m venv .venv`", "Describe the project and its dependencies in pyproject.toml", "Install them into the environment and run the tests"],
+          "checks": [
+            {"id": "py-lock", "files_absent": ["poetry.lock", "uv.lock", "pdm.lock", "pipfile.lock", "requirements.lock"], "present": ["pyproject.toml"], "suggest": "Lock the dependency versions", "why": "pyproject.toml alone allows newer versions on each install; a lock file (uv, Poetry, PDM) pins what was tested."}
+          ]
+        },
+        {
+          "id": "go", "name": "Go",
+          "summary": "Simple compiled language built for network services.",
+          "best_for": ["concurrency", "small-binary", "performance", "hiring"],
+          "poor_for": ["data-ml"],
+          "pros": ["Simple language that teams pick up quickly", "Fast builds and one static binary", "Goroutines make concurrent servers straightforward"],
+          "cons": ["Less expressive types than Rust or TypeScript", "Garbage collected, so less predictable than Rust under tight memory", "Smaller ecosystem for data and machine learning"],
+          "licence": "BSD-3-Clause (open source)", "cost": "Free",
+          "signals": ["go.mod"],
+          "guide": ["Install Go from go.dev", "Run `go mod init <module>`", "Write main.go and run `go run .`", "Run `go test ./...`"],
+          "checks": []
+        },
+        {
+          "id": "jvm", "name": "Java or Kotlin (JVM)",
+          "summary": "Mature, fast runtime with a deep enterprise ecosystem.",
+          "best_for": ["enterprise", "performance", "hiring", "concurrency"],
+          "poor_for": ["small-binary", "fast-iteration"],
+          "pros": ["Very mature libraries and tooling", "Fast once warmed up", "Common in large organizations"],
+          "cons": ["More ceremony than Python or Go", "Larger memory use and slower start-up", "Build tools (Maven, Gradle) take time to learn"],
+          "licence": "GPL-2.0 with Classpath Exception (OpenJDK), Apache-2.0 (Kotlin)", "cost": "Free (OpenJDK builds)",
+          "signals": ["pom.xml", "build.gradle", "build.gradle.kts"],
+          "guide": ["Install a JDK (for example Eclipse Temurin)", "Create the project with Gradle or Maven", "Run the build and tests", "Pick a framework if it is a service"],
+          "checks": []
+        },
+        {
+          "id": "dotnet", "name": "C# (.NET)",
+          "summary": "Fast, well-tooled runtime, strong on Windows and cross-platform servers.",
+          "best_for": ["enterprise", "performance", "concurrency"],
+          "poor_for": ["data-ml", "small-binary"],
+          "pros": ["Fast runtime and good tooling", "One ecosystem for desktop, web and services", "Strong typing with modern language features"],
+          "cons": ["Smaller open-source community than Node or Python", "Larger deployments than Go or Rust", "Best experience assumes Microsoft's tools"],
+          "licence": "MIT (.NET)", "cost": "Free",
+          "signals": [".csproj", ".sln"],
+          "guide": ["Install the .NET SDK from dotnet.microsoft.com", "Run `dotnet new <template>`", "Run `dotnet build` and `dotnet test`"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "database",
+      "group": "Databases and storage",
+      "title": "Primary database",
+      "question": "Which database should hold the application's data?",
+      "triggers": ["database", "persist", "store the data", "save data", "schema", "migration", "sql", "data model", "tables"],
+      "needs": {
+        "relational": "Related records, joins and constraints",
+        "transactions": "Changes that must all succeed or all fail",
+        "embedded": "A file inside the app, no server",
+        "single-user": "One user or one process writes",
+        "scale-writes": "Many writers at high volume",
+        "flexible-documents": "Records whose shape changes often",
+        "managed": "Someone else runs it",
+        "serverless": "Pay per use, scales to zero",
+        "low-ops": "Little to operate",
+        "analytics": "Reports and aggregates over the data"
+      },
+      "options": [
+        {
+          "id": "postgres", "name": "PostgreSQL",
+          "summary": "The default relational database: reliable, featureful and widely hosted.",
+          "best_for": ["relational", "transactions", "analytics", "managed"],
+          "poor_for": ["embedded", "serverless"],
+          "pros": ["Strong transactions and constraints keep data correct", "Rich features: JSON columns, full-text search, extensions", "Offered by every major cloud as a managed service"],
+          "cons": ["A server to run, back up and upgrade (or to pay for)", "Connections are costly; needs a pool under load", "More than a small single-user tool needs"],
+          "licence": "PostgreSQL Licence (open source)", "cost": "Free; managed hosting is billed by size",
+          "signals": ["postgres", "psycopg", "asyncpg", "sqlx", "tokio-postgres", "\"pg\"", "node-postgres", "npgsql", "pgx"],
+          "guide": ["Create a database: install PostgreSQL locally, or create a managed instance with your cloud provider", "Create a user and a database for the app, with a strong password", "Put the connection string in the app's secret settings, not in the code", "Add a migrations tool and write the first migration", "Set up automatic backups and test a restore"],
+          "checks": [
+            {"id": "pg-pool", "absent": ["pool", "pgbouncer", "deadpool", "bb8", "r2d2", "pgpool", "asyncpg.create_pool"], "suggest": "Use a connection pool", "why": "Each PostgreSQL connection is a process on the server; a pool reuses a few connections instead of opening one per request."},
+            {"id": "pg-migrations", "absent": ["migration", "migrations", "migrate", "alembic", "flyway", "liquibase", "prisma", "drizzle", "knex", "diesel", "refinery", "goose"], "suggest": "Manage the schema with migrations", "why": "Versioned migrations make schema changes repeatable and reviewable across machines."}
+          ]
+        },
+        {
+          "id": "sqlite", "name": "SQLite",
+          "summary": "A whole SQL database in one file, inside the app.",
+          "best_for": ["embedded", "single-user", "low-ops", "relational", "transactions"],
+          "poor_for": ["scale-writes", "managed"],
+          "pros": ["No server: one file, nothing to operate", "Very fast for one process and many readers", "Full SQL and transactions"],
+          "cons": ["One writer at a time", "Not shared across machines without extra tools", "Fewer types and features than PostgreSQL"],
+          "licence": "Public domain", "cost": "Free",
+          "signals": ["sqlite", "rusqlite", "better-sqlite3", "sqlite3"],
+          "guide": ["Add the SQLite driver for the language", "Choose where the database file lives (outside the code folder)", "Turn on write-ahead logging (`PRAGMA journal_mode=WAL`)", "Write the first migration and back the file up regularly"],
+          "checks": [
+            {"id": "sqlite-wal", "absent": ["journal_mode=wal", "journal_mode = wal", "wal"], "suggest": "Turn on write-ahead logging", "why": "WAL lets readers work while one writer writes, and is usually faster than the default journal."}
+          ]
+        },
+        {
+          "id": "mysql", "name": "MySQL or MariaDB",
+          "summary": "A widely hosted relational database, common in web hosting.",
+          "best_for": ["relational", "transactions", "managed"],
+          "poor_for": ["embedded", "analytics"],
+          "pros": ["Available almost everywhere, including cheap hosting", "Simple to operate for typical web apps", "Large community"],
+          "cons": ["Fewer advanced features than PostgreSQL", "Some defaults are less strict about data", "Two forks (MySQL, MariaDB) drift apart"],
+          "licence": "GPL-2.0 (MySQL Community, MariaDB)", "cost": "Free; managed hosting is billed by size",
+          "signals": ["mysql", "mariadb", "pymysql", "mysql2"],
+          "guide": ["Create a database server or a managed instance", "Create a user and a database for the app", "Keep the connection string in secret settings", "Add migrations and set up backups"],
+          "checks": []
+        },
+        {
+          "id": "mongodb", "name": "MongoDB",
+          "summary": "A document database: records as flexible JSON-like documents.",
+          "best_for": ["flexible-documents", "scale-writes", "managed"],
+          "poor_for": ["relational", "analytics"],
+          "pros": ["Records can change shape without migrations", "Scales writes across machines", "A managed service (Atlas) runs it for you"],
+          "cons": ["Joins and constraints are weaker than in SQL databases", "Easy to let data drift into inconsistent shapes", "Server Side Public Licence limits offering it as a service"],
+          "licence": "SSPL (server)", "cost": "Free to self-host; Atlas is billed by size",
+          "signals": ["mongodb", "mongoose", "pymongo", "motor"],
+          "guide": ["Create a cluster (Atlas or self-hosted)", "Create a database user and allow the app's network", "Keep the connection string in secret settings", "Define indexes for the queries the app runs"],
+          "checks": [
+            {"id": "mongo-schema", "absent": ["mongoose", "jsonschema", "$jsonschema", "zod", "pydantic"], "suggest": "Validate documents' shape", "why": "A schema (Mongoose, JSON Schema validation, or app-side validation) keeps documents consistent."}
+          ]
+        },
+        {
+          "id": "firestore", "name": "Firestore",
+          "summary": "Google's serverless document database, with live updates to clients.",
+          "best_for": ["serverless", "flexible-documents", "low-ops", "managed"],
+          "poor_for": ["relational", "analytics", "transactions"],
+          "pros": ["Nothing to run; scales to zero", "Live updates straight to web and mobile clients", "Pay per read and write"],
+          "cons": ["Costs grow with reads and writes, which can surprise", "Limited queries and joins", "Ties the app to Google Cloud"],
+          "licence": "Proprietary service", "cost": "Usage-based (free tier)",
+          "signals": ["firestore", "firebase-admin", "@google-cloud/firestore"],
+          "guide": ["Create a Firebase or Google Cloud project", "Create a Firestore database and choose its region", "Write security rules before any client connects", "Add the SDK and a service account for the server"],
+          "checks": []
+        },
+        {
+          "id": "dynamodb", "name": "DynamoDB",
+          "summary": "AWS's serverless key-value and document database.",
+          "best_for": ["serverless", "scale-writes", "low-ops", "managed"],
+          "poor_for": ["relational", "analytics", "flexible-documents"],
+          "pros": ["Scales to very high traffic with steady latency", "Nothing to run; on-demand billing", "Integrates with the rest of AWS"],
+          "cons": ["Queries must be designed up front around keys", "Ad-hoc questions and joins are hard", "Ties the app to AWS"],
+          "licence": "Proprietary service", "cost": "Usage-based (free tier)",
+          "signals": ["dynamodb", "@aws-sdk/client-dynamodb", "boto3"],
+          "guide": ["Design the access patterns and keys first", "Create the table in the AWS console or with infrastructure code", "Give the app an IAM role limited to the table", "Add the AWS SDK"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "cache",
+      "group": "Databases and storage",
+      "title": "Cache and fast key-value store",
+      "question": "Where should the app keep cached or short-lived data?",
+      "triggers": ["cache", "caching", "rate limit", "session store", "key-value", "redis"],
+      "needs": {
+        "shared": "Shared by several servers",
+        "single-process": "One process only",
+        "persistence": "Survives a restart",
+        "data-structures": "Lists, sets, counters, streams",
+        "low-ops": "Little to operate"
+      },
+      "options": [
+        {
+          "id": "redis", "name": "Redis or Valkey",
+          "summary": "An in-memory store with rich data structures, shared by all servers.",
+          "best_for": ["shared", "data-structures", "persistence"],
+          "poor_for": ["low-ops"],
+          "pros": ["Very fast, shared by every server", "Counters, sets, sorted sets and streams built in", "Widely hosted as a managed service"],
+          "cons": ["Another server to run or pay for", "Memory-bound: large data gets expensive", "Redis's own licence changed; Valkey is the open-source fork"],
+          "licence": "BSD-3-Clause (Valkey); Redis has changed licences, check the version", "cost": "Free to self-host; managed is billed by memory",
+          "signals": ["redis", "valkey", "ioredis", "aioredis"],
+          "guide": ["Create a Redis or Valkey instance (managed or self-hosted)", "Require a password and keep it in secret settings", "Set a memory limit and an eviction policy", "Give each kind of key an expiry"],
+          "checks": []
+        },
+        {
+          "id": "in-process", "name": "In-process cache",
+          "summary": "A map in the app's own memory, with expiry.",
+          "best_for": ["single-process", "low-ops"],
+          "poor_for": ["shared", "persistence"],
+          "pros": ["No extra service", "Fastest possible", "Simple to reason about"],
+          "cons": ["Each server has its own copy", "Lost on restart", "Uses the app's memory"],
+          "licence": "Depends on the library", "cost": "Free",
+          "signals": ["lru", "moka", "cachetools", "node-cache", "caffeine"],
+          "guide": ["Pick the language's standard cache library (with a size limit and expiry)", "Cache only what can be rebuilt", "Measure the hit rate"],
+          "checks": []
+        },
+        {
+          "id": "memcached", "name": "Memcached",
+          "summary": "A simple, fast, shared memory cache.",
+          "best_for": ["shared"],
+          "poor_for": ["persistence", "data-structures"],
+          "pros": ["Very simple and fast", "Scales by adding servers", "Mature"],
+          "cons": ["Strings only; no data structures", "Nothing survives a restart", "Less common in new projects than Redis"],
+          "licence": "BSD-3-Clause", "cost": "Free to self-host",
+          "signals": ["memcached", "pymemcache", "memjs"],
+          "guide": ["Run Memcached or a managed instance", "Point the app's cache client at it", "Keep values small and give them expiries"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "object-storage",
+      "group": "Databases and storage",
+      "title": "File and object storage",
+      "question": "Where should uploaded files, images and backups live?",
+      "triggers": ["upload", "file storage", "images", "attachments", "bucket", "blob", "backups", "media"],
+      "needs": {
+        "public-serving": "Files served to browsers",
+        "cheap-egress": "Low cost to download a lot",
+        "same-cloud": "Same provider as the rest",
+        "single-server": "One server, small volume"
+      },
+      "options": [
+        {
+          "id": "s3", "name": "Amazon S3",
+          "summary": "The reference object store; its API is the industry standard.",
+          "best_for": ["same-cloud", "public-serving"],
+          "poor_for": ["cheap-egress"],
+          "pros": ["Very durable and mature", "Every tool speaks its API", "Lifecycle rules and storage classes cut cost"],
+          "cons": ["Downloads (egress) are billed", "Permissions (IAM, bucket policies) are easy to get wrong", "Ties to AWS unless the S3 API is used elsewhere"],
+          "licence": "Proprietary service", "cost": "Usage-based: storage, requests and egress",
+          "signals": ["s3", "@aws-sdk/client-s3", "boto3"],
+          "guide": ["Create a bucket in the region the app runs in", "Block public access unless files must be public", "Give the app a role or key limited to the bucket", "Add lifecycle rules for old files"],
+          "checks": []
+        },
+        {
+          "id": "gcs", "name": "Google Cloud Storage",
+          "summary": "Google Cloud's object store.",
+          "best_for": ["same-cloud", "public-serving"],
+          "poor_for": ["cheap-egress"],
+          "pros": ["Durable, integrates with Google Cloud", "Uniform bucket-level permissions", "Storage classes for colder data"],
+          "cons": ["Egress is billed", "Ties to Google Cloud", "Its own API (an S3-compatible mode exists but is partial)"],
+          "licence": "Proprietary service", "cost": "Usage-based",
+          "signals": ["@google-cloud/storage", "google-cloud-storage", "gcs"],
+          "guide": ["Create a bucket in the app's region", "Use uniform bucket-level access", "Give the app's service account access to that bucket only"],
+          "checks": []
+        },
+        {
+          "id": "r2", "name": "Cloudflare R2",
+          "summary": "An S3-compatible object store with no egress fees.",
+          "best_for": ["cheap-egress", "public-serving"],
+          "poor_for": ["same-cloud"],
+          "pros": ["No charge for downloads", "S3-compatible API", "Pairs with Cloudflare's CDN"],
+          "cons": ["Fewer features than S3", "Another provider beside the main cloud", "Younger service"],
+          "licence": "Proprietary service", "cost": "Usage-based: storage and requests, no egress",
+          "signals": ["r2.cloudflarestorage.com", "r2"],
+          "guide": ["Create an R2 bucket in the Cloudflare dashboard", "Create an API token limited to that bucket", "Point an S3 client at the R2 endpoint"],
+          "checks": []
+        },
+        {
+          "id": "local-disk", "name": "Local disk",
+          "summary": "Files on the server's own disk.",
+          "best_for": ["single-server"],
+          "poor_for": ["public-serving", "same-cloud"],
+          "pros": ["Nothing extra to set up", "Fast and free", "Easy to inspect"],
+          "cons": ["Lost if the server's disk is lost", "Not shared between servers", "Backups are on you"],
+          "licence": "-", "cost": "Free",
+          "signals": [],
+          "guide": ["Pick a folder outside the code and outside the web root", "Back it up on a schedule", "Limit upload sizes and types"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "search",
+      "group": "Databases and storage",
+      "title": "Search",
+      "question": "How should users search the app's content?",
+      "triggers": ["search", "full-text", "autocomplete", "typo tolerant", "find documents"],
+      "needs": {
+        "already-postgres": "PostgreSQL is already used",
+        "typo-tolerance": "Forgiving, instant search",
+        "large-scale": "Very large collections and logs",
+        "low-ops": "Little to operate"
+      },
+      "options": [
+        {
+          "id": "postgres-fts", "name": "PostgreSQL full-text search",
+          "summary": "Search inside the database already in use.",
+          "best_for": ["already-postgres", "low-ops"],
+          "poor_for": ["typo-tolerance", "large-scale"],
+          "pros": ["No new service", "Always in sync with the data", "Good enough for many apps"],
+          "cons": ["Weak typo tolerance", "Ranking is basic", "Heavy search load shares the database"],
+          "licence": "PostgreSQL Licence", "cost": "Free",
+          "signals": ["tsvector", "to_tsquery", "pg_trgm"],
+          "guide": ["Add a tsvector column (or a generated one) for the searchable text", "Index it with a GIN index", "Query with to_tsquery or websearch_to_tsquery"],
+          "checks": []
+        },
+        {
+          "id": "meilisearch", "name": "Meilisearch",
+          "summary": "A fast, typo-tolerant search engine that is simple to run.",
+          "best_for": ["typo-tolerance", "low-ops"],
+          "poor_for": ["large-scale"],
+          "pros": ["Instant, forgiving results out of the box", "Simple to run", "Good defaults for ranking"],
+          "cons": ["Another service to keep in sync", "Not built for very large log-style data", "Some features are in the paid cloud"],
+          "licence": "MIT (community edition)", "cost": "Free to self-host; cloud is paid",
+          "signals": ["meilisearch"],
+          "guide": ["Run Meilisearch (container or cloud)", "Set a master key and keep it secret", "Index the documents and keep the index updated on changes"],
+          "checks": []
+        },
+        {
+          "id": "opensearch", "name": "OpenSearch or Elasticsearch",
+          "summary": "Distributed search and analytics for very large collections.",
+          "best_for": ["large-scale"],
+          "poor_for": ["low-ops"],
+          "pros": ["Scales to huge collections and logs", "Powerful queries and aggregations", "Large ecosystem"],
+          "cons": ["Heavy to operate and memory-hungry", "Complex to tune", "Elasticsearch's licence differs from OpenSearch's"],
+          "licence": "Apache-2.0 (OpenSearch); Elastic licences (Elasticsearch)", "cost": "Free to self-host; managed is billed by size",
+          "signals": ["opensearch", "elasticsearch"],
+          "guide": ["Start with a managed cluster", "Define the index mappings before indexing", "Keep the index in sync from the database"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "group": "Hosted services",
+      "title": "Sign-in and accounts",
+      "question": "How should users sign in?",
+      "triggers": ["auth", "sign in", "signin", "login", "log in", "sign up", "accounts", "oauth", "sso", "password"],
+      "needs": {
+        "control": "Own the user data and flow",
+        "fast-setup": "Working sign-in quickly",
+        "enterprise-sso": "Company single sign-on (SAML, OIDC)",
+        "no-vendor-cost": "No per-user fees",
+        "prebuilt-ui": "Ready-made sign-in screens"
+      },
+      "options": [
+        {
+          "id": "own-auth", "name": "Built in (a library in the app)",
+          "summary": "The app's own sign-in with a well-known library: sessions, password hashing, OAuth.",
+          "best_for": ["control", "no-vendor-cost"],
+          "poor_for": ["fast-setup", "prebuilt-ui"],
+          "pros": ["Full control of users and data", "No per-user fees", "No outside service in the sign-in path"],
+          "cons": ["Security is your responsibility (hashing, resets, rate limits)", "More to build and test", "Social and enterprise sign-in take extra work"],
+          "licence": "Depends on the library", "cost": "Free (your time)",
+          "signals": ["argon2", "bcrypt", "passport", "next-auth", "auth.js", "django.contrib.auth", "devise", "lucia"],
+          "guide": ["Pick a maintained auth library for the framework", "Hash passwords with Argon2id or bcrypt", "Add email verification and password reset", "Rate-limit sign-in attempts", "Add OAuth providers if wanted"],
+          "checks": [
+            {"id": "auth-hash", "absent": ["argon2", "bcrypt", "scrypt"], "present_any": ["password"], "suggest": "Hash passwords with Argon2id, bcrypt or scrypt", "why": "A slow, salted hash is what keeps stolen password data from being reversed."}
+          ]
+        },
+        {
+          "id": "auth0", "name": "Auth0",
+          "summary": "A hosted identity service with enterprise features.",
+          "best_for": ["enterprise-sso", "fast-setup", "prebuilt-ui"],
+          "poor_for": ["no-vendor-cost", "control"],
+          "pros": ["Enterprise single sign-on and many providers", "Hosted sign-in pages", "Security features handled for you"],
+          "cons": ["Costs rise with users and features", "User data lives with the vendor", "Moving away later is work"],
+          "licence": "Proprietary service", "cost": "Free tier; then per active user",
+          "signals": ["auth0"],
+          "guide": ["Create an Auth0 tenant and an application", "Set the allowed callback and logout addresses", "Add the SDK and keep the client secret in secret settings", "Test sign-in, sign-out and token checks"],
+          "checks": []
+        },
+        {
+          "id": "clerk", "name": "Clerk",
+          "summary": "Hosted sign-in with ready-made UI components for web apps.",
+          "best_for": ["fast-setup", "prebuilt-ui"],
+          "poor_for": ["no-vendor-cost", "control"],
+          "pros": ["Drop-in sign-in and profile components", "Quick to set up in React and Next.js", "Handles sessions and providers"],
+          "cons": ["Per-user pricing beyond the free tier", "Best fit for JavaScript front ends", "Vendor holds the user data"],
+          "licence": "Proprietary service", "cost": "Free tier; then per active user",
+          "signals": ["@clerk/"],
+          "guide": ["Create a Clerk application", "Add the SDK and wrap the app in its provider", "Keep the secret key in secret settings", "Protect server routes with its middleware"],
+          "checks": []
+        },
+        {
+          "id": "supabase-auth", "name": "Supabase Auth",
+          "summary": "Sign-in that comes with a hosted PostgreSQL project.",
+          "best_for": ["fast-setup", "no-vendor-cost"],
+          "poor_for": ["enterprise-sso"],
+          "pros": ["Works with Supabase's PostgreSQL and row-level security", "Generous free tier", "Open source, can be self-hosted"],
+          "cons": ["Best when the rest of the app uses Supabase", "Enterprise sign-in is on paid plans", "Self-hosting is a lot to run"],
+          "licence": "Apache-2.0 (open source)", "cost": "Free tier; then by plan",
+          "signals": ["@supabase/supabase-js", "supabase"],
+          "guide": ["Create a Supabase project", "Turn on the sign-in methods wanted", "Use row-level security on tables", "Keep the service-role key on the server only"],
+          "checks": []
+        },
+        {
+          "id": "keycloak", "name": "Keycloak",
+          "summary": "A self-hosted, open-source identity server.",
+          "best_for": ["enterprise-sso", "control", "no-vendor-cost"],
+          "poor_for": ["fast-setup"],
+          "pros": ["Full single sign-on, SAML and OIDC", "Self-hosted: data stays with you", "No per-user fees"],
+          "cons": ["Heavy to run and upgrade", "Its UI needs theming", "Steeper learning curve"],
+          "licence": "Apache-2.0", "cost": "Free (hosting and time)",
+          "signals": ["keycloak"],
+          "guide": ["Run Keycloak with a PostgreSQL database", "Create a realm and a client for the app", "Connect the app with an OIDC library", "Set up backups and upgrades"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "payments",
+      "group": "Hosted services",
+      "title": "Payments",
+      "question": "How should the app take payments?",
+      "triggers": ["payment", "payments", "checkout", "billing", "subscription", "subscriptions", "invoice"],
+      "needs": {
+        "subscriptions": "Recurring plans",
+        "merchant-of-record": "Someone else handles sales tax and VAT",
+        "lowest-fees": "Lowest fees",
+        "marketplace": "Pay out to other sellers"
+      },
+      "options": [
+        {
+          "id": "stripe", "name": "Stripe",
+          "summary": "The developer-first payments platform.",
+          "best_for": ["subscriptions", "marketplace", "lowest-fees"],
+          "poor_for": ["merchant-of-record"],
+          "pros": ["Excellent APIs, docs and test mode", "Subscriptions, invoices and marketplaces (Connect)", "Hosted checkout reduces card-data scope"],
+          "cons": ["You are the seller: sales tax and VAT are yours (Stripe Tax helps, for a fee)", "Many features to choose between", "Disputes and fraud are yours to handle"],
+          "licence": "Proprietary service", "cost": "Per-transaction fees",
+          "signals": ["stripe"],
+          "guide": ["Create a Stripe account and stay in test mode", "Create the products and prices", "Use hosted Checkout and the customer portal", "Handle webhooks, verifying their signatures", "Switch to live keys only after testing"],
+          "checks": [
+            {"id": "stripe-webhook", "absent": ["webhook", "constructevent", "construct_event"], "suggest": "Verify Stripe webhooks", "why": "Payments complete asynchronously; a signed webhook is how the app learns of them reliably."}
+          ]
+        },
+        {
+          "id": "paddle", "name": "Paddle",
+          "summary": "A merchant of record: it sells on your behalf and handles tax.",
+          "best_for": ["merchant-of-record", "subscriptions"],
+          "poor_for": ["lowest-fees", "marketplace"],
+          "pros": ["Handles sales tax and VAT worldwide", "Subscriptions built in", "Less legal work selling abroad"],
+          "cons": ["Higher fees than a plain processor", "Less control of checkout", "Approval process for your business"],
+          "licence": "Proprietary service", "cost": "Percentage of each sale",
+          "signals": ["paddle"],
+          "guide": ["Apply for a Paddle account", "Create products and prices", "Add Paddle's checkout", "Handle its webhooks"],
+          "checks": []
+        },
+        {
+          "id": "lemon-squeezy", "name": "Lemon Squeezy",
+          "summary": "A merchant of record aimed at software and digital products.",
+          "best_for": ["merchant-of-record", "subscriptions"],
+          "poor_for": ["lowest-fees", "marketplace"],
+          "pros": ["Handles tax as the seller", "Quick to set up for digital products", "License keys built in"],
+          "cons": ["Higher fees than a plain processor", "Smaller company", "Fewer features than Stripe"],
+          "licence": "Proprietary service", "cost": "Percentage of each sale",
+          "signals": ["lemonsqueezy", "lemon-squeezy"],
+          "guide": ["Create a store", "Add the products", "Use its checkout links or overlay", "Handle its webhooks"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "email",
+      "group": "Hosted services",
+      "title": "Sending email",
+      "question": "Which service should send the app's email?",
+      "triggers": ["email", "send mail", "smtp", "newsletter", "notifications by email", "transactional"],
+      "needs": {
+        "transactional": "Sign-up, reset and receipt emails",
+        "marketing": "Newsletters and campaigns",
+        "cheapest": "Lowest cost at volume",
+        "deliverability": "Lands in the inbox"
+      },
+      "options": [
+        {
+          "id": "ses", "name": "Amazon SES",
+          "summary": "Very cheap email sending from AWS.",
+          "best_for": ["cheapest", "transactional"],
+          "poor_for": ["marketing"],
+          "pros": ["Lowest cost at volume", "Reliable at scale", "Integrates with AWS"],
+          "cons": ["Bare-bones; templates and analytics are basic", "Starts in a sandbox until approved", "Reputation management is on you"],
+          "licence": "Proprietary service", "cost": "Per message, very low",
+          "signals": ["@aws-sdk/client-ses", "sesv2", "ses"],
+          "guide": ["Verify your sending domain (SPF, DKIM, DMARC records)", "Ask AWS to leave the sandbox", "Give the app credentials limited to sending", "Handle bounces and complaints"],
+          "checks": []
+        },
+        {
+          "id": "postmark", "name": "Postmark",
+          "summary": "Transactional email focused on fast, reliable delivery.",
+          "best_for": ["transactional", "deliverability"],
+          "poor_for": ["marketing", "cheapest"],
+          "pros": ["Strong deliverability and speed", "Clear templates and logs", "Separates transactional from bulk mail"],
+          "cons": ["Costs more than SES", "Marketing mail is a separate stream", "Approval for new accounts"],
+          "licence": "Proprietary service", "cost": "Monthly plans by volume",
+          "signals": ["postmark"],
+          "guide": ["Create a server and verify the domain (SPF, DKIM)", "Add the API token to secret settings", "Send a test email and check its logs"],
+          "checks": []
+        },
+        {
+          "id": "resend", "name": "Resend",
+          "summary": "A developer-friendly email API with React email templates.",
+          "best_for": ["transactional"],
+          "poor_for": ["cheapest"],
+          "pros": ["Simple API and good docs", "Templates as React components", "Quick domain setup"],
+          "cons": ["Younger service", "Fewer marketing features", "Pricing above SES"],
+          "licence": "Proprietary service", "cost": "Free tier; then by volume",
+          "signals": ["resend"],
+          "guide": ["Create an API key", "Verify the sending domain", "Send from the server only"],
+          "checks": []
+        },
+        {
+          "id": "sendgrid", "name": "SendGrid",
+          "summary": "Long-standing email platform for both transactional and marketing mail.",
+          "best_for": ["marketing", "transactional"],
+          "poor_for": ["cheapest"],
+          "pros": ["Transactional and marketing in one", "Mature, many integrations", "Templates and analytics"],
+          "cons": ["Shared sending ranges can hurt deliverability on low plans", "Complex dashboard", "Support varies by plan"],
+          "licence": "Proprietary service", "cost": "Free tier; then by volume",
+          "signals": ["sendgrid"],
+          "guide": ["Create an API key with send permission only", "Authenticate the domain", "Set up a suppression list and unsubscribe handling"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "hosting",
+      "group": "Hosted services",
+      "title": "Hosting and deployment",
+      "question": "Where should the app run?",
+      "triggers": ["deploy", "deployment", "hosting", "host it", "production", "server", "go live", "ci/cd"],
+      "needs": {
+        "static-site": "A static or mostly static site",
+        "containers": "A container-based service",
+        "scale-to-zero": "Pay nothing when idle",
+        "full-control": "Full control of the machine",
+        "low-ops": "Little to operate",
+        "many-services": "Many services together"
+      },
+      "options": [
+        {
+          "id": "container-platform", "name": "Container platform (Cloud Run, Fly.io, App Runner)",
+          "summary": "Run a container; the platform scales it and gives it HTTPS.",
+          "best_for": ["containers", "scale-to-zero", "low-ops"],
+          "poor_for": ["full-control", "static-site"],
+          "pros": ["Deploy any container, no servers to patch", "Scales with traffic, some scale to zero", "HTTPS and logs included"],
+          "cons": ["Cold starts when scaled to zero", "Long-running or stateful work fits less well", "Platform limits on memory and time"],
+          "licence": "Proprietary service", "cost": "Usage-based",
+          "signals": ["dockerfile", "fly.toml", "cloudbuild.yaml", "service.yaml"],
+          "guide": ["Write a Dockerfile (small base image, non-root user)", "Build and push the image to the platform's registry", "Create the service, set its secrets as environment settings", "Point a domain at it"],
+          "checks": [
+            {"id": "dockerignore", "present": ["dockerfile"], "files_absent": [".dockerignore"], "suggest": "Add a .dockerignore", "why": "Without it, the whole folder (including secrets and build output) goes into the image's build context."}
+          ]
+        },
+        {
+          "id": "static-edge", "name": "Static and edge hosting (Cloudflare Pages, Vercel, Netlify)",
+          "summary": "Static files and small functions served from a global network.",
+          "best_for": ["static-site", "scale-to-zero", "low-ops"],
+          "poor_for": ["full-control", "many-services"],
+          "pros": ["Fast everywhere, often free for small sites", "Deploys from git on every push", "HTTPS and previews included"],
+          "cons": ["Server code limited to the platform's functions", "Lock-in to platform features", "Costs can jump at high traffic on some plans"],
+          "licence": "Proprietary service", "cost": "Free tier; then by plan and usage",
+          "signals": ["vercel.json", "netlify.toml", "wrangler.toml", "_headers"],
+          "guide": ["Connect the git repository", "Set the build command and output folder", "Add environment settings for secrets", "Point the domain and check HTTPS"],
+          "checks": []
+        },
+        {
+          "id": "vm", "name": "Virtual machine",
+          "summary": "A server you run yourself (Compute Engine, EC2, a VPS).",
+          "best_for": ["full-control"],
+          "poor_for": ["low-ops", "scale-to-zero"],
+          "pros": ["Full control; anything runs", "Predictable monthly cost", "No platform limits"],
+          "cons": ["Patching, backups and security are yours", "Scaling is manual", "Paid even when idle"],
+          "licence": "-", "cost": "Monthly by size",
+          "signals": ["cloud-init", "systemd", "ansible"],
+          "guide": ["Create the machine with the smallest size that fits", "Lock down SSH (keys only) and the firewall", "Install the app as a service that restarts", "Set up automatic security updates and backups"],
+          "checks": []
+        },
+        {
+          "id": "kubernetes", "name": "Kubernetes",
+          "summary": "An orchestrator for many containers across machines.",
+          "best_for": ["many-services", "containers", "full-control"],
+          "poor_for": ["low-ops", "static-site"],
+          "pros": ["Runs many services with one model", "Strong ecosystem", "Portable across clouds"],
+          "cons": ["Much to learn and operate", "Overkill for a few services", "Costly baseline"],
+          "licence": "Apache-2.0", "cost": "Cluster cost plus machines",
+          "signals": ["kustomization.yaml", "chart.yaml", "helm", "apiVersion: apps/v1"],
+          "guide": ["Use a managed cluster", "Describe each service with manifests or Helm", "Add resource limits and health checks", "Set up monitoring before production"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "queue",
+      "group": "Hosted services",
+      "title": "Background jobs and messaging",
+      "question": "How should work happen in the background or between services?",
+      "triggers": ["background job", "queue", "worker", "async job", "scheduled job", "cron", "event stream", "pub/sub", "messaging"],
+      "needs": {
+        "simple-jobs": "A few background jobs",
+        "no-new-service": "No new service",
+        "high-throughput": "Very high volume",
+        "replay": "Re-read old events",
+        "managed": "Someone else runs it"
+      },
+      "options": [
+        {
+          "id": "db-jobs", "name": "Jobs table in the database",
+          "summary": "Background jobs stored in the database already in use.",
+          "best_for": ["simple-jobs", "no-new-service"],
+          "poor_for": ["high-throughput", "replay"],
+          "pros": ["Nothing new to run", "Jobs and data change in one transaction", "Easy to inspect"],
+          "cons": ["Adds load to the database", "Not for very high volume", "Needs care with locking"],
+          "licence": "Depends on the library", "cost": "Free",
+          "signals": ["oban", "graphile-worker", "pg-boss", "solid_queue", "django-q", "apalis"],
+          "guide": ["Pick a jobs library for the database and language", "Create its tables with a migration", "Run a worker process beside the app", "Retry failed jobs with backoff"],
+          "checks": []
+        },
+        {
+          "id": "redis-queue", "name": "Redis-backed queue",
+          "summary": "Job queues on Redis (BullMQ, Sidekiq, RQ, Celery).",
+          "best_for": ["simple-jobs", "high-throughput"],
+          "poor_for": ["replay", "no-new-service"],
+          "pros": ["Mature libraries in most languages", "Fast", "Delays, retries and priorities built in"],
+          "cons": ["Needs Redis", "Jobs can be lost if Redis is not persisted", "Monitoring is extra"],
+          "licence": "Depends on the library", "cost": "Redis hosting",
+          "signals": ["bullmq", "sidekiq", "celery", "rq", "bull"],
+          "guide": ["Add the queue library", "Point it at Redis", "Run worker processes", "Add a dashboard or alerts for failures"],
+          "checks": []
+        },
+        {
+          "id": "cloud-queue", "name": "Managed queue (SQS, Pub/Sub)",
+          "summary": "A cloud provider's queue or pub/sub.",
+          "best_for": ["managed", "high-throughput"],
+          "poor_for": ["no-new-service"],
+          "pros": ["Nothing to run; very reliable", "Scales automatically", "Integrates with serverless functions"],
+          "cons": ["Ties to the provider", "Local development needs emulators", "Per-message costs"],
+          "licence": "Proprietary service", "cost": "Per message",
+          "signals": ["@aws-sdk/client-sqs", "sqs", "pubsub", "@google-cloud/pubsub"],
+          "guide": ["Create the queue or topic", "Give producers and consumers limited permissions", "Set a dead-letter queue for failures"],
+          "checks": []
+        },
+        {
+          "id": "kafka", "name": "Kafka",
+          "summary": "A durable event log for high-volume streams.",
+          "best_for": ["high-throughput", "replay"],
+          "poor_for": ["simple-jobs", "no-new-service"],
+          "pros": ["Very high throughput", "Events can be re-read", "Large ecosystem for streaming"],
+          "cons": ["Heavy to operate", "Overkill for job queues", "Steep learning curve"],
+          "licence": "Apache-2.0", "cost": "Self-hosted or managed (billed by size)",
+          "signals": ["kafka", "kafkajs", "rdkafka"],
+          "guide": ["Use a managed Kafka service", "Design topics and their retention", "Add schema management for events"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "observability",
+      "group": "Hosted services",
+      "title": "Errors, logs and monitoring",
+      "question": "How should you learn when something breaks in production?",
+      "triggers": ["monitoring", "logging", "logs", "error tracking", "observability", "metrics", "tracing", "alerts"],
+      "needs": {
+        "errors": "Know about errors with their context",
+        "metrics-traces": "Metrics and traces across services",
+        "open-standard": "An open standard, no lock-in",
+        "low-ops": "Little to operate"
+      },
+      "options": [
+        {
+          "id": "sentry", "name": "Sentry",
+          "summary": "Error tracking with stack traces and releases.",
+          "best_for": ["errors", "low-ops"],
+          "poor_for": ["metrics-traces"],
+          "pros": ["Errors grouped with full context", "SDKs for nearly every language", "Free tier for small projects"],
+          "cons": ["Costs grow with event volume", "Must scrub personal data", "Not a full metrics system"],
+          "licence": "Proprietary service (self-hosted version under FSL)", "cost": "Free tier; then by volume",
+          "signals": ["sentry"],
+          "guide": ["Create a Sentry project", "Add the SDK and set the DSN in settings", "Turn on scrubbing of personal data", "Tag releases so errors map to deploys"],
+          "checks": []
+        },
+        {
+          "id": "opentelemetry", "name": "OpenTelemetry with Grafana",
+          "summary": "The open standard for traces, metrics and logs, with Grafana to view them.",
+          "best_for": ["metrics-traces", "open-standard"],
+          "poor_for": ["low-ops"],
+          "pros": ["Vendor-neutral standard", "Traces across services", "Self-host or use Grafana Cloud"],
+          "cons": ["More setup than an error tracker", "Several moving parts (collector, storage, dashboards)", "Errors need dashboards and alerts built"],
+          "licence": "Apache-2.0 (OpenTelemetry), AGPL-3.0 (Grafana)", "cost": "Free to self-host; cloud by volume",
+          "signals": ["opentelemetry", "otel", "prometheus", "grafana"],
+          "guide": ["Add the OpenTelemetry SDK and auto-instrumentation", "Run a collector or point at a cloud endpoint", "Build a dashboard and alerts for errors and latency"],
+          "checks": []
+        },
+        {
+          "id": "datadog", "name": "Datadog",
+          "summary": "An all-in-one hosted monitoring platform.",
+          "best_for": ["metrics-traces", "errors", "low-ops"],
+          "poor_for": ["open-standard"],
+          "pros": ["Everything in one place", "Many integrations", "Strong dashboards and alerts"],
+          "cons": ["Expensive as usage grows", "Lock-in", "Pricing is complex"],
+          "licence": "Proprietary service", "cost": "Per host and by volume",
+          "signals": ["datadog", "dd-trace", "ddtrace"],
+          "guide": ["Create an account and install the agent", "Add the tracing library", "Set up monitors before turning on more products"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "backend-framework",
+      "group": "Frameworks and architecture",
+      "title": "Server framework",
+      "question": "Which framework should the server use?",
+      "triggers": ["api", "backend", "server", "endpoint", "rest api", "web server", "routes"],
+      "needs": {
+        "batteries-included": "Admin, ORM and auth built in",
+        "performance": "Fast and light",
+        "typed-api": "Typed requests and responses, generated docs",
+        "rust": "The project is Rust",
+        "python": "The project is Python",
+        "typescript": "The project is TypeScript",
+        "go": "The project is Go",
+        "jvm": "The project is Java or Kotlin"
+      },
+      "options": [
+        {
+          "id": "axum", "name": "Axum (Rust)",
+          "summary": "A light, fast web framework on Tokio.",
+          "best_for": ["rust", "performance", "typed-api"],
+          "poor_for": ["batteries-included", "python", "typescript", "go", "jvm"],
+          "pros": ["Fast and memory-efficient", "Typed extractors catch mistakes at compile time", "Fits the Tokio ecosystem"],
+          "cons": ["Bring your own ORM, auth and admin", "Rust's learning curve", "Fewer ready-made plug-ins than older frameworks"],
+          "licence": "MIT", "cost": "Free",
+          "signals": ["axum"],
+          "guide": ["`cargo add axum tokio --features tokio/full`", "Define routes and handlers", "Add tower-http for logging, CORS and compression"],
+          "checks": []
+        },
+        {
+          "id": "fastapi", "name": "FastAPI (Python)",
+          "summary": "A typed Python API framework with generated docs.",
+          "best_for": ["python", "typed-api"],
+          "poor_for": ["batteries-included", "rust", "typescript", "go", "jvm"],
+          "pros": ["Request and response types from Python type hints", "Automatic OpenAPI docs", "Async support"],
+          "cons": ["Bring your own ORM, auth and admin", "Python speed limits", "Async and sync code mixed carelessly hurts performance"],
+          "licence": "MIT", "cost": "Free",
+          "signals": ["fastapi"],
+          "guide": ["Install fastapi and uvicorn", "Define models with Pydantic", "Run with uvicorn behind a process manager"],
+          "checks": []
+        },
+        {
+          "id": "django", "name": "Django (Python)",
+          "summary": "A batteries-included Python web framework.",
+          "best_for": ["python", "batteries-included"],
+          "poor_for": ["performance", "rust", "typescript", "go", "jvm"],
+          "pros": ["ORM, migrations, admin and auth built in", "Very mature and documented", "Secure defaults"],
+          "cons": ["Heavier than an API-only framework", "Its own way of doing things", "Async support is partial"],
+          "licence": "BSD-3-Clause", "cost": "Free",
+          "signals": ["django"],
+          "guide": ["`pip install django` and `django-admin startproject`", "Create apps and models, then run migrations", "Use the admin for internal tools"],
+          "checks": [
+            {"id": "django-debug", "present": ["django"], "present_any": ["debug = true", "debug=true"], "suggest": "Make sure DEBUG is off in production", "why": "Django with DEBUG on shows internal details to anyone who triggers an error."}
+          ]
+        },
+        {
+          "id": "fastify", "name": "Fastify or Express (Node.js)",
+          "summary": "Node.js web frameworks: Fastify is faster and schema-based, Express is the long-standing default.",
+          "best_for": ["typescript", "performance"],
+          "poor_for": ["batteries-included", "rust", "python", "go", "jvm"],
+          "pros": ["Huge ecosystem", "Fastify validates with JSON schemas and is fast", "Same language as the front end"],
+          "cons": ["Bring your own structure, ORM and auth", "Express is slower and less maintained than Fastify", "Easy to grow messy without conventions"],
+          "licence": "MIT", "cost": "Free",
+          "signals": ["fastify", "express"],
+          "guide": ["Install fastify (or express)", "Define routes with schemas", "Add security headers and rate limiting"],
+          "checks": [
+            {"id": "express-helmet", "present_any": ["\"express\""], "absent": ["helmet"], "suggest": "Add security headers (helmet)", "why": "Express sends none of the usual security headers by default; helmet adds them."}
+          ]
+        },
+        {
+          "id": "go-http", "name": "Go standard library (net/http) or chi",
+          "summary": "Go's built-in HTTP server, with a light router if wanted.",
+          "best_for": ["go", "performance"],
+          "poor_for": ["batteries-included", "rust", "python", "typescript", "jvm"],
+          "pros": ["No framework lock-in", "Fast and simple", "The standard library's router handles most needs"],
+          "cons": ["Bring your own everything else", "More code for validation", "Fewer conventions"],
+          "licence": "BSD-3-Clause (Go), MIT (chi)", "cost": "Free",
+          "signals": ["net/http", "go-chi"],
+          "guide": ["Define handlers with net/http", "Add chi if routes grow", "Add timeouts on the server"],
+          "checks": []
+        },
+        {
+          "id": "spring-boot", "name": "Spring Boot (Java or Kotlin)",
+          "summary": "The standard JVM framework for services.",
+          "best_for": ["jvm", "batteries-included"],
+          "poor_for": ["performance", "rust", "python", "typescript", "go"],
+          "pros": ["Everything included: data, security, messaging", "Very mature", "Common in large organizations"],
+          "cons": ["Heavy start-up and memory", "Much configuration and magic", "Learning curve"],
+          "licence": "Apache-2.0", "cost": "Free",
+          "signals": ["spring-boot", "org.springframework"],
+          "guide": ["Generate a project at start.spring.io", "Pick the starters needed", "Run with the Gradle or Maven plugin"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "frontend-framework",
+      "group": "Frameworks and architecture",
+      "title": "Web front end",
+      "question": "How should the web interface be built?",
+      "triggers": ["frontend", "front end", "ui", "web app", "website", "single page", "react", "components", "landing page"],
+      "needs": {
+        "content-site": "Mostly content (marketing, docs, blog)",
+        "rich-app": "A highly interactive app",
+        "seo": "Found by search engines",
+        "small-bundle": "Little JavaScript sent",
+        "hiring": "Easy to find people who know it",
+        "server-rendered": "Pages rendered on the server"
+      },
+      "options": [
+        {
+          "id": "react-next", "name": "React (with Next.js)",
+          "summary": "The most widely used UI library, with Next.js for routing and server rendering.",
+          "best_for": ["rich-app", "hiring", "seo"],
+          "poor_for": ["small-bundle"],
+          "pros": ["Largest ecosystem and hiring pool", "Next.js adds server rendering and routing", "Component libraries for everything"],
+          "cons": ["Large bundles without care", "Next.js adds complexity and favours Vercel's hosting", "Frequent changes in best practice"],
+          "licence": "MIT", "cost": "Free",
+          "signals": ["\"react\"", "\"next\""],
+          "guide": ["`npx create-next-app@latest`", "Pick the App Router and TypeScript", "Add a component library if wanted", "Deploy and check the bundle size"],
+          "checks": []
+        },
+        {
+          "id": "sveltekit", "name": "Svelte (with SvelteKit)",
+          "summary": "A compiler-based UI framework with small bundles.",
+          "best_for": ["small-bundle", "rich-app", "seo"],
+          "poor_for": ["hiring"],
+          "pros": ["Small, fast bundles", "Less code than React for the same UI", "SvelteKit handles routing and rendering"],
+          "cons": ["Smaller ecosystem and hiring pool", "Fewer component libraries", "Major versions changed patterns"],
+          "licence": "MIT", "cost": "Free",
+          "signals": ["svelte"],
+          "guide": ["`npx sv create`", "Choose TypeScript", "Add an adapter for the hosting target"],
+          "checks": []
+        },
+        {
+          "id": "vue-nuxt", "name": "Vue (with Nuxt)",
+          "summary": "An approachable UI framework, with Nuxt for full apps.",
+          "best_for": ["rich-app", "seo"],
+          "poor_for": ["small-bundle"],
+          "pros": ["Gentle learning curve", "Clear single-file components", "Nuxt adds server rendering"],
+          "cons": ["Smaller ecosystem than React", "Two styles (Options, Composition) in the wild", "Fewer jobs than React in some markets"],
+          "licence": "MIT", "cost": "Free",
+          "signals": ["\"vue\"", "\"nuxt\""],
+          "guide": ["`npx nuxi init`", "Use the Composition API and TypeScript", "Pick a hosting preset"],
+          "checks": []
+        },
+        {
+          "id": "astro", "name": "Astro",
+          "summary": "Content-first sites that send little or no JavaScript.",
+          "best_for": ["content-site", "seo", "small-bundle"],
+          "poor_for": ["rich-app"],
+          "pros": ["Pages ship as HTML, JavaScript only where needed", "Use components from React, Svelte or Vue", "Great for docs, blogs and marketing"],
+          "cons": ["Not built for app-like interfaces", "Islands add their own complexity", "Server features are newer"],
+          "licence": "MIT", "cost": "Free",
+          "signals": ["\"astro\""],
+          "guide": ["`npm create astro@latest`", "Write pages in .astro and content in Markdown", "Add islands only where interaction is needed"],
+          "checks": []
+        },
+        {
+          "id": "htmx", "name": "Server-rendered pages with htmx",
+          "summary": "HTML from the server, with small interactive parts.",
+          "best_for": ["server-rendered", "small-bundle", "seo"],
+          "poor_for": ["rich-app"],
+          "pros": ["Very little JavaScript", "Logic stays on the server", "Fits any server language"],
+          "cons": ["Rich, offline or very interactive UIs are hard", "Fewer ready-made components", "A different way of thinking for SPA developers"],
+          "licence": "BSD-2-Clause (htmx)", "cost": "Free",
+          "signals": ["htmx"],
+          "guide": ["Render pages with the server's templates", "Add htmx with one script tag", "Return HTML fragments for interactive parts"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "architecture",
+      "group": "Frameworks and architecture",
+      "title": "System architecture",
+      "question": "How should the system be split into parts?",
+      "triggers": ["architecture", "microservice", "microservices", "monolith", "split into services", "serverless", "system design"],
+      "needs": {
+        "small-team": "A small team",
+        "independent-deploys": "Parts deployed independently",
+        "different-scaling": "Parts scale very differently",
+        "spiky-traffic": "Traffic comes in bursts",
+        "simplicity": "As simple as possible"
+      },
+      "options": [
+        {
+          "id": "modular-monolith", "name": "Modular monolith",
+          "summary": "One deployable app, split inside into clear modules.",
+          "best_for": ["small-team", "simplicity"],
+          "poor_for": ["independent-deploys", "different-scaling"],
+          "pros": ["One thing to build, test and deploy", "Calls between modules are fast and simple", "Can be split later along module lines"],
+          "cons": ["Everything deploys together", "Modules need discipline to stay apart", "Scales as one unit"],
+          "licence": "-", "cost": "-",
+          "signals": [],
+          "guide": ["Define modules by business area", "Let modules talk only through their public interfaces", "Keep one database, with each module owning its tables"],
+          "checks": []
+        },
+        {
+          "id": "microservices", "name": "Microservices",
+          "summary": "Separate services, each with its own deploy and data.",
+          "best_for": ["independent-deploys", "different-scaling"],
+          "poor_for": ["small-team", "simplicity"],
+          "pros": ["Teams deploy independently", "Each part scales on its own", "Failures can be isolated"],
+          "cons": ["Network calls, versioning and tracing add complexity", "Data consistency across services is hard", "Much more to operate"],
+          "licence": "-", "cost": "-",
+          "signals": [],
+          "guide": ["Split only where teams or scaling truly differ", "Give each service its own data", "Add tracing and contracts between services from the start"],
+          "checks": []
+        },
+        {
+          "id": "serverless-functions", "name": "Serverless functions",
+          "summary": "Small functions run by the platform on each request or event.",
+          "best_for": ["spiky-traffic", "simplicity"],
+          "poor_for": ["different-scaling"],
+          "pros": ["Pay per use, nothing idle", "Scales automatically", "Little to operate"],
+          "cons": ["Cold starts and time limits", "Lock-in to the platform", "Hard to test and debug locally"],
+          "licence": "-", "cost": "Usage-based",
+          "signals": ["serverless.yml", "aws-lambda", "functions/"],
+          "guide": ["Keep each function small and stateless", "Store state in a managed database", "Watch cold starts and costs"],
+          "checks": []
+        }
+      ]
+    },
+    {
+      "id": "api-style",
+      "group": "Frameworks and architecture",
+      "title": "API style",
+      "question": "How should clients talk to the server?",
+      "triggers": ["api design", "graphql", "grpc", "rest", "openapi", "endpoints"],
+      "needs": {
+        "public-api": "Others will use it",
+        "flexible-queries": "Clients choose which data they get",
+        "service-to-service": "Fast calls between internal services",
+        "simplicity": "As simple as possible"
+      },
+      "options": [
+        {
+          "id": "rest", "name": "REST with OpenAPI",
+          "summary": "Resources over HTTP, described by an OpenAPI document.",
+          "best_for": ["public-api", "simplicity"],
+          "poor_for": ["flexible-queries"],
+          "pros": ["Understood by everyone and every tool", "Cacheable over HTTP", "OpenAPI generates docs and clients"],
+          "cons": ["Clients may need several calls for one screen", "Versioning needs discipline", "Over- or under-fetching"],
+          "licence": "-", "cost": "-",
+          "signals": ["openapi", "swagger"],
+          "guide": ["Name resources and their operations", "Write or generate the OpenAPI document", "Return consistent error shapes"],
+          "checks": []
+        },
+        {
+          "id": "graphql", "name": "GraphQL",
+          "summary": "One endpoint; clients ask for exactly the data they need.",
+          "best_for": ["flexible-queries"],
+          "poor_for": ["simplicity", "service-to-service"],
+          "pros": ["Clients fetch exactly what a screen needs", "Typed schema with good tooling", "One endpoint to evolve"],
+          "cons": ["Caching and rate limiting are harder", "Expensive queries need limits", "More server complexity"],
+          "licence": "-", "cost": "-",
+          "signals": ["graphql", "apollo"],
+          "guide": ["Design the schema first", "Add query depth and cost limits", "Batch database access (DataLoader)"],
+          "checks": []
+        },
+        {
+          "id": "grpc", "name": "gRPC",
+          "summary": "Typed, binary calls between services.",
+          "best_for": ["service-to-service"],
+          "poor_for": ["public-api", "simplicity"],
+          "pros": ["Fast and compact", "Contracts generated from .proto files", "Streaming built in"],
+          "cons": ["Browsers need a proxy", "Harder to inspect by hand", "Tooling to set up"],
+          "licence": "Apache-2.0", "cost": "-",
+          "signals": ["grpc", ".proto", "tonic"],
+          "guide": ["Define services in .proto files", "Generate clients and servers", "Add deadlines and retries"],
+          "checks": []
+        }
+      ]
+    }
+  ]
+}

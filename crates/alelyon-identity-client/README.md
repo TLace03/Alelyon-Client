@@ -16,6 +16,9 @@ The client of Alelyon's identity service, as the Alelyon desktop app uses it, wi
 - **plans**: the account's plan (its name, seats, paid-through date, whether billing can be managed), and the
   Stripe addresses to start a checkout or open the billing portal, for the person's own browser (no card entry in the
   application; `https` addresses only).
+- **credits**: a short-lived access token for one service (`POST /identity/native/access-token`, answering
+  `{token, token_type, expires_at, audience}`), and the account's credits balance read with it from the credits
+  service (`GET /credits/balance`, `Authorization: Bearer`); a token goes only to an `https` origin (or this machine).
 
 An application draws its own screens over these calls. The HTTP contracts are in [`docs/`](docs/):
 [native sign-in](docs/native-sign-in-contract.md), [social](docs/social-contract.md) and

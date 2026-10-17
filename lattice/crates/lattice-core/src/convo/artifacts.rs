@@ -137,13 +137,32 @@ pub(crate) fn tool(
 }
 
 fn write_tool(tools: &TurnTools, call: &str, args: &WriteArgs) -> Result<String, ToolError> {
-    let name = args.name.trim();
+    if args.content.trim().is_empty() || args.content.len() > MAX_BYTES {
+        return Err(ToolError::new(
+            "An artifact's content is 1 byte to 256 KiB of text.",
+        ));
+    }
+    save(tools, call, args.name.trim(), args.title.trim(), args.kind, &args.content, true)
+}
+
+/// Save a version of artifact `name`. With `redact` its content is redacted
+/// as `write_artifact`'s is; a walkthrough's page comes with its words
+/// redacted already and its pictures as they were shown
+/// (`super::walkthrough`), and its size checked.
+pub(crate) fn save(
+    tools: &TurnTools,
+    call: &str,
+    name: &str,
+    title: &str,
+    kind: ArtifactKind,
+    content: &str,
+    redact: bool,
+) -> Result<String, ToolError> {
     if !is_name(name) {
         return Err(ToolError::new(
             "An artifact's name is 1 to 48 lowercase letters, digits and single hyphens, such as plan or api-report.",
         ));
     }
-    let title = args.title.trim();
     if title.is_empty()
         || title.chars().count() > MAX_TITLE_CHARS
         || title.chars().any(char::is_control)
@@ -152,13 +171,10 @@ fn write_tool(tools: &TurnTools, call: &str, args: &WriteArgs) -> Result<String,
             "An artifact's title is one line of 1 to 80 characters.",
         ));
     }
-    if args.content.trim().is_empty() || args.content.len() > MAX_BYTES {
-        return Err(ToolError::new(
-            "An artifact's content is 1 byte to 256 KiB of text.",
-        ));
-    }
-    let (title, content) = (secrets::redact(title), secrets::redact(&args.content));
-    let redacted = title != args.title.trim() || content != args.content;
+    let saved_title = secrets::redact(title);
+    let saved = if redact { secrets::redact(content) } else { content.to_owned() };
+    let redacted = saved_title != title || saved != content;
+    let (title, content) = (saved_title, saved);
     let inner = &tools.inner;
     let convo = &tools.convo;
     let _saving = lock(&inner.artifacts);
@@ -199,7 +215,7 @@ fn write_tool(tools: &TurnTools, call: &str, args: &WriteArgs) -> Result<String,
         call_id: call.to_owned(),
         name: name.to_owned(),
         title: title.clone(),
-        kind: args.kind,
+        kind,
         version,
         text,
         bytes,
@@ -213,7 +229,7 @@ fn write_tool(tools: &TurnTools, call: &str, args: &WriteArgs) -> Result<String,
     convo.log.push(ConversationEventKind::ArtifactSaved {
         name: name.to_owned(),
         title,
-        kind: args.kind,
+        kind,
         version,
         bytes,
     });

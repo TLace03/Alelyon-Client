@@ -251,6 +251,7 @@ impl Conversation {
                 guards: &guards,
                 confirmer: &confirmer,
                 clock: &self.clock,
+                allow_all: false,
             },
             ops,
         ))
