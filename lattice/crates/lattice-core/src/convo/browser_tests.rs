@@ -454,3 +454,117 @@ fn page_text_comes_in_parts_and_results_as_a_list() {
     );
     assert!(search_result("zzz", &[]).starts_with("No results came back for \"zzz\"."));
 }
+
+/// The developer's tools in a turn: a script stated as `view` and the console
+/// run without asking; a script stated as `share` asks on its card, which
+/// names the script, and a no runs nothing.
+/// Mutants: a script's effect never asking; the card not naming the script.
+#[test]
+fn a_script_that_shares_asks_first_and_the_console_and_a_view_script_do_not() {
+    let _one = crate::testkit::one_real_browser();
+    let Some(h) = browser_harness("browser-devtools") else {
+        return;
+    };
+    let workspace = h.workspace();
+    h.runtime.block_on(h.chat.browser_set_on(true)).unwrap();
+    h.script(vec![
+        call("browser_open", json!({"url": page()}), "b1"),
+        call("browser_script", json!({"script": "document.title", "effect": "view"}), "s1"),
+        call("browser_console", json!({}), "k1"),
+        call("browser_script", json!({"script": "document.getElementById('post').click()", "effect": "share"}), "s2"),
+        say("Stopped there."),
+    ]);
+    let id = h.agent(None, "Check the page.", &workspace);
+    let events = h.events_until(&id, |events| approval(events).is_some());
+    opened_the_page(&events);
+    let (call_id, detail, _) = approval(&events).unwrap();
+    assert_eq!(call_id, "s2", "only the share asked");
+    match detail {
+        ApprovalDetail::Browser { action, effect, .. } => {
+            assert!(action.starts_with("run a script: document.getElementById('post')"), "{action}");
+            assert_eq!(effect, "share");
+        }
+        other => panic!("{other:?}"),
+    }
+    h.runtime.block_on(h.chat.decide(&id, "s2", Decision::Reject { note: None })).unwrap();
+    let events = h.turns_end(&id, 1);
+    let outputs = outputs(&events);
+    assert_eq!(outputs.get(1).map(String::as_str), Some("\"Lattice browser test\""), "{outputs:?}");
+    assert!(outputs.get(2).is_some_and(|o| o.starts_with("The console") || o.starts_with("[")), "the console listed: {outputs:?}");
+    assert!(outputs.get(3).is_some_and(|o| o.starts_with("Tool execution was not approved.")), "{outputs:?}");
+    match h.chat.browser().status() {
+        BrowserStatus::Running { title, .. } => assert_eq!(title, "Lattice browser test", "the post was not clicked"),
+        other => panic!("{other:?}"),
+    }
+}
+
+
+/// This PC's own server: a port no dev server of the conversation listens on
+/// asks the reader in the core's dialog; a no opens nothing, a yes opens it
+/// and is kept until Lattice closes, so the next open does not ask.
+/// Mutants: a local port opened unasked; the yes not kept.
+#[test]
+fn a_local_port_asks_the_reader_once_and_a_no_opens_nothing() {
+    let _one = crate::testkit::one_real_browser();
+    let Some(h) = browser_harness("browser-local") else {
+        return;
+    };
+    let workspace = h.workspace();
+    h.runtime.block_on(h.chat.browser_set_on(true)).unwrap();
+    let local = page().replace("127.0.0.1", "localhost");
+    *h.confirm.answer.lock().unwrap() = false;
+    let model = h.script(vec![call("browser_open", json!({"url": local}), "l1"), say("Not allowed.")]);
+    let id = h.agent(None, "Open my app.", &workspace);
+    let events = h.turns_end(&id, 1);
+    let said = outputs(&events);
+    assert!(said[0].contains("The user did not allow localhost:"), "{said:?}");
+    let asked = |h: &H| h.confirm.asked().iter().filter(|r| matches!(r, ConfirmRequest::BrowserLocalPort { .. })).count();
+    assert_eq!(asked(&h), 1);
+    *h.confirm.answer.lock().unwrap() = true;
+    model.enqueue(call("browser_open", json!({"url": local}), "l2"));
+    model.enqueue(call("browser_open", json!({"url": local}), "l3"));
+    model.enqueue(say("Opened."));
+    h.agent(Some(&id), "Try again.", &workspace);
+    let events = h.turns_end(&id, 2);
+    let said = outputs(&events);
+    assert!(said.iter().filter(|o| o.starts_with("The page is Lattice browser test")).count() >= 2, "{said:?}");
+    assert_eq!(asked(&h), 2, "asked once more, then kept");
+}
+
+/// An upload always asks, on a card that names the file; a no puts nothing
+/// in the field. A file whose name says it holds secrets is never uploaded.
+/// Mutants: an upload that does not ask; a secret's name let through.
+#[test]
+fn an_upload_always_asks_and_a_secrets_file_is_never_sent() {
+    for secret in [".env", ".env.local", "id_rsa", "server.key", "cert.pfx", "aws_credentials.json", "client_secret.json"] {
+        assert!(super::turn::secret_file_name(secret), "{secret}");
+    }
+    for fine in ["report.txt", "photo.png", "keyboard.md", "notes.env.md"] {
+        assert!(!super::turn::secret_file_name(fine), "{fine}");
+    }
+    let _one = crate::testkit::one_real_browser();
+    let Some(h) = browser_harness("browser-upload") else {
+        return;
+    };
+    let workspace = h.workspace();
+    std::fs::write(h.folder.join("report.txt"), "numbers").unwrap();
+    h.runtime.block_on(h.chat.browser_set_on(true)).unwrap();
+    h.script(vec![
+        call("browser_open", json!({"url": format!("{}upload", page())}), "u1"),
+        call("browser_find", json!({"query": "report file"}), "u2"),
+        call("browser_upload", json!({"ref": "r1", "path": "report.txt"}), "u3"),
+        say("Waited."),
+    ]);
+    let id = h.agent(None, "Upload the report.", &workspace);
+    let events = h.events_until(&id, |events| approval(events).is_some());
+    let (call_id, detail, _) = approval(&events).unwrap();
+    assert_eq!(call_id, "u3");
+    match detail {
+        ApprovalDetail::Browser { action, .. } => assert_eq!(action, "upload report.txt into r1"),
+        other => panic!("{other:?}"),
+    }
+    h.runtime.block_on(h.chat.decide(&id, "u3", Decision::Reject { note: None })).unwrap();
+    let events = h.turns_end(&id, 1);
+    let said = outputs(&events);
+    assert!(said.last().is_some_and(|o| o.contains("not approved")), "{said:?}");
+}

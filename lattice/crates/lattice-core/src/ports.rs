@@ -129,6 +129,23 @@ pub enum ConfirmRequest {
         tool: String,
         from: String,
     },
+    /// Keep a prompt the agent would run later (`convo::schedules`).
+    Schedule {
+        title: String,
+        /// When, in words.
+        when: String,
+        /// At most 600 characters of the prompt.
+        prompt: String,
+        /// A wake-up of this conversation, not a new topic.
+        here: bool,
+    },
+    /// Let the agent's browser open a port of this PC's own (`localhost`)
+    /// that no dev server of the agent's conversation listens on.
+    BrowserLocalPort {
+        port: u16,
+        /// The address the agent asked for.
+        address: String,
+    },
     /// An action in the agent's browser whose effect another person will
     /// see, moves money, deletes something or changes an account.
     BrowserAct {
@@ -152,6 +169,32 @@ pub enum ConfirmRequest {
         what: String,
         effect: String,
     },
+    /// Add a server of Lattice's catalog to the reader's MCP settings
+    /// (`convo::connectors`).
+    AddConnector {
+        name: String,
+        /// Its command line.
+        command: String,
+        /// Why, in the agent's words.
+        why: String,
+    },
+    /// Let the agent read the clipboard's text (auto mode's `desktop_clipboard`).
+    ClipboardRead {
+        /// The window in front, as its title names it.
+        front: String,
+    },
+    /// Let the agent read the last lines of one of the reader's terminals
+    /// (`convo::terminal`).
+    TerminalRead {
+        /// The terminal, as its tab names it, and its folder.
+        terminal: String,
+        lines: usize,
+    },
+    /// Let the agent run a command in a new terminal (`convo::terminal`).
+    TerminalRun {
+        command: String,
+        folder: String,
+    },
 }
 
 /// A decision that widens authority or sends data off the machine.
@@ -164,6 +207,32 @@ pub trait ConfirmPort: Send + Sync {
 /// Never carries text from the conversation, and never causes an action.
 pub trait AttentionPort: Send + Sync {
     fn attention(&self, conversation: &str);
+}
+
+/// One of the reader's terminals, as the agent is told of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalTab {
+    pub id: u64,
+    /// Which shell, as its tab says.
+    pub label: String,
+    /// The folder it started in.
+    pub folder: String,
+    /// Its shell still runs.
+    pub running: bool,
+    /// The one on show.
+    pub active: bool,
+}
+
+/// The window's terminals (`convo::terminal`). Each call is made only after
+/// the reader's yes in the core's own dialog.
+pub trait TerminalPort: Send + Sync {
+    /// The terminals open now.
+    fn list(&self) -> BoxFuture<'static, Vec<TerminalTab>>;
+    /// The last `lines` lines terminal `id` shows.
+    fn read(&self, id: u64, lines: usize) -> BoxFuture<'static, Result<String, String>>;
+    /// Open a new terminal in `folder` and run the one-line `command` in it:
+    /// the new terminal's id.
+    fn run(&self, folder: std::path::PathBuf, command: String) -> BoxFuture<'static, Result<u64, String>>;
 }
 
 // ------------------------------------------------------- CP1–CP3 (§2.5)
@@ -467,6 +536,67 @@ impl ConfirmRequest {
                 lines.push("It runs as you, with its own tools, on your account with its maker. Yes allows this once.".to_owned());
                 (format!("Let {} do this?", e(agent)), lines, "Allow once", "Do not allow")
             }
+            Self::Schedule { title, when, prompt, here } => (
+                format!("Let the agent schedule \"{}\"?", e(title)),
+                vec![
+                    format!("When: {}", e(when)),
+                    if *here { "It continues this conversation then.".to_owned() } else { "It starts a new topic then, as a task.".to_owned() },
+                    format!("It will send: {}", e(prompt)),
+                    "It runs only while Alelyon is open; you can cancel it on the Tools page.".to_owned(),
+                ],
+                "Allow this schedule",
+                "Do not allow",
+            ),
+            Self::AddConnector { name, command, why } => (
+                format!("Add {} to your MCP settings?", e(name)),
+                vec![
+                    format!("Command: {}", e(command)),
+                    format!("The agent says: {}", e(why)),
+                    "It fetches its package (from npm or PyPI) when it first starts, and it starts only when you allow it.".to_owned(),
+                ],
+                "Add it",
+                "Do not add",
+            ),
+            Self::ClipboardRead { front } => (
+                "Let the agent read your clipboard?".to_owned(),
+                vec![
+                    "It reads the text you last copied, whatever it is.".to_owned(),
+                    format!("In front now: {}", e(front)),
+                    "Lattice hides keys it recognizes, but it cannot know every secret.".to_owned(),
+                ],
+                "Allow this read",
+                "Do not allow",
+            ),
+            Self::TerminalRead { terminal, lines } => (
+                format!("Let the agent read your terminal {}?", e(terminal)),
+                vec![
+                    format!("It reads its last {lines} lines, with anything printed there."),
+                    "Lattice hides keys it recognizes, but it cannot know every secret.".to_owned(),
+                ],
+                "Allow this read",
+                "Do not allow",
+            ),
+            Self::TerminalRun { command, folder } => (
+                "Let the agent run a command in a new terminal?".to_owned(),
+                vec![
+                    format!("Command: {}", e(command)),
+                    format!("Folder: {}", e(folder)),
+                    "It runs as you, in a terminal you can see and type into. Lattice keeps no checkpoint of what it changes.".to_owned(),
+                ],
+                "Run it",
+                "Do not run",
+            ),
+            Self::BrowserLocalPort { port, address } => (
+                format!("Let the agent's browser open localhost:{port}?"),
+                vec![
+                    format!("It asked for: {}", e(address)),
+                    format!("A program on this PC listens on port {port}, and no dev server the agent started does."),
+                    "The agent will see and use whatever that program serves, as you would in a browser.".to_owned(),
+                    "Allowed until Lattice closes.".to_owned(),
+                ],
+                "Allow this port",
+                "Do not allow",
+            ),
             Self::BrowserAct {
                 site,
                 action,
@@ -701,6 +831,12 @@ mod tests {
                 detail: s("{\"path\": \"a.txt\"}"),
                 diff: vec![s("a.txt:"), s("- hello"), s("+ goodbye")],
             },
+            ConfirmRequest::BrowserLocalPort { port: 5173, address: s("http://localhost:5173/") },
+            ConfirmRequest::Schedule { title: s("Check CI"), when: s("every hour"), prompt: s("Look at the build."), here: false },
+            ConfirmRequest::AddConnector { name: s("playwright"), command: s("npx @playwright/mcp@latest"), why: s("To test the site.") },
+            ConfirmRequest::ClipboardRead { front: s("notes.txt - Notepad") },
+            ConfirmRequest::TerminalRead { terminal: s("PowerShell 7 (C:\\w)"), lines: 200 },
+            ConfirmRequest::TerminalRun { command: s("npm run dev"), folder: s("C:\\w") },
             ConfirmRequest::BrowserAct {
                 site: s("x.com"),
                 action: s("click at (612, 304)"),

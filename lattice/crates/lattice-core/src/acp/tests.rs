@@ -354,6 +354,53 @@ fn an_agent_that_ends_ends_every_waiting_request() {
     assert_eq!(closed.lock().unwrap().clone(), ["The agent stopped."]);
 }
 
+/// The agent ends just as a request finds the connection open (a full verify
+/// once lost that race under load, 2026-10-15, and heard "did not answer in
+/// time"): the request is held there until the reader has ended every
+/// waiting request and said the connection closed, and it must still hear
+/// that the agent stopped rather than wait out its time.
+#[test]
+fn a_request_the_agent_ends_under_still_hears_it_stopped() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (_agent_in, to_agent) = pipes();
+    let (from_agent, agent_out) = pipes();
+    let closed = Arc::new(Mutex::new(Vec::new()));
+    let saw = closed.clone();
+    let conn = Connection::start(
+        "gone mid-request",
+        Box::new(from_agent),
+        Box::new(to_agent),
+        Arc::new(move |event| {
+            if let Event::Closed(why) = event {
+                saw.lock().unwrap().push(why);
+            }
+        }),
+        Arc::new(|_| {}),
+    )
+    .unwrap();
+    // Starve the writer as the load did: it is stuck writing a line larger
+    // than the pipe holds, which the agent never reads, so it has not yet
+    // taken the close when the request goes out. (Were it done, the request
+    // would fail to send and hear the close that way, hiding the race.)
+    conn.notify("fill", json!({"text": "x".repeat(1 << 20)}));
+    let heard = closed.clone();
+    super::connection::after_registering(move || {
+        drop(agent_out);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while heard.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(heard.lock().unwrap().clone(), ["The agent stopped."]);
+    });
+    let error = runtime
+        .block_on(conn.request("initialize", json!({}), std::time::Duration::from_secs(5)))
+        .unwrap_err();
+    assert_eq!(error.sentence(), "The agent stopped.");
+}
+
 /// The agents as Lattice runs them: each choice names its agent, its sign-in
 /// and model are the ones measured, and its environment never carries
 /// Claude Code's own nesting marker.
@@ -739,4 +786,45 @@ fn a_change_is_shown_as_its_removed_and_added_lines() {
 fn codex_opens_in_the_mode_that_asks_before_every_edit() {
     assert_eq!(Agent::Codex.mode(), Some("read-only"));
     assert_eq!(Agent::ClaudeCode.mode(), None);
+}
+
+/// An agent's Job holds the builds and test suites it runs: three quarters of
+/// the machine's memory, never under the floor, the fallback where the
+/// machine cannot say, and room for a parallel build's processes.
+#[test]
+fn an_agent_and_what_it_runs_may_use_most_of_the_machine() {
+    use super::{ACTIVE_PROCESSES, MEMORY_FALLBACK, MEMORY_FLOOR, limits, memory_share};
+    const GIB: u64 = 1024 * 1024 * 1024;
+    assert_eq!(memory_share(Some(64 * GIB)), 48 * GIB);
+    assert_eq!(memory_share(Some(8 * GIB)), MEMORY_FLOOR, "never under the floor");
+    assert_eq!(memory_share(None), MEMORY_FALLBACK);
+    let job = limits();
+    assert_eq!(job.active_processes, ACTIVE_PROCESSES);
+    assert!(job.active_processes >= 1024);
+    assert!(job.job_memory >= MEMORY_FLOOR);
+    if let Some(physical) = lattice_sys::process::physical_memory() {
+        assert!(job.job_memory < physical.max(MEMORY_FLOOR + 1), "never the whole machine");
+    }
+}
+
+/// A build an agent runs finds the system's toolchains: Windows' own folders
+/// reach it (a Rust build finds Visual Studio's linker through
+/// `ProgramData`), and still no key does.
+#[test]
+fn an_agent_sees_where_the_system_keeps_its_toolchains() {
+    let env = MapEnv::new()
+        .with("PATH", r"C:\Windows")
+        .with("ProgramData", r"C:\ProgramData")
+        .with("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        .with("NUMBER_OF_PROCESSORS", "32")
+        .with("ANTHROPIC_API_KEY", "not for an agent")
+        .with("GITHUB_TOKEN", "not for an agent");
+    let block = environment(&env, None, Path::new(r"C:\globals"));
+    let has = |name: &str| block.iter().any(|(n, _)| n.to_string_lossy().eq_ignore_ascii_case(name));
+    for name in ["ProgramData", "ProgramFiles(x86)", "NUMBER_OF_PROCESSORS"] {
+        assert!(has(name), "{name}");
+    }
+    for name in ["ANTHROPIC_API_KEY", "GITHUB_TOKEN"] {
+        assert!(!has(name), "{name}");
+    }
 }

@@ -6,8 +6,10 @@
 //! - **The reader's own file**, `<native>/chat/mcp.json`. Its environment
 //!   values are used as written and live only there. Lattice writes it only
 //!   for the reader's own edits in the Tools view ([`put_user_server`],
-//!   [`remove_user_server`], [`set_user_disabled`]), and never over a file it
-//!   cannot read or parse.
+//!   [`remove_user_server`], [`set_user_disabled`]) and for a server of its
+//!   catalog the reader said yes to in the core's dialog
+//!   (`crate::convo::connectors`), and never over a file it cannot read or
+//!   parse.
 //! - **A folder's files**, read only when the folder is trusted (FT3), through
 //!   the folder's path rules: `.lattice/mcp.json`, then `.mcp.json` (Claude
 //!   Code's), then `.cursor/mcp.json`. A name the first file declares wins.

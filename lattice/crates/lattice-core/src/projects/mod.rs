@@ -72,6 +72,10 @@ pub struct Project {
     pub updated: f64,
     #[serde(default)]
     pub archived: bool,
+    /// Allow all: the agent acts without asking in this project's chats
+    /// (`convo::allow`); only what moves money still asks.
+    #[serde(default)]
+    pub allow_all: bool,
 }
 
 impl Project {
@@ -104,6 +108,7 @@ pub struct Change {
     pub files: Option<Vec<String>>,
     pub choice: Option<Option<String>>,
     pub archived: Option<bool>,
+    pub allow_all: Option<bool>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -202,6 +207,7 @@ impl Projects {
             created: now,
             updated: now,
             archived: false,
+            allow_all: false,
         };
         stored.v = 1;
         stored.projects.push(project.clone());
@@ -270,6 +276,9 @@ impl Projects {
         }
         if let Some(choice) = change.choice {
             project.choice = choice;
+        }
+        if let Some(allow_all) = change.allow_all {
+            project.allow_all = allow_all;
         }
         if let Some(archived) = change.archived {
             project.archived = archived;

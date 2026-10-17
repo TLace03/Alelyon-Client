@@ -51,6 +51,7 @@ fn matched() -> Standing {
     Standing {
         command_entry: Some("e_1".into()),
         mcp_allowlisted: false,
+        allow_all: false,
     }
 }
 
@@ -295,6 +296,7 @@ fn mcp_tools_ask_unless_allowlisted() {
     let allowlisted = Standing {
         command_entry: None,
         mcp_allowlisted: true,
+        allow_all: false,
     };
     assert_eq!(
         agent(ToolClass::Mcp, &Target::None, &open(), &allowlisted),
@@ -597,6 +599,7 @@ fn every_combination_of_inputs_agrees_with_the_table() {
                                     Standing {
                                         command_entry: None,
                                         mcp_allowlisted: true,
+                                        allow_all: false,
                                     },
                                 ] {
                                     let gates = Gates {
@@ -625,4 +628,27 @@ fn every_combination_of_inputs_agrees_with_the_table() {
     assert_eq!(checked, 2 * 2 * 13 * 6 * 3 * 2 * 3 * 3);
     // Every rule of the engine was reached.
     assert_eq!(kinds.len(), 22, "{kinds:?}");
+}
+
+/// Allow all (the project's switch): a command, an MCP call and an authority
+/// file's Keep go ahead without asking, past the staged-changes gate; the
+/// refusals still stand.
+#[test]
+fn allow_all_lets_commands_mcp_and_authority_keeps_through_and_keeps_the_refusals() {
+    let all = Standing { allow_all: true, ..Standing::default() };
+    let staged = Gates { staged_waiting: 2, ..open() };
+    assert_eq!(agent(ToolClass::RunCommand, &command(PathClass::Normal), &staged, &all), Verdict::Allow(Because::AllowAll));
+    assert_eq!(agent(ToolClass::Mcp, &Target::None, &open(), &all), Verdict::Allow(Because::AllowAll));
+    assert_eq!(agent(ToolClass::KeepAll, &path(PathClass::Authority), &open(), &all), Verdict::Allow(Because::AllowAll));
+    assert_eq!(agent(ToolClass::Keep(KeepKind::Change), &path(PathClass::Authority), &open(), &all), Verdict::Allow(Because::AllowAll));
+    assert_eq!(Verdict::Allow(Because::AllowAll).rule(), "allow all");
+    // What refuses still refuses: Ask mode, an untrusted folder, the lease elsewhere, a command running.
+    assert_eq!(decide(Mode::Ask, true, ToolClass::RunCommand, &command(PathClass::Normal), &open(), &all), Verdict::Refuse(Reason::AskMode));
+    assert_eq!(decide(Mode::Agent, false, ToolClass::RunCommand, &command(PathClass::Normal), &open(), &all), Verdict::Refuse(Reason::Untrusted));
+    let elsewhere = Gates { lease: Lease::Elsewhere, ..open() };
+    assert_eq!(agent(ToolClass::RunCommand, &command(PathClass::Normal), &elsewhere, &all), Verdict::Refuse(Reason::LeaseElsewhere));
+    let running = Gates { command_running: true, ..open() };
+    assert_eq!(agent(ToolClass::RunCommand, &command(PathClass::Normal), &running, &all), Verdict::Refuse(Reason::CommandRunning));
+    // Without it, the same calls ask.
+    assert_eq!(agent(ToolClass::RunCommand, &command(PathClass::Normal), &open(), &none()), Verdict::Ask(AskKind::Command));
 }

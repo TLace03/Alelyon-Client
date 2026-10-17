@@ -239,16 +239,7 @@ impl Recall {
     /// Which topic `text` goes to, `current` being the topic shown now
     /// (`None`: none yet). Call [`Recall::refresh`] first.
     pub fn route(&mut self, text: &str, current: Option<&str>) -> Route {
-        let mut by_topic: HashMap<String, Vec<f64>> = HashMap::new();
-        for hit in self.search(text, None, 60) {
-            by_topic.entry(hit.conversation).or_default().push(hit.score);
-        }
-        let score = |scores: &Vec<f64>| -> f64 {
-            let mut s = scores.clone();
-            s.sort_by(|a, b| b.total_cmp(a));
-            s.iter().take(3).sum()
-        };
-        let mut topics: Vec<(String, f64)> = by_topic.iter().map(|(id, s)| (id.clone(), score(s))).collect();
+        let mut topics: Vec<(String, f64)> = self.topic_scores(text).into_iter().collect();
         topics.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         let own = current.and_then(|c| topics.iter().find(|(id, _)| id == c)).map_or(0.0, |(_, s)| *s);
         let best = topics.iter().find(|(id, _)| Some(id.as_str()) != current);
@@ -263,6 +254,76 @@ impl Recall {
             _ if own == 0.0 && self.convos.get(current).is_some_and(|c| c.docs.len() >= NEW_AFTER) => Route::New,
             _ => Route::Continue,
         }
+    }
+}
+
+impl Recall {
+    /// Each topic's score for `text`: the sum of its best three turns'.
+    /// Call [`Recall::refresh`] first.
+    pub fn topic_scores(&mut self, text: &str) -> HashMap<String, f64> {
+        let mut by_topic: HashMap<String, Vec<f64>> = HashMap::new();
+        for hit in self.search(text, None, 60) {
+            by_topic.entry(hit.conversation).or_default().push(hit.score);
+        }
+        by_topic
+            .into_iter()
+            .map(|(id, mut s)| {
+                s.sort_by(|a, b| b.total_cmp(a));
+                (id, s.iter().take(3).sum())
+            })
+            .collect()
+    }
+
+    /// A topic's own words, to match it against others: its title and its
+    /// first few of the reader's messages.
+    pub fn topic_text(&self, id: &str) -> String {
+        let Some(c) = self.convos.get(id) else { return String::new() };
+        let mut text = c.title.clone();
+        for doc in c.docs.iter().filter(|d| d.user).take(3) {
+            text.push('\n');
+            text.push_str(&doc.text);
+        }
+        text
+    }
+
+    /// A listed topic's title, as last read.
+    pub fn title_of(&self, id: &str) -> Option<&str> {
+        self.convos.get(id).map(|c| c.title.as_str())
+    }
+
+    /// `text`'s score for `query` as though it were one more turn in the
+    /// index: BM25 with the index's own word counts, and like a turn it needs
+    /// two of the query's distinct words (one when the query has one). What a
+    /// group says it does (its name and plan) is scored so, beside its topics.
+    /// Call [`Recall::refresh`] first.
+    pub fn text_score(&mut self, query: &str, text: &str) -> f64 {
+        let mut terms = words(query);
+        terms.sort();
+        terms.dedup();
+        let doc = words(text);
+        if terms.is_empty() || doc.is_empty() {
+            return 0.0;
+        }
+        if self.postings.is_none() {
+            self.build();
+        }
+        let Some(postings) = &self.postings else { return 0.0 };
+        // the text joins the index's counts as one more document
+        let n = self.docs as f64 + 1.0;
+        let len = doc.len() as f64;
+        let avg = (self.avg_len * self.docs as f64 + len) / n;
+        let (mut score, mut matched) = (0.0, 0);
+        for term in &terms {
+            let tf = doc.iter().filter(|w| *w == term).count() as f64;
+            if tf == 0.0 {
+                continue;
+            }
+            let df = postings.get(term).map_or(0, Vec::len) as f64 + 1.0;
+            let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+            score += idf * tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * len / avg.max(1.0)));
+            matched += 1;
+        }
+        if matched >= terms.len().min(2) { score } else { 0.0 }
     }
 }
 

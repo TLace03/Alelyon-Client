@@ -14,12 +14,16 @@
 //!   scroll, go back. Each ends with a screenshot the model sees next.
 //! - [`policy`]: what it may open (the public web, never this PC or its
 //!   network), what an action's effect is, and which effects ask first.
+//! - [`devtools`]: what a developer's tools give, for the agent: a script run
+//!   in the page, the console and the requests the page made, elements found
+//!   by their words and forms filled, the page's size and colour scheme.
 //! - [`preview`]: a browser of its own with no network, where the reader
 //!   previews a page or a picture the agent saved (an artifact).
 //!
 //! What it never does: type into a password, payment card or another site's
-//! field (the reader signs in and pays), download a file, run the agent's
-//! script, or open a local or private address. What it asks before: an action
+//! field (the reader signs in and pays), download a file, run a script that
+//! reaches a password, a card, cookies or a site's stored data
+//! ([`policy::script_looks`]), or open a local or private address. What it asks before: an action
 //! whose effect another person will see, that moves money, deletes something,
 //! or changes an account (the charter's rules), in the core's own dialog.
 //!
@@ -27,6 +31,7 @@
 //! offers its tools, and nothing starts it.
 
 pub mod cdp;
+pub mod devtools;
 pub mod launch;
 pub mod pipe;
 pub mod policy;

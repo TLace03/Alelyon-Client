@@ -304,7 +304,7 @@ impl ModelEndpoint {
 
 /// The catalogue the registry starts from (`_builtins()`), in its order.
 pub fn builtins() -> Vec<ModelEndpoint> {
-    use EndpointKind::{Anthropic, Llamacpp, OpenaiCompatible as Openai};
+    use EndpointKind::{Llamacpp, OpenaiCompatible as Openai};
     vec![
         ep("llamacpp-local", "llama.cpp (this machine, managed)", Llamacpp)
             .on()
@@ -326,8 +326,9 @@ pub fn builtins() -> Vec<ModelEndpoint> {
             .note(
                 "A llama-server you started yourself, on its default port. Most builds serve one model and ignore the model field. The managed entry above needs no server of your own.",
             ),
-        ep("anthropic", "Anthropic", Anthropic)
-            .model("claude-sonnet-5")
+        ep("anthropic", "Anthropic", Openai)
+            .at("https://api.anthropic.com/v1")
+            .model("claude-sonnet-5-5")
             .key("ANTHROPIC_API_KEY"),
         ep("huggingface", "Hugging Face (Inference Providers)", Openai)
             .at("https://router.huggingface.co/v1")
@@ -341,11 +342,11 @@ pub fn builtins() -> Vec<ModelEndpoint> {
             .key("COHERE_API_KEY"),
         ep("openai", "OpenAI", Openai)
             .at("https://api.openai.com/v1")
-            .model("gpt-4o")
+            .model("gpt-6.1-sol")
             .key("OPENAI_API_KEY"),
         ep("google", "Google Gemini", Openai)
             .at("https://generativelanguage.googleapis.com/v1beta/openai")
-            .model("gemini-2.0-flash")
+            .model("gemini-3.8-flash")
             .key("GEMINI_API_KEY"),
         ep("xai", "xAI Grok", Openai)
             .at("https://api.x.ai/v1")

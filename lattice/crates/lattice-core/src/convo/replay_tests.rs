@@ -459,13 +459,22 @@ fn the_agent_prompt_matches_its_golden() {
             "glob",
             "read_file",
             "grep",
+            "read_notebook",
             "ask_question",
             "git_status",
             "git_diff",
+            "schedule_prompt",
+            "list_schedules",
+            "cancel_schedule",
+            "web_fetch",
             "recall",
             "remember",
             "forget",
             "spawn_agent",
+            "spawn_agents",
+            "send_agent",
+            "wait_agent",
+            "close_agent",
             "suggest_task",
             "withdraw_task",
             "switch_project",
@@ -474,10 +483,15 @@ fn the_agent_prompt_matches_its_golden() {
             "stop_task",
             "answer_task",
             "write_artifact",
+            "find_connectors",
+            "suggest_connector",
+            "write_walkthrough",
             "read_artifact",
             "give_steps",
             "read_steps",
             "update_todos",
+            "recommend_stack",
+            "review_stack",
             "propose_plan"
         ]
     );
@@ -485,7 +499,7 @@ fn the_agent_prompt_matches_its_golden() {
         .iter()
         .map(|t| t.name)
         .collect();
-    assert_eq!(agent.len(), 32);
+    assert_eq!(agent.len(), 50);
     assert!(prompt_agent::SYSTEM.contains("PowerShell"));
     assert!(!prompt_agent::SYSTEM.contains("Project rules"));
 }

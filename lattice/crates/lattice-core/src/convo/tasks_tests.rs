@@ -378,6 +378,7 @@ fn a_reopened_conversation_shows_its_tasks_as_they_were_left() {
             summary: "s".into(),
             prompt: PROMPT.into(),
             at: 1.0,
+            group: None,
         },
         Item::TaskSettled {
             task: "task_0011223344556677".into(),
@@ -396,6 +397,7 @@ fn a_reopened_conversation_shows_its_tasks_as_they_were_left() {
                 title: "Fix the stale README badge".into(),
                 summary: "s".into(),
                 prompt: PROMPT.into(),
+                group: None,
             },
             ConversationEventKind::TaskSettled {
                 task: "task_0011223344556677".into(),
@@ -423,8 +425,9 @@ fn a_reopened_conversation_shows_its_tasks_as_they_were_left() {
 }
 
 /// Started tasks are bounded by the reader's limit: with a limit of one, a
-/// second Start while the first task's topic still works is refused with a
-/// sentence and the task still waits; once the first ends, it starts. Each
+/// second Start while the first task's topic still works is answered with a
+/// sentence and the task is queued; once the first ends, it starts by itself,
+/// once. Each
 /// started topic is recorded with the topic it came from and its title.
 /// Mutants: the limit not checked; the origin topic counted as a task.
 #[test]
@@ -461,15 +464,29 @@ fn tasks_past_the_readers_limit_wait_and_each_records_where_it_came_from() {
     let refused = start(&tasks[1]).unwrap_err();
     assert_eq!((refused.kind, refused.message.as_str()), (RefusalKind::Conflict, task_runs::full(1).as_str()));
     let listed = h.runtime.block_on(h.chat.list()).unwrap().conversations.len();
-    assert_eq!(listed, 2, "the refused task started nothing");
+    assert_eq!(listed, 2, "the queued task started nothing yet");
+    // A second Start of a queued task queues nothing more.
+    start(&tasks[1]).unwrap_err();
 
-    // Once it ends, the second starts.
-    h.turns_end(&first.id, 1);
+    // Once the first ends, the queued one starts by itself.
     slow.enqueue(say("Done."));
-    let Accepted::Started { conversation: second, .. } = start(&tasks[1]).unwrap() else { panic!("started") };
-    h.turns_end(&second.id, 1);
+    h.turns_end(&first.id, 1);
+    let events = h.events_until(&id, |events| {
+        events.iter().any(|e| matches!(&e.kind, ConversationEventKind::TaskSettled { task, .. } if *task == tasks[1]))
+    });
+    let second = events
+        .iter()
+        .find_map(|e| match &e.kind {
+            ConversationEventKind::TaskSettled { task, outcome: TaskOutcome::Started { conversation } } if *task == tasks[1] => {
+                Some(conversation.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    h.turns_end(&second, 1);
+    assert_eq!(h.runtime.block_on(h.chat.list()).unwrap().conversations.len(), 3, "it started once");
     let origins = h.chat.task_origins();
-    for topic in [&first.id, &second.id] {
+    for topic in [&first.id, &second] {
         let origin = &origins[topic];
         assert_eq!((origin.from.as_str(), origin.title.as_str()), (id.as_str(), "Fix the stale README badge"));
     }

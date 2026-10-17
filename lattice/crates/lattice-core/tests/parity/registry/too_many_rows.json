@@ -8,6 +8,6 @@
   "issues": ["invalid-row", "duplicate-endpoint-id"],
   "order": ["llamacpp-local", "local-openai", "lmstudio", "llamacpp", "anthropic", "huggingface", "cohere", "openai", "google", "xai", "deepseek", "mistral", "groq", "together", "fireworks", "openrouter"],
   "endpoints": [
-    {"id": "openai", "label": "OpenAI", "kind": "openai-compatible", "base_url": "https://api.openai.com/v1", "model": "gpt-4o", "api_key_name": "OPENAI_API_KEY", "enabled": false, "builtin": true, "note": "x", "local": false, "needs_key": true, "ready": false, "status": "disabled"}
+    {"id": "openai", "label": "OpenAI", "kind": "openai-compatible", "base_url": "https://api.openai.com/v1", "model": "gpt-6.1-sol", "api_key_name": "OPENAI_API_KEY", "enabled": false, "builtin": true, "note": "x", "local": false, "needs_key": true, "ready": false, "status": "disabled"}
   ]
 }

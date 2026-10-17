@@ -316,6 +316,24 @@ impl Client {
         Ok((status, retry, text))
     }
 
+    /// A GET whose refusals the caller reads itself, with `bearer` as the `Authorization: Bearer` credential (the
+    /// credits service): the HTTP status, Retry-After (whole seconds) and the body, or why nothing came back. The
+    /// credential is never part of an error.
+    pub async fn get_bearer_raw(&self, path: &str, bearer: &str) -> Result<(u16, Option<u64>, String), String> {
+        let reply = self
+            .http
+            .get(format!("{}{path}", self.base))
+            .header("accept", "application/json")
+            .bearer_auth(bearer)
+            .send()
+            .await
+            .map_err(|e| short(&e))?;
+        let status = reply.status().as_u16();
+        let retry = reply.headers().get("retry-after").and_then(|h| h.to_str().ok()).and_then(|s| s.trim().parse().ok());
+        let text = reply.text().await.map_err(|e| short(&e))?;
+        Ok((status, retry, text))
+    }
+
     /// `GET /identity/status`: whether the service is up, its notices, which providers are on, and its web pages.
     pub async fn status(&self) -> Result<Status, Failure> {
         let reply = self

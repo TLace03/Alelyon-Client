@@ -1,0 +1,22 @@
+{
+  "seq": 38,
+  "at": 1790000109.5,
+  "type": "choice_offered",
+  "choice": "call_8",
+  "area": "database",
+  "options": [
+    {
+      "option": "postgres",
+      "fit": "Orders join customers.",
+      "used": false
+    },
+    {
+      "option": "sqlite",
+      "fit": "",
+      "used": false
+    }
+  ],
+  "recommended": "postgres",
+  "why": "Orders must not be half-written.",
+  "step": 1
+}

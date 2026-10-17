@@ -116,8 +116,9 @@ pub mod words {
     /// PROVISIONAL. Why an Ollama row is refused (ADR-0041).
     pub const OLLAMA_RETIRED: &str =
         "Ollama is no longer used by Lattice; pick Local, which runs llama.cpp on this machine.";
-    /// Chat spec Appendix A.
-    pub const ANTHROPIC_ENDPOINT: &str = "Anthropic models are not in the native Lattice yet.";
+    /// Chat spec Appendix A: a row of the older `anthropic` kind (Anthropic's
+    /// Messages API). The built-in Anthropic row speaks Chat Completions.
+    pub const ANTHROPIC_ENDPOINT: &str = "This endpoint speaks Anthropic's Messages API, which the native Lattice does not; use the Anthropic entry, which speaks Chat Completions.";
     /// Chat spec Appendix A (ledger row 35).
     pub const MISSING_KEY: &str = "No API key for it is set where this window looks (the environment, or FAMEnvironment.env in the Lattice folder).";
     /// `choices.rs`'s sentences for the other registry statuses.
@@ -1142,13 +1143,19 @@ pub(crate) mod tests {
             r#"{"version": 1, "endpoints": [
                 {"id": "openai", "enabled": true},
                 {"id": "anthropic", "enabled": true},
+                {"id": "messages-api", "label": "Anthropic (Messages API)", "kind": "anthropic", "model": "m", "api_key_name": "ANTHROPIC_API_KEY", "enabled": true},
                 {"id": "nomodel", "label": "No model", "base_url": "https://x.example.test/v1", "enabled": true}
             ]}"#,
         );
         let choices = f.choices(false);
         let refusal = |id: &str| entry(&choices, id).choice.refusal.clone().unwrap();
         assert_eq!(refusal("endpoint:openai"), words::MISSING_KEY);
-        assert_eq!(refusal("endpoint:anthropic"), words::ANTHROPIC_ENDPOINT);
+        assert_eq!(
+            refusal("endpoint:anthropic"),
+            words::MISSING_KEY,
+            "the built-in Anthropic row is OpenAI-compatible: only its key is missing"
+        );
+        assert_eq!(refusal("endpoint:messages-api"), words::ANTHROPIC_ENDPOINT);
         assert_eq!(refusal("endpoint:nomodel"), words::NO_MODEL_NAME);
         assert_eq!(refusal("cloud"), words::CLOUD_REFUSAL);
         let everything = serde_json::to_string(

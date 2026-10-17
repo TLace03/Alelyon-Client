@@ -40,7 +40,7 @@ use crate::state::StateRoot;
 /// The page's size, in CSS pixels (= screenshot pixels).
 pub const VIEWPORT: (u32, u32) = (1280, 800);
 /// How long one DevTools request waits.
-const CALL: Duration = Duration::from_secs(30);
+pub(super) const CALL: Duration = Duration::from_secs(30);
 /// How long an action waits for its page to stop loading.
 pub const LOAD_WAIT: Duration = Duration::from_secs(15);
 /// The pause after an action before the page is looked at.
@@ -212,6 +212,8 @@ pub struct Shot {
     /// Something the reader and the model should know (a dialog dismissed, a
     /// new tab followed, a download refused).
     pub notes: Vec<String>,
+    /// The page's size in pixels, the screenshot's coordinates.
+    pub size: (u32, u32),
 }
 
 impl Shot {
@@ -225,8 +227,8 @@ impl Shot {
                 &self.title
             },
             self.url,
-            VIEWPORT.0,
-            VIEWPORT.1
+            self.size.0,
+            self.size.1
         );
         for note in &self.notes {
             text.push(' ');
@@ -286,7 +288,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// What the page's events tell the actions.
 #[derive(Default)]
-struct PageEvents {
+pub(super) struct PageEvents {
     /// Frames loading now (start minus stop).
     loading: AtomicU32,
     /// The page's own frame (a page target's main frame has its id).
@@ -299,6 +301,9 @@ struct PageEvents {
     notes: Mutex<Vec<String>>,
     /// A page another one opened, waiting to be followed.
     opened: Mutex<Option<String>>,
+    /// What the page wrote to its console, and its requests (`super::devtools`).
+    pub(super) console: Mutex<std::collections::VecDeque<super::devtools::ConsoleLine>>,
+    pub(super) network: Mutex<std::collections::VecDeque<super::devtools::Request>>,
 }
 
 impl PageEvents {
@@ -312,16 +317,18 @@ impl PageEvents {
 }
 
 /// A running browser.
-struct Live {
+pub(super) struct Live {
     child: Mutex<Option<lattice_sys::process::Child>>,
-    cdp: Arc<Cdp>,
+    pub(super) cdp: Arc<Cdp>,
     /// The page target and its session.
     page: Mutex<Option<(String, String)>>,
-    events: Arc<PageEvents>,
+    pub(super) events: Arc<PageEvents>,
+    /// The page's size and colour scheme (`super::devtools::Viewport`).
+    pub(super) viewport: Mutex<super::devtools::Viewport>,
 }
 
 impl Live {
-    fn session(&self) -> Option<String> {
+    pub(super) fn session(&self) -> Option<String> {
         lock(&self.page)
             .as_ref()
             .map(|(_, session)| session.clone())
@@ -337,6 +344,8 @@ pub struct AgentBrowser {
     live: tokio::sync::Mutex<Option<Arc<Live>>>,
     status: Mutex<BrowserStatus>,
     changed: Arc<watch::Sender<u64>>,
+    /// The ports of this PC the reader let the browser open, until Lattice closes.
+    local_ports: Mutex<std::collections::HashSet<u16>>,
 }
 
 fn on_event(events: &PageEvents, event: Event) {
@@ -390,6 +399,12 @@ fn on_event(events: &PageEvents, event: Event) {
                 *lock(&events.opened) = Some(id.to_owned());
             }
         }
+        "Runtime.consoleAPICalled" | "Runtime.exceptionThrown" | "Log.entryAdded" => {
+            super::devtools::on_console(&events.console, &event);
+        }
+        "Network.requestWillBeSent" | "Network.responseReceived" | "Network.loadingFailed" => {
+            super::devtools::on_network(&events.network, &event);
+        }
         "Browser.downloadWillBegin" | "Page.downloadWillBegin" => {
             lock(&events.notes)
                 .push("The page tried to download a file; downloads are refused.".to_owned());
@@ -409,6 +424,7 @@ impl AgentBrowser {
             live: tokio::sync::Mutex::new(None),
             status: Mutex::new(BrowserStatus::Stopped),
             changed: Arc::new(changed),
+            local_ports: Mutex::default(),
         }
     }
 
@@ -455,7 +471,7 @@ impl AgentBrowser {
         self.changed.send_modify(|n| *n = n.wrapping_add(1));
     }
 
-    fn check(&self, url: &str) -> Result<String, String> {
+    pub(super) fn check(&self, url: &str) -> Result<String, String> {
         if self.config.allow_local {
             return url::Url::parse(url)
                 .map(|url| url.to_string())
@@ -495,7 +511,7 @@ impl AgentBrowser {
     /// The running browser for an action of the agent's, its page brought to
     /// the front of its window first: a tab the reader opened (`open_tab`)
     /// may cover it, and the agent acts on, and looks at, its own page.
-    async fn agent_page(&self) -> Result<Arc<Live>, String> {
+    pub(super) async fn agent_page(&self) -> Result<Arc<Live>, String> {
         let live = self.live().await?;
         let target = lock(&live.page).as_ref().map(|(target, _)| target.clone());
         if let Some(target) = target {
@@ -579,6 +595,7 @@ impl AgentBrowser {
             cdp,
             page: Mutex::new(None),
             events,
+            viewport: Mutex::new(super::devtools::Viewport::default()),
         });
         let target = first_page(&live.cdp).await?;
         attach(&live, &target).await?;
@@ -690,9 +707,36 @@ impl AgentBrowser {
             .unwrap_or_default()
     }
 
+    /// Whether the reader let the browser open `port` of this PC.
+    pub fn local_allowed(&self, port: u16) -> bool {
+        lock(&self.local_ports).contains(&port)
+    }
+
+    /// The reader lets the browser open `port` of this PC, until Lattice closes.
+    pub fn allow_local(&self, port: u16) {
+        lock(&self.local_ports).insert(port);
+    }
+
+    /// Open an address of this PC's own (`localhost`) whose port the caller
+    /// has checked may be opened: a dev server of the agent's conversation, or
+    /// one the reader allowed ([`policy::local_port`]).
+    pub async fn open_local(&self, url: &str) -> Result<Shot, String> {
+        if policy::local_port(url).is_none() {
+            return Err("That is not an address of this PC's own servers.".to_owned());
+        }
+        let url = url::Url::parse(if url.contains("://") { url.to_owned() } else { format!("http://{url}") }.as_str())
+            .map(|u| u.to_string())
+            .map_err(|_| "That is not an address.".to_owned())?;
+        self.navigate(url).await
+    }
+
     /// Open an address in the page.
     pub async fn open(&self, url: &str) -> Result<Shot, String> {
         let url = self.check(url)?;
+        self.navigate(url).await
+    }
+
+    async fn navigate(&self, url: String) -> Result<Shot, String> {
         let live = self.agent_page().await?;
         let session = live.session();
         live.events.navigating.store(true, Ordering::SeqCst);
@@ -765,14 +809,15 @@ impl AgentBrowser {
         double: bool,
         stated: Effect,
     ) -> Result<Shot, String> {
-        let (width, height) = (f64::from(VIEWPORT.0), f64::from(VIEWPORT.1));
+        let live = self.agent_page().await?;
+        let size = lock(&live.viewport).size();
+        let (width, height) = (f64::from(size.0), f64::from(size.1));
         if !(0.0..width).contains(&x) || !(0.0..height).contains(&y) {
             return Err(format!(
                 "({x}, {y}) is outside the page, which is {} x {} pixels.",
-                VIEWPORT.0, VIEWPORT.1
+                size.0, size.1
             ));
         }
-        let live = self.agent_page().await?;
         if !stated.asks() {
             // Both are finite numbers inside the page: the expression is fixed.
             let target = read_target(&live, format!("{TARGET_JS}({x:.1}, {y:.1})")).await?;
@@ -940,7 +985,7 @@ impl AgentBrowser {
 
     /// After an action: follow a new tab, dismiss a dialog, wait for the
     /// page to settle, and look.
-    async fn after(&self, live: &Arc<Live>) -> Result<Shot, String> {
+    pub(super) async fn after(&self, live: &Arc<Live>) -> Result<Shot, String> {
         let mut notes = Vec::new();
         tokio::time::sleep(SETTLE).await;
         let opened = lock(&live.events.opened).take();
@@ -1012,6 +1057,7 @@ impl AgentBrowser {
                 base64: data,
             },
             notes,
+            size: lock(&live.viewport).size(),
         })
     }
 }
@@ -1030,7 +1076,7 @@ impl Drop for AgentBrowser {
 /// What one fixed expression says of the page (an empty target when it
 /// throws or says nothing).
 /// A fixed expression's value in the page, as `T`.
-async fn evaluate<T: serde::de::DeserializeOwned>(live: &Live, expression: &str) -> Result<T, String> {
+pub(super) async fn evaluate<T: serde::de::DeserializeOwned>(live: &Live, expression: &str) -> Result<T, String> {
     let session = live.session();
     let value = live
         .cdp
@@ -1098,8 +1144,31 @@ async fn first_page(cdp: &Cdp) -> Result<String, String> {
     }
 }
 
+/// The browser's pages: target id, title and address, in the browser's order.
+pub(super) async fn pages(live: &Live) -> Result<Vec<(String, String, String)>, String> {
+    let targets = live.cdp.call("Target.getTargets", json!({}), None, CALL).await?;
+    Ok(targets
+        .get("targetInfos")
+        .and_then(Value::as_array)
+        .map(|all| {
+            all.iter()
+                .filter(|t| t.get("type").and_then(Value::as_str) == Some("page"))
+                .map(|t| {
+                    let field = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+                    (field("targetId"), field("title"), field("url"))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// The page the agent works in, by target id.
+pub(super) fn current_target(live: &Live) -> Option<String> {
+    lock(&live.page).as_ref().map(|(target, _)| target.clone())
+}
+
 /// Make `target` the page the agent works in.
-async fn attach(live: &Live, target: &str) -> Result<(), String> {
+pub(super) async fn attach(live: &Live, target: &str) -> Result<(), String> {
     let attached = live
         .cdp
         .call(
@@ -1116,14 +1185,12 @@ async fn attach(live: &Live, target: &str) -> Result<(), String> {
         .to_owned();
     let s = Some(session.as_str());
     live.cdp.call("Page.enable", json!({}), s, CALL).await?;
-    live.cdp
-        .call(
-            "Emulation.setDeviceMetricsOverride",
-            json!({"width": VIEWPORT.0, "height": VIEWPORT.1, "deviceScaleFactor": 1, "mobile": false}),
-            s,
-            CALL,
-        )
-        .await?;
+    // The console and the network, kept for the agent's devtools (`super::devtools`).
+    for domain in ["Runtime.enable", "Log.enable", "Network.enable"] {
+        let _ = live.cdp.call(domain, json!({}), s, CALL).await;
+    }
+    let viewport = *lock(&live.viewport);
+    super::devtools::apply_viewport(live, s, viewport).await?;
     let _ = live
         .cdp
         .call(

@@ -79,6 +79,7 @@ use crate::chat::transcript::NewTurn;
 use crate::chat::vocab::Target;
 use crate::chat::{Locked, answer, answer_lock, refusals};
 use crate::desktop::Look;
+use crate::desktop::session::Button;
 use crate::desktop::policy as desktop_policy;
 use crate::exec::run::{
     CommandContext, Progress, ProgressSink, RunCommandArgs, StopHandle, approve, prepare,
@@ -145,10 +146,17 @@ pub(crate) struct TurnTools {
     pub skills: crate::skills::Skills,
     /// The turn's model, behind its tripwire, for its helpers (`super::helpers`).
     helper_model: std::sync::OnceLock<Arc<dyn Model>>,
-    /// Helpers running now.
-    helpers: std::sync::atomic::AtomicUsize,
+    /// The places of the helpers working now (`super::helpers::MAX_HELPERS`).
+    helpers: Arc<tokio::sync::Semaphore>,
     /// The reader's hooks, as read when the turn began (`super::hooked`).
     pub hooks: Arc<crate::hooks::Found>,
+    /// The model can see images: `view_image` is offered.
+    pub sight: bool,
+    /// The turn's model as the reader was shown it: what a schedule sends with.
+    pub shown: Option<lattice_protocol::Shown>,
+    /// The pictures of the agent's browser and the screen this turn showed
+    /// the model, for a walkthrough (`super::walkthrough`).
+    pub evidence: super::walkthrough::Evidence,
 }
 
 /// A picture for the next model call: the browser's page or the screen.
@@ -177,6 +185,14 @@ impl Picture {
                 shot.url
             ),
             image: shot.image.clone(),
+        }
+    }
+
+    fn of_zoom(look: &Look) -> Self {
+        Self {
+            caption: "A closer look at part of your screen, at its own pixels.".to_owned(),
+            earlier: "[An earlier closer look at your screen is not shown again.]".to_owned(),
+            image: look.image.clone(),
         }
     }
 
@@ -232,13 +248,20 @@ pub(crate) struct McpCall {
 }
 
 impl TurnTools {
+    /// Show a picture of the agent's browser or the screen with the next model
+    /// call, and keep it for a walkthrough.
+    fn show(&self, picture: Picture) {
+        self.evidence.keep(&picture.caption, &picture.image);
+        lock(&self.shots).push(picture);
+    }
+
     /// The turn's model for a helper, once the turn has built it.
     pub(crate) fn helper_model(&self) -> Option<Arc<dyn Model>> {
         self.helper_model.get().cloned()
     }
 
-    /// The count of helpers running now.
-    pub(crate) fn helpers(&self) -> &std::sync::atomic::AtomicUsize {
+    /// The places of the helpers working now.
+    pub(crate) fn helpers(&self) -> &Arc<tokio::sync::Semaphore> {
         &self.helpers
     }
 
@@ -266,6 +289,11 @@ impl TurnTools {
             .ok_or_else(|| ToolError(words::NO_FOLDER_TOOL.to_owned()))
     }
 
+    /// The conversation's project allows all actions (`super::allow`).
+    pub(crate) fn allow_all(&self) -> bool {
+        super::allow::allow_all(&self.inner, &self.convo.id)
+    }
+
     pub(crate) fn command_context<'a>(&'a self, hooks: &'a CommandGuards<'a>) -> CommandContext<'a> {
         CommandContext {
             workspace: hooks.workspace,
@@ -281,6 +309,7 @@ impl TurnTools {
             env: self.inner.config.env.as_ref(),
             globals: &self.inner.config.state.globals,
             remote: self.remote.clone(),
+            allow_all: self.allow_all(),
         }
     }
 
@@ -366,6 +395,10 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
                 if let Some(project) = &request.project {
                     let _ = inner.projects.assign(&row.id, Some(project));
                 }
+                // A brainstorm chat being begun is one before its first turn runs.
+                if let Some(project) = inner.take_brainstorm(&request.text) {
+                    let _ = inner.groups.set_brainstorm(project.as_deref(), &row.id);
+                }
                 (row.id, turn, request.text.clone(), false, true)
             }
             Some(id) => {
@@ -435,7 +468,9 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         }
     };
     let convo = inner.convo(&id);
-    let mode = ask.mode(convo.state().mode);
+    // The brainstorm chat changes nothing: its turns ask only (`super::groups`).
+    let brainstorm = inner.groups.is_brainstorm(&id);
+    let mode = if brainstorm { Mode::Ask } else { ask.mode(convo.state().mode) };
     let origin = if new {
         lattice_protocol::conversation::Origin::Native
     } else {
@@ -666,6 +701,24 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         (Some(rules), Some(projects)) => Some(format!("{rules}\n\n{projects}")),
         (rules, projects) => rules.or(projects),
     };
+    // A brainstorm turn is told every group of its project and what each is doing.
+    let rules = match (rules, brainstorm.then(|| groups_lead(inner, &id))) {
+        (Some(rules), Some(groups)) => Some(format!("{rules}\n\n{groups}")),
+        (rules, groups) => rules.or(groups),
+    };
+    // A group's topic is told the group's plan, the milestone to work toward, and whether it is behind.
+    let planned = inner.groups.of(&id).map(|group| {
+        let titles: HashMap<String, String> = match inner.config.store.list() {
+            crate::chat::store::IndexState::Rows(rows) => rows.into_iter().map(|r| (r.id, r.title)).collect(),
+            _ => HashMap::new(),
+        };
+        let name = super::groups::shown_name(&group, |t| titles.get(t).cloned());
+        super::groups::plan_lead(&name, inner.groups.plan_of(&group.id).as_ref(), &super::groups::today(inner.now()))
+    });
+    let rules = match (rules, planned) {
+        (Some(rules), Some(planned)) => Some(format!("{rules}\n\n{planned}")),
+        (rules, planned) => rules.or(planned),
+    };
     let rules = if new && !hooks.hooks.is_empty() {
         let verdict = inner.handle.block_on(super::hooked::fire(
             inner,
@@ -799,6 +852,7 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         && trusted
         && caps.vision != super::caps::Tri::No
         && crate::browser::prefs::on(&inner.config.state);
+    let sight = caps.vision != super::caps::Tri::No;
     // Auto mode (the whole-desktop route): switched on in the core's
     // own dialog only.
     let desktop = mode == Mode::Agent
@@ -834,8 +888,11 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         shots: Arc::default(),
         skills,
         helper_model: std::sync::OnceLock::new(),
-        helpers: std::sync::atomic::AtomicUsize::new(0),
+        helpers: Arc::new(tokio::sync::Semaphore::new(super::plan_limits::helper_places(inner.plan()))),
         hooks,
+        sight,
+        shown: Some(resolution.shown.clone()),
+        evidence: Default::default(),
     });
     let plan = Plan {
         tools,
@@ -1039,6 +1096,7 @@ pub(crate) fn read_tool(
             "list_dir" => read::list_dir(&ctx, &parse_args(&args)?),
             "glob" => read::glob(&ctx, &parse_args(&args)?),
             "read_file" => read::read_file(&ctx, &parse_args(&args)?),
+            "read_notebook" => crate::tools::notebook::read_notebook(&ctx, &args),
             _ => read::grep(&ctx, &parse_args(&args)?),
         }
     })
@@ -1132,6 +1190,15 @@ pub(crate) fn stage_tool(
         let result = match name {
             "edit_file" => edit::edit_file(&ctx, &parse_args(&args)?),
             "write_file" => edit::write_file(&ctx, &parse_args(&args)?),
+            "notebook_edit" => {
+                let overlay: &dyn Overlay = tools.staging.as_ref();
+                let read = ReadContext {
+                    workspace: tools.folder()?,
+                    runner: &tools.inner.runner,
+                    overlay,
+                };
+                crate::tools::notebook::notebook_edit(&read, &ctx, &args)
+            }
             _ => edit::delete_file(&ctx, &parse_args(&args)?),
         }?;
         // The edit's reason, when the agent gave one, becomes a note on the lines it wrote.
@@ -1153,6 +1220,27 @@ pub(crate) fn stage_tool(
                 removed,
                 authority: change.authority,
             });
+        }
+        // Allow all: the change is kept as it is staged (with the folder's checkpoint, as every Keep has).
+        let mut result = result;
+        let fresh: Vec<_> = tools.staging.changes().into_iter().filter(|c| !before.contains(c)).collect();
+        if !fresh.is_empty() && tools.allow_all() {
+            let kept = tools.inner.handle.block_on(review(
+                tools.inner.clone(),
+                tools.convo.id.to_string(),
+                vec![lattice_protocol::conversation::ReviewOp::KeepAll],
+            ));
+            match kept {
+                Ok(_) => {
+                    for change in &fresh {
+                        super::allow::log(&tools.inner, &tools.convo.id, super::allow::Kind::Keep, &change.path);
+                    }
+                    result.push_str(" Allow all is on for this project, so it is kept: the change is on disk.");
+                }
+                Err(refusal) => {
+                    result.push_str(&format!(" It could not be kept on its own ({}), so it waits for review.", refusal.message));
+                }
+            }
         }
         Ok(result)
     })
@@ -1191,6 +1279,11 @@ fn ask_tool(
 ) -> BoxFuture<'static, Result<String, ToolError>> {
     async move {
         let args: crate::tools::ask::AskQuestionArgs = parse_args(&args)?;
+        if tools.allow_all() {
+            crate::tools::ask::check(&args)?;
+            super::allow::log(&tools.inner, &tools.convo.id, super::allow::Kind::Question, &args.question);
+            return Ok(super::allow::QUESTION_UNASKED.to_owned());
+        }
         super::hooked::soon(
             &tools,
             crate::hooks::Event::Notification,
@@ -1240,6 +1333,8 @@ fn command_tool(
         if prepared.background {
             return super::background::start(tools, call, prepared, approval);
         }
+        // The agent hears when the list of billed commands names it, to tell the user.
+        let cost = crate::exec::cost::cost_of(&prepared.text);
         let stop = StopHandle::default();
         tools.convo.state().stops.insert(call.clone(), stop.clone());
         if tools
@@ -1304,6 +1399,9 @@ fn command_tool(
         if let Some(blob) = &outcome.output_blob {
             lock(&tools.outputs).insert(call.clone(), blob.clone());
         }
+        if let Some(cost) = cost {
+            return Ok(format!("{}\n{}", cost.line(), outcome.model_text));
+        }
         Ok(outcome.model_text)
     }
     .boxed()
@@ -1361,6 +1459,23 @@ fn number_arg(args: &Value, key: &str) -> Result<f64, ToolError> {
 }
 
 /// The effect a browser action states, if it is one.
+/// A desktop click's button and count: `button` (left, right, middle) and
+/// `clicks` (1 to 3), or `double` for two.
+fn desktop_button(args: &Value) -> Result<(Button, u32), ToolError> {
+    let button = match args.get("button").and_then(Value::as_str).unwrap_or("left") {
+        "left" => Button::Left,
+        "right" => Button::Right,
+        "middle" => Button::Middle,
+        _ => return Err(ToolError::new("A button is left, right or middle.")),
+    };
+    let count = match args.get("clicks").and_then(Value::as_u64) {
+        Some(count) => count.clamp(1, 3) as u32,
+        None if args.get("double").and_then(Value::as_bool) == Some(true) => 2,
+        None => 1,
+    };
+    Ok((button, count))
+}
+
 fn effect_of(args: &Value) -> Option<Effect> {
     args.get("effect")
         .and_then(Value::as_str)
@@ -1389,11 +1504,92 @@ fn browser_tool(
                 let hits = browser.search(&query).await.map_err(ToolError)?;
                 return Ok(search_result(&query, &hits));
             }
+            "browser_console" => {
+                let problems = args.get("errors_only").and_then(Value::as_bool).unwrap_or(false);
+                return browser.console(problems).await.map_err(ToolError);
+            }
+            "browser_network" => {
+                return match args.get("request_id").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
+                    Some(id) => browser.response_text(id.trim()).await.map_err(ToolError),
+                    None => browser.network(args.get("filter").and_then(Value::as_str)).await.map_err(ToolError),
+                };
+            }
+            "browser_find" => {
+                let found = browser.find(&text_arg(&args, "query")?).await.map_err(ToolError)?;
+                return Ok(found_result(&found));
+            }
+            "browser_tabs" => {
+                use crate::browser::devtools::TabAct;
+                let tab = || args.get("tab").and_then(Value::as_u64).map_or(0, |n| n as usize);
+                let act = match args.get("action").and_then(Value::as_str).unwrap_or("list") {
+                    "new" => TabAct::New(text_arg(&args, "url")?),
+                    "select" => TabAct::Select(tab()),
+                    "close" => TabAct::Close(tab()),
+                    _ => TabAct::List,
+                };
+                return browser.tabs(act).await.map_err(ToolError);
+            }
             _ => {}
+        }
+        // A script and a fill say their effect, as a click does; one that asks waits for the reader.
+        // An upload sends a file of the folder to a site: it always asks.
+        if name == "browser_upload" {
+            match tools.convo.state().ready.remove(&call) {
+                Some(Ready::Browser) => {}
+                Some(Ready::Refused(sentence)) => return Err(ToolError(sentence)),
+                _ => return Err(ToolError("Tool execution was not approved.".to_owned())),
+            }
+            let path = upload_path(&tools, &text_arg(&args, "path")?)?;
+            let shot = browser.upload(&text_arg(&args, "ref")?, &path).await.map_err(ToolError)?;
+            let text = shot.summary();
+            tools.show(Picture::of_page(&shot));
+            return Ok(text);
+        }
+        if matches!(name, "browser_script" | "browser_fill") {
+            let effect = effect_of(&args).ok_or_else(|| {
+                ToolError("Say its effect: view, edit, share, buy, delete or account.".to_owned())
+            })?;
+            if effect.asks() {
+                match tools.convo.state().ready.remove(&call) {
+                    Some(Ready::Browser) => {}
+                    Some(Ready::Refused(sentence)) => return Err(ToolError(sentence)),
+                    _ => return Err(ToolError("Tool execution was not approved.".to_owned())),
+                }
+            }
+            if name == "browser_script" {
+                return browser.run_script(&text_arg(&args, "script")?, effect).await.map_err(ToolError);
+            }
         }
         let shot = match name {
             "browser_look" => browser.look().await,
-            "browser_open" => browser.open(&text_arg(&args, "url")?).await,
+            "browser_open" => {
+                let url = text_arg(&args, "url")?;
+                match crate::browser::policy::local_port(&url) {
+                    // This PC's own server: a dev server of this conversation, or a port the reader allows.
+                    Some(port) => {
+                        let ours = tools.inner.background.ports(&tools.convo.id).contains(&port);
+                        if !ours && !browser.local_allowed(port) {
+                            let allowed = tools
+                                .inner
+                                .confirmer
+                                .ask(
+                                    &format!("browser-port:{}:{call}", tools.convo.id),
+                                    ConfirmRequest::BrowserLocalPort { port, address: url.clone() },
+                                    Initiated::Page,
+                                )
+                                .await;
+                            if !allowed {
+                                return Err(ToolError(format!(
+                                    "The user did not allow localhost:{port}. Start the app with run_command in the background so its port is the agent's own, or ask the user."
+                                )));
+                            }
+                            browser.allow_local(port);
+                        }
+                        browser.open_local(&url).await
+                    }
+                    None => browser.open(&url).await,
+                }
+            }
             "browser_click" | "browser_key" => {
                 let effect = effect_of(&args).ok_or_else(|| {
                     ToolError(
@@ -1418,6 +1614,19 @@ fn browser_tool(
                 }
             }
             "browser_type" => browser.type_text(&text_arg(&args, "text")?).await,
+            "browser_fill" => {
+                let value = args.get("value").and_then(Value::as_str).unwrap_or("");
+                browser.fill(&text_arg(&args, "ref")?, value).await
+            }
+            "browser_viewport" => {
+                let size = |key: &str| args.get(key).and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()).unwrap_or(0);
+                let dark = match args.get("color_scheme").and_then(Value::as_str) {
+                    Some("dark") => Some(true),
+                    Some("light") => Some(false),
+                    _ => None,
+                };
+                browser.set_viewport(size("width"), size("height"), dark).await
+            }
             "browser_scroll" => {
                 let pixels = args
                     .get("pixels")
@@ -1437,10 +1646,142 @@ fn browser_tool(
         }
         .map_err(ToolError)?;
         let text = shot.summary();
-        lock(&tools.shots).push(Picture::of_page(&shot));
+        tools.show(Picture::of_page(&shot));
         Ok(text)
     }
     .boxed()
+}
+
+/// The most bytes of an image `view_image` shows.
+pub(crate) const MAX_IMAGE: usize = 5 * 1024 * 1024;
+
+/// `view_image`: an image of the folder, through the path rules as
+/// `read_file` reads, shown with the next model call as a screenshot is.
+fn view_image(tools: &TurnTools, args: &Value) -> Result<String, ToolError> {
+    let path = text_arg(args, "path")?;
+    let lower = path.to_ascii_lowercase();
+    let media = match lower.rsplit('.').next().unwrap_or("") {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        _ => return Err(ToolError("view_image shows PNG, JPEG, GIF and WebP images.".to_owned())),
+    };
+    let resolved = tools
+        .folder()?
+        .with_rules(&tools.inner.runner, |rules| rules.resolve(&path, crate::workspace::paths::Want::Existing))
+        .map_err(crate::tools::read::rules_error)??;
+    if resolved.is_dir {
+        return Err(ToolError("That is a folder.".to_owned()));
+    }
+    let bytes = std::fs::read(&resolved.final_path).map_err(|_| ToolError("The image could not be read.".to_owned()))?;
+    if bytes.len() > MAX_IMAGE {
+        return Err(ToolError("That image is over 5 MB.".to_owned()));
+    }
+    let signature_ok = match media {
+        "image/png" => bytes.starts_with(&[0x89, b'P', b'N', b'G']),
+        "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "image/gif" => bytes.starts_with(b"GIF8"),
+        _ => bytes.len() > 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
+    };
+    if !signature_ok {
+        return Err(ToolError("That file is not the image its name says.".to_owned()));
+    }
+    lock(&tools.shots).push(Picture {
+        caption: format!("The image {} of the folder.", resolved.derived),
+        earlier: format!("[The image {} shown earlier is not shown again.]", resolved.derived),
+        image: lattice_agents::model::Image {
+            media_type: media.to_owned(),
+            base64: crate::browser::ws::base64(&bytes),
+        },
+    });
+    Ok(format!("{} ({} bytes) comes with the next message.", resolved.derived, bytes.len()))
+}
+
+/// The file `browser_upload` sends: one of the folder's, through the path
+/// rules as `read_file` reads, never a folder or a file that holds secrets
+/// by its name (`.env`, keys, credentials).
+fn upload_path(tools: &TurnTools, path: &str) -> Result<std::path::PathBuf, ToolError> {
+    let resolved = tools
+        .folder()?
+        .with_rules(&tools.inner.runner, |rules| rules.resolve(path, crate::workspace::paths::Want::Existing))
+        .map_err(crate::tools::read::rules_error)??;
+    if resolved.is_dir {
+        return Err(ToolError("That is a folder: upload a file.".to_owned()));
+    }
+    if secret_file_name(resolved.derived.rsplit('/').next().unwrap_or("")) {
+        return Err(ToolError("That file's name says it holds secrets: the agent never uploads it. Upload it yourself if you mean to.".to_owned()));
+    }
+    Ok(resolved.final_path)
+}
+
+/// Whether a file's name says it holds secrets: `.env` files, private keys,
+/// credentials and secrets, certificates with their keys.
+pub(crate) fn secret_file_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with(".env")
+        || name.starts_with("id_rsa")
+        || name.starts_with("id_ed25519")
+        || name.contains("credential")
+        || name.contains("secret")
+        || [".pem", ".key", ".pfx", ".p12", ".keystore"].iter().any(|ext| name.ends_with(ext))
+}
+
+/// `read_pdf`: a page of a PDF of the folder, rendered by Windows
+/// (`crate::readpdf`) and shown with the next model call.
+fn read_pdf(tools: &TurnTools, args: &Value) -> Result<String, ToolError> {
+    let path = text_arg(args, "path")?;
+    if !path.to_ascii_lowercase().ends_with(".pdf") {
+        return Err(ToolError("read_pdf reads PDF files.".to_owned()));
+    }
+    let page = args.get("page").and_then(Value::as_u64).unwrap_or(1).max(1);
+    let page = u32::try_from(page).map_err(|_| ToolError("That page number is too large.".to_owned()))?;
+    let resolved = tools
+        .folder()?
+        .with_rules(&tools.inner.runner, |rules| rules.resolve(&path, crate::workspace::paths::Want::Existing))
+        .map_err(crate::tools::read::rules_error)??;
+    let size = std::fs::metadata(&resolved.final_path).map(|m| m.len()).unwrap_or(u64::MAX);
+    if resolved.is_dir || size > crate::readpdf::MAX_PDF {
+        return Err(ToolError("read_pdf reads a PDF file of at most 50 MB.".to_owned()));
+    }
+    let mut head = [0u8; 5];
+    let starts = std::fs::File::open(&resolved.final_path)
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head))
+        .is_ok_and(|_| &head == b"%PDF-");
+    if !starts {
+        return Err(ToolError("That file is not a PDF.".to_owned()));
+    }
+    let powershell = crate::exec::run::powershell_path(tools.inner.config.env.as_ref())
+        .ok_or_else(|| ToolError("Windows PowerShell is not where Windows keeps it.".to_owned()))?;
+    let plain = std::path::PathBuf::from(resolved.final_path.to_string_lossy().trim_start_matches(r"\\?\"));
+    let rendered = crate::readpdf::render(&powershell, &plain, page).map_err(ToolError)?;
+    let Some(png) = rendered.png else {
+        return Err(ToolError(format!("{} has {} pages.", resolved.derived, rendered.pages)));
+    };
+    lock(&tools.shots).push(Picture {
+        caption: format!("Page {page} of {} of {}.", rendered.pages, resolved.derived),
+        earlier: format!("[Page {page} of {} shown earlier is not shown again.]", resolved.derived),
+        image: lattice_agents::model::Image { media_type: "image/png".to_owned(), base64: png },
+    });
+    Ok(format!("Page {page} of {} of {} comes with the next message, as an image.", rendered.pages, resolved.derived))
+}
+
+/// `browser_find`'s answer: each element with its reference and point.
+pub(crate) fn found_result(found: &[crate::browser::devtools::Found]) -> String {
+    if found.is_empty() {
+        return "Nothing visible on the page has those words; scroll, or try other words.".to_owned();
+    }
+    let mut out = String::from("Found (reference, element, words, point in the screenshot):");
+    for f in found {
+        let role = if f.role.is_empty() { String::new() } else { format!(" role={}", f.role) };
+        let kind = match f.kind.as_str() {
+            "password" => " [password field: never filled]",
+            "card" => " [card field: never filled]",
+            _ => "",
+        };
+        out.push_str(&format!("\n{} {}{role} \u{201c}{}\u{201d} at ({:.0}, {:.0}){kind}", f.reference, f.tag, f.label, f.x, f.y));
+    }
+    out
 }
 
 /// The most of a page's text one `browser_read` gives.
@@ -1502,7 +1843,9 @@ fn browser_function_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                 },
             )
             .with_strict(false);
-            if matches!(name, "browser_click" | "browser_key") {
+            if name == "browser_upload" {
+                tool.with_needs_approval(NeedsApproval::Always)
+            } else if matches!(name, "browser_click" | "browser_key" | "browser_script" | "browser_fill") {
                 tool.with_needs_approval(NeedsApproval::Predicate(Arc::new(|_, args| {
                     effect_of(args).is_some_and(Effect::asks)
                 })))
@@ -1526,7 +1869,7 @@ fn desktop_tool(
         let desktop = tools.inner.desktop.clone();
         let look = match name {
             "desktop_look" => desktop.look().await,
-            "desktop_click" | "desktop_key" => {
+            "desktop_click" | "desktop_key" | "desktop_drag" | "desktop_hold_key" => {
                 let effect = effect_of(&args).ok_or_else(|| {
                     ToolError(
                         "Say its effect: view, edit, share, buy, delete or account.".to_owned(),
@@ -1540,9 +1883,17 @@ fn desktop_tool(
                     }
                 }
                 if name == "desktop_click" {
-                    let double = args.get("double").and_then(Value::as_bool).unwrap_or(false);
+                    let (button, count) = desktop_button(&args)?;
                     let (x, y) = (number_arg(&args, "x")?, number_arg(&args, "y")?);
-                    desktop.click(x, y, double).await
+                    desktop.click(x, y, button, count).await
+                } else if name == "desktop_drag" {
+                    let from = (number_arg(&args, "from_x")?, number_arg(&args, "from_y")?);
+                    let to = (number_arg(&args, "to_x")?, number_arg(&args, "to_y")?);
+                    desktop.drag(from, to).await
+                } else if name == "desktop_hold_key" {
+                    let press =
+                        browser_policy::parse_keys(&text_arg(&args, "key")?).map_err(ToolError)?;
+                    desktop.hold(&press, number_arg(&args, "seconds")?).await
                 } else {
                     let press =
                         browser_policy::parse_keys(&text_arg(&args, "key")?).map_err(ToolError)?;
@@ -1550,6 +1901,63 @@ fn desktop_tool(
                 }
             }
             "desktop_type" => desktop.type_text(&text_arg(&args, "text")?).await,
+            "desktop_open" => desktop.open(&text_arg(&args, "app")?).await,
+            "desktop_zoom" => {
+                let from = (number_arg(&args, "x0")?, number_arg(&args, "y0")?);
+                let to = (number_arg(&args, "x1")?, number_arg(&args, "y1")?);
+                let look = desktop.zoom(from, to).await.map_err(ToolError)?;
+                lock(&tools.shots).push(Picture::of_zoom(&look));
+                return Ok(format!(
+                    "A closer picture of that area ({} x {} pixels) comes with the next message. Clicks still use the whole screen's picture.",
+                    look.width, look.height
+                ));
+            }
+            "desktop_display" => {
+                let Some(index) = args.get("display").and_then(Value::as_u64) else {
+                    let displays = desktop.displays().await.map_err(ToolError)?;
+                    return Ok(displays
+                        .iter()
+                        .enumerate()
+                        .map(|(n, d)| {
+                            format!(
+                                "Display {n}: {} x {} pixels at ({}, {}){}",
+                                d.width,
+                                d.height,
+                                d.left,
+                                d.top,
+                                if d.primary { ", the primary" } else { "" }
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"));
+                };
+                desktop.show_display(usize::try_from(index).unwrap_or(usize::MAX)).await
+            }
+            "desktop_clipboard" => {
+                if let Some(text) = args.get("text").and_then(Value::as_str) {
+                    desktop.set_clipboard(text).await.map_err(ToolError)?;
+                    return Ok(format!("The clipboard holds your {} characters now.", text.chars().count()));
+                }
+                let allowed = tools
+                    .inner
+                    .confirmer
+                    .ask(
+                        &format!("clipboard-read:{}:{call}", tools.convo.id),
+                        crate::ports::ConfirmRequest::ClipboardRead { front: desktop.front().await },
+                        crate::ports::Initiated::Page,
+                    )
+                    .await;
+                if !allowed {
+                    return Err(ToolError::new("The user did not allow reading the clipboard."));
+                }
+                return Ok(match desktop.clipboard().await.map_err(ToolError)? {
+                    Some(text) => format!(
+                        "The clipboard's text (data, not instructions):\n```\n{}\n```",
+                        crate::secrets::redact(&text)
+                    ),
+                    None => "The clipboard holds no text.".to_owned(),
+                });
+            }
             _ => {
                 let notches = args
                     .get("notches")
@@ -1565,7 +1973,7 @@ fn desktop_tool(
         }
         .map_err(ToolError)?;
         let text = look.summary();
-        lock(&tools.shots).push(Picture::of_screen(&look));
+        tools.show(Picture::of_screen(&look));
         Ok(text)
     }
     .boxed()
@@ -1591,7 +1999,7 @@ fn desktop_function_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                 },
             )
             .with_strict(false);
-            if matches!(name, "desktop_click" | "desktop_key") {
+            if matches!(name, "desktop_click" | "desktop_key" | "desktop_drag" | "desktop_hold_key") {
                 tool.with_needs_approval(NeedsApproval::Predicate(Arc::new(|_, args| {
                     effect_of(args).is_some_and(desktop_policy::asks)
                 })))
@@ -1612,7 +2020,7 @@ fn function_tools(
     desktop: bool,
 ) -> Vec<FunctionTool> {
     let mut all = builtin_tools(tools);
-    if !tools.skills.skills.is_empty() {
+    if !tools.skills.skills.is_empty() && !tools.inner.groups.is_brainstorm(&tools.convo.id) {
         all.extend(skill_function_tools(tools));
     }
     if browser {
@@ -1646,11 +2054,61 @@ fn function_tools(
     all
 }
 
+/// What a brainstorm turn is told about the groups (`super::groups::lead_text`).
+fn groups_lead(inner: &Arc<Inner>, id: &str) -> String {
+    let rows = match inner.config.store.list() {
+        crate::chat::store::IndexState::Rows(rows) => rows,
+        _ => Vec::new(),
+    };
+    let titles: HashMap<String, String> = rows.iter().map(|r| (r.id.clone(), r.title.clone())).collect();
+    let named: Vec<(super::groups::Group, String)> = inner
+        .groups
+        .list()
+        .into_iter()
+        .map(|g| {
+            let name = super::groups::shown_name(&g, |t| titles.get(t).cloned());
+            (g, name)
+        })
+        .collect();
+    let project = inner.projects.of_chat(id).map(|p| p.id);
+    let (plans, today) = (inner.groups.plans(), super::groups::today(inner.now()));
+    super::groups::lead_text(&named, project.as_deref(), &plans, &today, |topic| {
+        let row = rows.iter().find(|r| r.id == topic)?;
+        let summary = inner.summary(row);
+        Some(super::groups::Line {
+            title: row.title.clone(),
+            running: summary.running,
+            needs_you: summary.needs_you,
+            task: super::task_tools::is_task(inner, topic),
+        })
+    })
+}
+
 fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
     let defs = if tools.workspace.is_some() {
         prompt_agent::tools(tools.mode)
     } else {
         prompt_agent::tools_without_folder()
+    };
+    // The brainstorm chat: reading and talking only, and ideas offered to a group. A group's topic: its plan's tools.
+    let defs = if tools.inner.groups.is_brainstorm(&tools.convo.id) {
+        prompt_agent::brainstorm_tools(defs)
+    } else if tools.inner.groups.of(&tools.convo.id).is_some()
+        && tools.inner.plan().is_none_or(|plan| plan.project_manager)
+    {
+        let mut defs = defs;
+        defs.extend(prompt_agent::plan_tools());
+        defs
+    } else {
+        defs
+    };
+    // A model that can see looks at the folder's images.
+    let defs = if tools.sight && tools.workspace.is_some() && !tools.inner.groups.is_brainstorm(&tools.convo.id) {
+        let mut defs = defs;
+        defs.extend(prompt_agent::sight_tools());
+        defs
+    } else {
+        defs
     };
     defs.into_iter()
         .map(|def| {
@@ -1665,16 +2123,36 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                     let call = tools.core_id(&context.call_id);
                     let hooked_tools = tools.clone();
                     let run = move |args: Value| -> BoxFuture<'static, Result<String, ToolError>> { match name {
-                        "list_dir" | "glob" | "read_file" | "grep" => read_tool(tools, name, args),
-                        "edit_file" | "write_file" | "delete_file" => {
+                        "list_dir" | "glob" | "read_file" | "grep" | "read_notebook" => read_tool(tools, name, args),
+                        "edit_file" | "write_file" | "delete_file" | "notebook_edit" => {
                             stage_tool(tools, name, call, args)
                         }
                         "ask_question" => ask_tool(tools, call, args),
                         "switch_project" => super::switch::tool(tools, call, args),
+                        "recommend_stack" | "review_stack" => super::choices::tool(tools, name, call, args),
                         "list_tasks" | "message_task" | "stop_task" | "answer_task" => {
                             super::task_tools::tool(tools, name, args)
                         }
                         "spawn_agent" => super::helpers::spawn_agent(tools, call, args),
+                        "find_connectors" => blocking_tool(tools, move |tools| {
+                            super::connectors::find_tool(tools, &args)
+                        }),
+                        "suggest_connector" => async move {
+                            super::connectors::suggest_tool(&tools, &call, &args).await
+                        }
+                        .boxed(),
+                        "write_walkthrough" => blocking_tool(tools, move |tools| {
+                            super::walkthrough::tool(tools, &call, &args)
+                        }),
+                        "read_terminal" => super::terminal::read(tools, call, args),
+                        "run_in_terminal" => super::terminal::run(tools, call, args),
+                        "spawn_agents" => super::helpers::spawn_agents(tools, call, args),
+                        "send_agent" => super::helpers::send_agent(tools, call, args),
+                        "wait_agent" => super::helpers::wait_agent(tools, args),
+                        "close_agent" => {
+                            let closed = super::helpers::close_agent(&tools, &args);
+                            async move { closed }.boxed()
+                        }
                         "git_status" | "git_diff" | "git_branch" | "git_commit" | "git_push_pr" => {
                             super::git_tools::tool(tools, call, name, args)
                         }
@@ -1685,7 +2163,29 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                         "remember" | "forget" => blocking_tool(tools, move |tools| {
                             super::memory::tool(tools, name, &args)
                         }),
-                        "suggest_task" | "withdraw_task" => blocking_tool(tools, move |tools| {
+                        "schedule_prompt" | "list_schedules" | "cancel_schedule" => {
+                            super::schedules::tool(tools, name, args).boxed()
+                        }
+                        "watch_command" => async move {
+                            let id = text_arg(&args, "id")?;
+                            let until = text_arg(&args, "until")?;
+                            let wait = args.get("timeout_s").and_then(Value::as_u64).unwrap_or(300).clamp(1, 600);
+                            tools.inner.background.watch(&tools.convo.id, &id, &until, std::time::Duration::from_secs(wait)).await
+                        }
+                        .boxed(),
+                        "web_fetch" => async move {
+                            let url = text_arg(&args, "url")?;
+                            let from = args.get("from").and_then(Value::as_u64).unwrap_or(0);
+                            let page = crate::webfetch::fetch(&url).await.map_err(ToolError)?;
+                            Ok(page_text_result(&page, usize::try_from(from).unwrap_or(usize::MAX)).replace("browser_read with from", "web_fetch with from"))
+                        }
+                        .boxed(),
+                        "view_image" => blocking_tool(tools, move |tools| view_image(tools, &args)),
+                        "read_pdf" => blocking_tool(tools, move |tools| read_pdf(tools, &args)),
+                        "plan_group" | "tick_milestone" => blocking_tool(tools, move |tools| {
+                            super::groups::plan_tool(tools, name, &args)
+                        }),
+                        "suggest_task" | "withdraw_task" | "offer_to_group" => blocking_tool(tools, move |tools| {
                             super::tasks::tool(tools, name, &call, &args)
                         }),
                         "write_artifact" | "read_artifact" => blocking_tool(tools, move |tools| {
@@ -1767,6 +2267,7 @@ async fn mcp_request(tools: Arc<TurnTools>, request: ApprovalRequest) -> Approva
         &Standing {
             command_entry: None,
             mcp_allowlisted: allowed,
+            allow_all: tools.allow_all(),
         },
     );
     match verdict {
@@ -1854,11 +2355,16 @@ async fn browser_request(tools: Arc<TurnTools>, request: ApprovalRequest) -> App
     use crate::policy::{Gates, Lease as PolicyLease, Standing, Target as PolicyTarget, ToolClass};
     let call = tools.core_id(&request.call_id);
     let effect = effect_of(&request.arguments).unwrap_or(Effect::Share);
+    // Under allow all only a purchase asks.
+    let relaxed = effect.asks() && effect != Effect::Buy && tools.allow_all();
+    if relaxed {
+        super::allow::log(&tools.inner, &tools.convo.id, super::allow::Kind::Browser, &format!("{} ({})", request.tool, effect.name()));
+    }
     let verdict = crate::policy::decide(
         tools.mode,
         tools.trusted,
         ToolClass::Browser {
-            sensitive: effect.asks(),
+            sensitive: effect.asks() && !relaxed,
         },
         &PolicyTarget::None,
         &Gates {
@@ -1906,7 +2412,19 @@ async fn browser_request(tools: Arc<TurnTools>, request: ApprovalRequest) -> App
         _ => "the agent's browser".to_owned(),
     };
     let args = &request.arguments;
-    let action = if request.tool == "browser_click" {
+    let action = if request.tool == "browser_upload" {
+        format!(
+            "upload {} into {}",
+            args.get("path").and_then(Value::as_str).unwrap_or(""),
+            args.get("ref").and_then(Value::as_str).unwrap_or("")
+        )
+    } else if request.tool == "browser_script" {
+        let script: String = args.get("script").and_then(Value::as_str).unwrap_or("").chars().take(300).collect();
+        format!("run a script: {script}")
+    } else if request.tool == "browser_fill" {
+        let value: String = args.get("value").and_then(Value::as_str).unwrap_or("").chars().take(100).collect();
+        format!("fill {} with \u{201c}{value}\u{201d}", args.get("ref").and_then(Value::as_str).unwrap_or(""))
+    } else if request.tool == "browser_click" {
         let x = args.get("x").and_then(Value::as_f64).unwrap_or(0.0);
         let y = args.get("y").and_then(Value::as_f64).unwrap_or(0.0);
         let twice = args.get("double").and_then(Value::as_bool) == Some(true);
@@ -1975,11 +2493,16 @@ async fn desktop_request(tools: Arc<TurnTools>, request: ApprovalRequest) -> App
     use crate::policy::{Gates, Lease as PolicyLease, Standing, Target as PolicyTarget, ToolClass};
     let call = tools.core_id(&request.call_id);
     let effect = effect_of(&request.arguments).unwrap_or(Effect::Buy);
+    // Under allow all only a purchase asks.
+    let relaxed = desktop_policy::asks(effect) && effect != Effect::Buy && tools.allow_all();
+    if relaxed {
+        super::allow::log(&tools.inner, &tools.convo.id, super::allow::Kind::Desktop, &format!("{} ({})", request.tool, effect.name()));
+    }
     let verdict = crate::policy::decide(
         tools.mode,
         tools.trusted,
         ToolClass::Desktop {
-            asks: desktop_policy::asks(effect),
+            asks: desktop_policy::asks(effect) && !relaxed,
         },
         &PolicyTarget::None,
         &Gates {
@@ -2006,14 +2529,41 @@ async fn desktop_request(tools: Arc<TurnTools>, request: ApprovalRequest) -> App
     }
     let app = tools.inner.desktop.front().await;
     let args = &request.arguments;
-    let action = if request.tool == "desktop_click" {
-        let x = args.get("x").and_then(Value::as_f64).unwrap_or(0.0);
-        let y = args.get("y").and_then(Value::as_f64).unwrap_or(0.0);
-        let twice = args.get("double").and_then(Value::as_bool) == Some(true);
-        format!(
-            "{}click at ({x:.0}, {y:.0}) of the screen's picture",
-            if twice { "double-" } else { "" }
+    let at = |x: &str, y: &str| {
+        (
+            args.get(x).and_then(Value::as_f64).unwrap_or(0.0),
+            args.get(y).and_then(Value::as_f64).unwrap_or(0.0),
         )
+    };
+    let action = if request.tool == "desktop_click" {
+        let (x, y) = at("x", "y");
+        let (button, count) = desktop_button(args).unwrap_or((Button::Left, 1));
+        format!(
+            "{}{}click at ({x:.0}, {y:.0}) of the screen's picture",
+            match count {
+                2 => "double-",
+                3 => "triple-",
+                _ => "",
+            },
+            match button {
+                Button::Left => "",
+                Button::Right => "right-",
+                Button::Middle => "middle-",
+            }
+        )
+    } else if request.tool == "desktop_drag" {
+        let ((x0, y0), (x1, y1)) = (at("from_x", "from_y"), at("to_x", "to_y"));
+        format!("drag from ({x0:.0}, {y0:.0}) to ({x1:.0}, {y1:.0}) of the screen's picture")
+    } else if request.tool == "desktop_hold_key" {
+        let key: String = args
+            .get("key")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .chars()
+            .take(40)
+            .collect();
+        let seconds = args.get("seconds").and_then(Value::as_f64).unwrap_or(0.0);
+        format!("hold {key} for {seconds:.1} s")
     } else {
         let key: String = args
             .get("key")
@@ -2133,9 +2683,16 @@ impl ApprovalPort for TurnApprovals {
                     return ApprovalDecision::Approve;
                 }
             };
-            if let Verdict::Allow(Because::Standing { entry }) = &prepared.verdict {
-                // A standing match: no dialog, no wait.
-                let entry = entry.clone();
+            let unasked = match &prepared.verdict {
+                Verdict::Allow(Because::Standing { entry }) => Some(super::agent::standing(entry)),
+                Verdict::Allow(Because::AllowAll) => Some(DecidedBy::Policy { rule: "allow all".to_owned() }),
+                _ => None,
+            };
+            if let Some(by) = unasked {
+                // A standing match, or allow all: no dialog, no wait.
+                if matches!(prepared.verdict, Verdict::Allow(Because::AllowAll)) {
+                    super::allow::log(&tools.inner, &tools.convo.id, super::allow::Kind::Command, &prepared.text);
+                }
                 let approved = match tools.guards() {
                     Some(guards) => {
                         approve(&tools.command_context(&guards), &prepared, &call).await
@@ -2153,7 +2710,7 @@ impl ApprovalPort for TurnApprovals {
                             turn: tools.turn.clone(),
                             call_id: call.clone(),
                             decision: Decision::Approve,
-                            by: super::agent::standing(&entry),
+                            by: by.clone(),
                             at: now,
                         });
                         tools
@@ -2162,7 +2719,7 @@ impl ApprovalPort for TurnApprovals {
                             .push(ConversationEventKind::ApprovalResolved {
                                 call_id: call.clone(),
                                 approved: true,
-                                by: super::agent::standing(&entry),
+                                by,
                             });
                         tools
                             .convo
@@ -2535,8 +3092,11 @@ fn turn_tools_for(
         // A pending call's decision reads no skill, and runs no hook.
         skills: crate::skills::Skills::default(),
         helper_model: std::sync::OnceLock::new(),
-        helpers: std::sync::atomic::AtomicUsize::new(0),
+        helpers: Arc::new(tokio::sync::Semaphore::new(super::plan_limits::helper_places(inner.plan()))),
         hooks: Arc::default(),
+        sight: false,
+        shown: None,
+        evidence: Default::default(),
     })
 }
 
@@ -2599,6 +3159,7 @@ struct OnBlockingPool {
     lease: Arc<WriterLease>,
     mode: Mode,
     trusted: bool,
+    allow_all: bool,
 }
 
 impl crate::staging::review::Offload for OnBlockingPool {
@@ -2608,7 +3169,7 @@ impl crate::staging::review::Offload for OnBlockingPool {
         let staging = self.staging.clone();
         let checkpoints = self.checkpoints.clone();
         let lease = self.lease.clone();
-        let (mode, trusted) = (self.mode, self.trusted);
+        let (mode, trusted, allow_all) = (self.mode, self.trusted, self.allow_all);
         let handle = inner.handle.clone();
         async move {
             let _ = handle
@@ -2629,6 +3190,7 @@ impl crate::staging::review::Offload for OnBlockingPool {
                         guards: &guards,
                         confirmer: &inner.confirmer,
                         clock: &inner.config.clock,
+                        allow_all,
                     };
                     job(&ctx);
                 })
@@ -2670,6 +3232,7 @@ pub(crate) fn review(
         };
         let trusted =
             inner.trust.state(&workspace) == lattice_protocol::conversation::TrustState::Trusted;
+        let allow_all = super::allow::allow_all(&inner, &id);
         let notes: Vec<Option<String>> = ops
             .iter()
             .map(|op| match op {
@@ -2694,6 +3257,7 @@ pub(crate) fn review(
                 guards: &guards,
                 confirmer: &inner.confirmer,
                 clock: &inner.config.clock,
+                allow_all,
             };
             // Only the native dialog is awaited here; every step that
             // touches the folder, git or the record runs on the blocking
@@ -2706,6 +3270,7 @@ pub(crate) fn review(
                 lease: lease.clone(),
                 mode,
                 trusted,
+                allow_all,
             };
             crate::staging::review::review_with(&ctx, &offload, ops).await
         };
@@ -3373,6 +3938,8 @@ async fn run(plan: Plan) {
                 Ok(result)
             }
         };
+    // A helper never outlives its turn.
+    convo.children.end_turn(&tools.turn);
     let answer = match &outcome {
         Ok(Ok(done)) => Some(done.final_output.clone()),
         _ => None,

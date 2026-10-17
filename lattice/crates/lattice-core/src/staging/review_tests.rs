@@ -262,6 +262,7 @@ impl Convo {
             guards: &guards,
             confirmer: &self.confirmer,
             clock: &self.clock,
+            allow_all: false,
         };
         block_on(review(&ctx, ops))
     }
@@ -1055,6 +1056,7 @@ impl Convo {
             guards: &guards,
             confirmer,
             clock: &self.clock,
+            allow_all: false,
         };
         block_on(review(&ctx, ops))
     }
@@ -1211,6 +1213,7 @@ fn f1_the_staging_lock_is_held_through_the_write() {
         guards: &watch,
         confirmer: &c.confirmer,
         clock: &c.clock,
+        allow_all: false,
     };
     let outcome = block_on(review(
         &ctx,

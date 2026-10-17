@@ -190,6 +190,10 @@ pub enum Item {
         summary: String,
         prompt: String,
         at: f64,
+        /// An idea from the brainstorm chat: the group its Start sends to
+        /// (a group's id, or `new`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
     },
     /// What became of a suggested task: written once per task.
     TaskSettled {
@@ -270,6 +274,25 @@ pub enum Item {
         turn: TurnId,
         call_id: CallId,
         items: Vec<TodoItem>,
+        at: f64,
+    },
+    /// A stack decision offered to the reader ([`super::choices`]). A new
+    /// kind: an earlier reader skips the line.
+    ChoiceOffered {
+        turn: TurnId,
+        call_id: CallId,
+        area: String,
+        options: Vec<lattice_protocol::conversation::ChoiceFit>,
+        recommended: String,
+        why: String,
+        step: Option<u32>,
+        at: f64,
+    },
+    /// The option chosen for it.
+    ChoiceMade {
+        call_id: CallId,
+        option: String,
+        by_agent: bool,
         at: f64,
     },
     Staged {
@@ -379,6 +402,7 @@ impl Item {
             | Item::TaskSuggested { turn, .. }
             | Item::ArtifactSaved { turn, .. }
             | Item::TodosUpdated { turn, .. }
+            | Item::ChoiceOffered { turn, .. }
             | Item::StepsGiven { turn, .. }
             | Item::PlanProposed { turn, .. }
             | Item::ImagesAttached { turn, .. }
@@ -386,6 +410,7 @@ impl Item {
             | Item::Steered { turn, .. }
             | Item::TurnEnd { turn, .. } => Some(turn),
             Item::Reviewed { .. }
+            | Item::ChoiceMade { .. }
             | Item::TaskSettled { .. }
             | Item::PlanSettled { .. }
             | Item::StepChecked { .. }

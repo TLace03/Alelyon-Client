@@ -10,9 +10,14 @@
 //!   Alelyon itself, a password manager or Windows' own sign-in prompts.
 //! - [`focus_is_password`]: whether the focused control is a classic password
 //!   box (an `Edit` with `ES_PASSWORD`, through `GetGUIThreadInfo`).
-//! - [`click`], [`type_text`], [`key`] and [`scroll`]: input as a person
-//!   gives it (`SendInput`). Windows does not let them reach a window of a
-//!   higher integrity level (an elevated program, a UAC prompt).
+//! - [`displays`] and [`capture_area`]: each display's place on the desktop
+//!   (`EnumDisplayMonitors`) and the pixels of an area of it.
+//! - [`click`], [`press_at`], [`drag`], [`type_text`], [`key`], [`hold_key`]
+//!   and [`scroll`]: input as a person gives it (`SendInput`), at points of the
+//!   whole desktop (`MOUSEEVENTF_VIRTUALDESK`). Windows does not let them reach
+//!   a window of a higher integrity level (an elevated program, a UAC prompt).
+//! - [`clipboard_text`] and [`set_clipboard_text`]: the clipboard's text
+//!   (`CF_UNICODETEXT`).
 //! - [`register_hotkey`]: one global hotkey on a thread of its own
 //!   (`RegisterHotKey`, a `GetMessageW` loop that waits without a timer),
 //!   unregistered when the [`Hotkey`] drops.
@@ -43,6 +48,24 @@ pub struct Window {
     pub class: String,
 }
 
+/// One display: its place on the desktop, in the desktop's own pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Display {
+    pub left: i32,
+    pub top: i32,
+    pub width: u32,
+    pub height: u32,
+    pub primary: bool,
+}
+
+/// A mouse button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Button {
+    Left,
+    Right,
+    Middle,
+}
+
 /// Hotkey modifiers (`MOD_ALT`, `MOD_CONTROL`, `MOD_SHIFT`).
 pub const MOD_ALT: u32 = 1;
 pub const MOD_CONTROL: u32 = 2;
@@ -58,6 +81,18 @@ pub fn screen_size() -> io::Result<(u32, u32)> {
 /// The primary screen, as it is now.
 pub fn capture() -> io::Result<Screen> {
     imp::capture()
+}
+
+/// Every display, the primary first, then from left to right.
+pub fn displays() -> Vec<Display> {
+    let mut list = imp::displays();
+    list.sort_by_key(|d| (!d.primary, d.left, d.top));
+    list
+}
+
+/// The pixels of an area of the desktop, as it is now.
+pub fn capture_area(left: i32, top: i32, width: u32, height: u32) -> io::Result<Screen> {
+    imp::capture_area(left, top, width, height)
 }
 
 /// The top-level window at a point of the primary screen.
@@ -80,6 +115,33 @@ pub fn focus_is_password() -> bool {
 /// Click (twice when `double`) at a point of the primary screen.
 pub fn click(x: i32, y: i32, double: bool) -> io::Result<()> {
     imp::click(x, y, double)
+}
+
+/// Click `count` times (1 to 3) with `button` at a point of the desktop.
+pub fn press_at(x: i32, y: i32, button: Button, count: u32) -> io::Result<()> {
+    imp::press_at(x, y, button, count.clamp(1, 3))
+}
+
+/// Press the left button at one point of the desktop, move to another and
+/// let go there.
+pub fn drag(from: (i32, i32), to: (i32, i32)) -> io::Result<()> {
+    imp::drag(from, to)
+}
+
+/// Hold one virtual key with its modifiers (as [`key`]) for `millis`
+/// milliseconds, at most 10 seconds.
+pub fn hold_key(virtual_key: u16, modifiers: u32, millis: u64) -> io::Result<()> {
+    imp::hold_key(virtual_key, modifiers, millis.min(10_000))
+}
+
+/// The clipboard's text, when it holds text.
+pub fn clipboard_text() -> io::Result<Option<String>> {
+    imp::clipboard_text()
+}
+
+/// Put `text` on the clipboard, in place of what it held.
+pub fn set_clipboard_text(text: &str) -> io::Result<()> {
+    imp::set_clipboard_text(text)
 }
 
 /// Type `text` into whatever has the focus: each character as itself
@@ -149,12 +211,17 @@ mod imp {
     use std::ptr::null_mut;
     use std::sync::mpsc;
 
-    use windows_sys::Win32::Foundation::{CloseHandle, HWND, POINT};
+    use windows_sys::Win32::Foundation::{CloseHandle, GlobalFree, HWND, LPARAM, POINT, RECT};
     use windows_sys::Win32::Graphics::Gdi::{
         BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap,
-        CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC,
-        SRCCOPY, SelectObject,
+        CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors, GetDC,
+        GetDIBits, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, ReleaseDC, SRCCOPY, SelectObject,
     };
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable,
+        OpenClipboard, SetClipboardData,
+    };
+    use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
     use windows_sys::Win32::System::Threading::{
         GetCurrentThreadId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
         QueryFullProcessImageNameW,
@@ -166,17 +233,26 @@ mod imp {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
         KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_NOREPEAT, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL,
-        MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_WHEEL, MOUSEINPUT,
-        RegisterHotKey, SendInput, UnregisterHotKey,
+        MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
+        MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK,
+        MOUSEEVENTF_WHEEL, MOUSEINPUT, RegisterHotKey, SendInput, UnregisterHotKey,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         ES_PASSWORD, GA_ROOT, GUITHREADINFO, GWL_STYLE, GetAncestor, GetClassNameW,
         GetForegroundWindow, GetGUIThreadInfo, GetMessageW, GetSystemMetrics, GetWindowLongW,
         GetWindowTextW, GetWindowThreadProcessId, MSG, PM_NOREMOVE, PeekMessageW,
-        PostThreadMessageW, SM_CXSCREEN, SM_CYSCREEN, WM_HOTKEY, WM_QUIT, WindowFromPoint,
+        PostThreadMessageW, SM_CXSCREEN, SM_CXVIRTUALSCREEN, SM_CYSCREEN, SM_CYVIRTUALSCREEN,
+        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_HOTKEY, WM_QUIT, WindowFromPoint,
     };
 
-    use super::{Screen, Window, normalize};
+    use super::{Button, Display, Screen, Window, normalize};
+
+    /// `MONITORINFOF_PRIMARY`.
+    const PRIMARY: u32 = 1;
+    /// `CF_UNICODETEXT`.
+    const UNICODE_TEXT: u32 = 13;
+    /// The longest clipboard text read, in UTF-16 units.
+    const MAX_CLIPBOARD_UNITS: usize = 1 << 20;
 
     /// The thread's DPI context, per-monitor aware while this lives.
     struct PhysicalPixels(DPI_AWARENESS_CONTEXT);
@@ -219,6 +295,19 @@ mod imp {
     pub(super) fn capture() -> io::Result<Screen> {
         let _physical = PhysicalPixels::new();
         let (width, height) = size()?;
+        capture_pixels(0, 0, width, height)
+    }
+
+    pub(super) fn capture_area(left: i32, top: i32, width: u32, height: u32) -> io::Result<Screen> {
+        let _physical = PhysicalPixels::new();
+        if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
+            return Err(io::Error::other("that area of the desktop cannot be looked at"));
+        }
+        capture_pixels(left, top, width as i32, height as i32)
+    }
+
+    /// `width` x `height` pixels of the desktop from (`left`, `top`).
+    fn capture_pixels(left: i32, top: i32, width: i32, height: i32) -> io::Result<Screen> {
         // SAFETY: a null window asks for the whole screen's device context;
         // it is released below on every path.
         let screen = unsafe { GetDC(null_mut()) };
@@ -248,8 +337,8 @@ mod imp {
                     width,
                     height,
                     screen,
-                    0,
-                    0,
+                    left,
+                    top,
                     SRCCOPY | CAPTUREBLT,
                 );
                 SelectObject(memory, previous);
@@ -304,6 +393,50 @@ mod imp {
             height: height as u32,
             bgra: pixels,
         })
+    }
+
+    unsafe extern "system" fn each_display(
+        monitor: HMONITOR,
+        _context: HDC,
+        _clip: *mut RECT,
+        data: LPARAM,
+    ) -> windows_sys::core::BOOL {
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: `monitor` came from EnumDisplayMonitors and `info` is
+        // writable with its size set; `data` is the address of the list
+        // `displays` passed, alive for the whole enumeration.
+        unsafe {
+            if GetMonitorInfoW(monitor, &mut info) != 0 {
+                let r = info.rcMonitor;
+                (*(data as *mut Vec<Display>)).push(Display {
+                    left: r.left,
+                    top: r.top,
+                    width: (r.right - r.left).max(0) as u32,
+                    height: (r.bottom - r.top).max(0) as u32,
+                    primary: info.dwFlags & PRIMARY != 0,
+                });
+            }
+        }
+        1
+    }
+
+    pub(super) fn displays() -> Vec<Display> {
+        let _physical = PhysicalPixels::new();
+        let mut list: Vec<Display> = Vec::new();
+        // SAFETY: no device context and no clip: every display; the callback
+        // writes only into `list`, which outlives the call.
+        unsafe {
+            EnumDisplayMonitors(
+                null_mut(),
+                std::ptr::null(),
+                Some(each_display),
+                &mut list as *mut Vec<Display> as LPARAM,
+            )
+        };
+        list
     }
 
     fn text_of(read: impl Fn(*mut u16, i32) -> i32) -> String {
@@ -450,14 +583,149 @@ mod imp {
         }
     }
 
+    /// A move to a point of the whole desktop (every display).
     fn move_to(x: i32, y: i32) -> io::Result<INPUT> {
-        let (width, height) = size()?;
+        // SAFETY: GetSystemMetrics takes documented indices and reads only.
+        let (left, top, width, height) = unsafe {
+            (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN),
+            )
+        };
+        if width <= 0 || height <= 0 {
+            let (width, height) = size()?;
+            return Ok(mouse(
+                normalize(x, width as u32),
+                normalize(y, height as u32),
+                0,
+                MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+            ));
+        }
         Ok(mouse(
-            normalize(x, width as u32),
-            normalize(y, height as u32),
+            normalize(x - left, width as u32),
+            normalize(y - top, height as u32),
             0,
-            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
         ))
+    }
+
+    pub(super) fn press_at(x: i32, y: i32, button: Button, count: u32) -> io::Result<()> {
+        let _physical = PhysicalPixels::new();
+        let (down, up) = match button {
+            Button::Left => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+            Button::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+            Button::Middle => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+        };
+        let mut inputs = vec![move_to(x, y)?];
+        for _ in 0..count {
+            inputs.push(mouse(0, 0, 0, down));
+            inputs.push(mouse(0, 0, 0, up));
+        }
+        send(&inputs)
+    }
+
+    /// The steps a drag moves in, and the pause after each (a program sees
+    /// a drag only when the pointer moves while the button is down).
+    const DRAG_STEPS: i32 = 12;
+    const DRAG_PAUSE: std::time::Duration = std::time::Duration::from_millis(15);
+
+    pub(super) fn drag(from: (i32, i32), to: (i32, i32)) -> io::Result<()> {
+        let _physical = PhysicalPixels::new();
+        send(&[move_to(from.0, from.1)?, mouse(0, 0, 0, MOUSEEVENTF_LEFTDOWN)])?;
+        let mut moved = Ok(());
+        for step in 1..=DRAG_STEPS {
+            std::thread::sleep(DRAG_PAUSE);
+            let x = from.0 + (to.0 - from.0) * step / DRAG_STEPS;
+            let y = from.1 + (to.1 - from.1) * step / DRAG_STEPS;
+            moved = move_to(x, y).and_then(|input| send(&[input]));
+            if moved.is_err() {
+                break;
+            }
+        }
+        // The button is let go whatever happened, so it is never left down.
+        let released = send(&[mouse(0, 0, 0, MOUSEEVENTF_LEFTUP)]);
+        moved.and(released)
+    }
+
+    pub(super) fn clipboard_text() -> io::Result<Option<String>> {
+        let _open = Clipboard::open()?;
+        // SAFETY: the clipboard is open on this thread; the handle it gives
+        // stays the clipboard's, read while locked and unlocked below.
+        unsafe {
+            if IsClipboardFormatAvailable(UNICODE_TEXT) == 0 {
+                return Ok(None);
+            }
+            let handle = GetClipboardData(UNICODE_TEXT);
+            if handle.is_null() {
+                return Ok(None);
+            }
+            let units = GlobalLock(handle) as *const u16;
+            if units.is_null() {
+                return Ok(None);
+            }
+            let mut length = 0usize;
+            while length < MAX_CLIPBOARD_UNITS && *units.add(length) != 0 {
+                length += 1;
+            }
+            let text = String::from_utf16_lossy(std::slice::from_raw_parts(units, length));
+            GlobalUnlock(handle);
+            Ok(Some(text))
+        }
+    }
+
+    pub(super) fn set_clipboard_text(text: &str) -> io::Result<()> {
+        let units: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: a movable block of exactly the units' size, filled while
+        // locked; once the clipboard takes it, it is the clipboard's, and it
+        // is freed here only when the clipboard did not take it.
+        unsafe {
+            let block = GlobalAlloc(GMEM_MOVEABLE, units.len() * 2);
+            if block.is_null() {
+                return Err(io::Error::other("there was no memory for the clipboard's text"));
+            }
+            let target = GlobalLock(block) as *mut u16;
+            if target.is_null() {
+                GlobalFree(block);
+                return Err(io::Error::other("there was no memory for the clipboard's text"));
+            }
+            std::ptr::copy_nonoverlapping(units.as_ptr(), target, units.len());
+            GlobalUnlock(block);
+            let _open = match Clipboard::open() {
+                Ok(open) => open,
+                Err(error) => {
+                    GlobalFree(block);
+                    return Err(error);
+                }
+            };
+            EmptyClipboard();
+            if SetClipboardData(UNICODE_TEXT, block).is_null() {
+                GlobalFree(block);
+                return Err(io::Error::other("the clipboard did not take the text"));
+            }
+        }
+        Ok(())
+    }
+
+    /// The clipboard, open on this thread while this lives.
+    struct Clipboard;
+
+    impl Clipboard {
+        fn open() -> io::Result<Clipboard> {
+            // SAFETY: opens the clipboard for this thread, with no window.
+            if unsafe { OpenClipboard(null_mut()) } == 0 {
+                return Err(io::Error::other("another program is using the clipboard"));
+            }
+            Ok(Clipboard)
+        }
+    }
+
+    impl Drop for Clipboard {
+        fn drop(&mut self) {
+            // SAFETY: this thread opened the clipboard.
+            unsafe { CloseClipboard() };
+        }
     }
 
     pub(super) fn click(x: i32, y: i32, double: bool) -> io::Result<()> {
@@ -528,6 +796,29 @@ mod imp {
                 .map(|key| keyboard(*key, 0, KEYEVENTF_KEYUP)),
         );
         send(&inputs)
+    }
+
+    pub(super) fn hold_key(virtual_key: u16, modifiers: u32, millis: u64) -> io::Result<()> {
+        let held: Vec<u16> = [(2, CONTROL), (1, MENU), (8, SHIFT)]
+            .into_iter()
+            .filter(|(bit, _)| modifiers & bit != 0)
+            .map(|(_, key)| key)
+            .chain(std::iter::once(virtual_key))
+            .collect();
+        let flags = |key: u16| if extended(key) { KEYEVENTF_EXTENDEDKEY } else { 0 };
+        let down: Vec<INPUT> = held.iter().map(|key| keyboard(*key, 0, flags(*key))).collect();
+        let pressed = send(&down);
+        if pressed.is_ok() {
+            std::thread::sleep(std::time::Duration::from_millis(millis));
+        }
+        // Every key is let go whatever happened, so none is left held.
+        let up: Vec<INPUT> = held
+            .iter()
+            .rev()
+            .map(|key| keyboard(*key, 0, flags(*key) | KEYEVENTF_KEYUP))
+            .collect();
+        let released = send(&up);
+        pressed.and(released)
     }
 
     /// One notch of the wheel (`WHEEL_DELTA`).
@@ -605,7 +896,7 @@ mod imp {
 mod imp {
     use std::io;
 
-    use super::{Screen, Window};
+    use super::{Button, Display, Screen, Window};
 
     fn unsupported<T>() -> io::Result<T> {
         Err(io::Error::new(
@@ -618,6 +909,27 @@ mod imp {
         unsupported()
     }
     pub(super) fn capture() -> io::Result<Screen> {
+        unsupported()
+    }
+    pub(super) fn capture_area(_left: i32, _top: i32, _width: u32, _height: u32) -> io::Result<Screen> {
+        unsupported()
+    }
+    pub(super) fn displays() -> Vec<Display> {
+        Vec::new()
+    }
+    pub(super) fn press_at(_x: i32, _y: i32, _button: Button, _count: u32) -> io::Result<()> {
+        unsupported()
+    }
+    pub(super) fn drag(_from: (i32, i32), _to: (i32, i32)) -> io::Result<()> {
+        unsupported()
+    }
+    pub(super) fn hold_key(_key: u16, _modifiers: u32, _millis: u64) -> io::Result<()> {
+        unsupported()
+    }
+    pub(super) fn clipboard_text() -> io::Result<Option<String>> {
+        unsupported()
+    }
+    pub(super) fn set_clipboard_text(_text: &str) -> io::Result<()> {
         unsupported()
     }
     pub(super) fn window_at(_x: i32, _y: i32) -> Option<Window> {
@@ -663,5 +975,18 @@ mod tests {
         assert_eq!(normalize(5000, 1920), 65535, "clamped");
         let middle = normalize(960, 1920);
         assert!((32700..32800).contains(&middle), "{middle}");
+    }
+
+    /// Reads only: the displays Windows lists, the primary first.
+    #[cfg(windows)]
+    #[test]
+    fn the_displays_are_listed_the_primary_first() {
+        let displays = displays();
+        assert!(!displays.is_empty(), "a desktop with no display");
+        assert!(displays[0].primary, "{displays:?}");
+        assert_eq!(displays.iter().filter(|d| d.primary).count(), 1, "{displays:?}");
+        assert!(displays.iter().all(|d| d.width > 0 && d.height > 0), "{displays:?}");
+        let (width, height) = screen_size().unwrap();
+        assert_eq!((displays[0].width, displays[0].height), (width, height), "the primary's size");
     }
 }

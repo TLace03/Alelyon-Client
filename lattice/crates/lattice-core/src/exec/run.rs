@@ -305,6 +305,8 @@ pub struct CommandContext<'a> {
     pub globals: &'a Path,
     /// The remote label the output goes to, when the turn's target is remote.
     pub remote: Option<String>,
+    /// The conversation's project allows all actions (`convo::allow`).
+    pub allow_all: bool,
 }
 
 impl CommandContext<'_> {
@@ -415,6 +417,8 @@ pub fn prepare(ctx: &CommandContext<'_>, args: &RunCommandArgs) -> Result<Prepar
         }
     };
     let (cwd, cwd_path, cwd_class) = working_folder(ctx, args.cwd.as_deref())?;
+    // A command that may cost money asks even under allow all.
+    let cost = super::cost::cost_of(&text);
     let matched = standing(ctx, &text, &cwd);
     let verdict = decide(
         ctx.mode,
@@ -425,6 +429,7 @@ pub fn prepare(ctx: &CommandContext<'_>, args: &RunCommandArgs) -> Result<Prepar
         &Standing {
             command_entry: matched.as_ref().map(|(entry, _)| entry.id.clone()),
             mcp_allowlisted: false,
+            allow_all: ctx.allow_all && cost.is_none(),
         },
     );
     if let Verdict::Refuse(reason) = &verdict {
@@ -453,6 +458,7 @@ pub fn prepare(ctx: &CommandContext<'_>, args: &RunCommandArgs) -> Result<Prepar
         remote: ctx.remote.clone(),
         staged_waiting: ctx.staging.waiting(),
         background: args.background,
+        cost: cost.as_ref().map(super::cost::Cost::line),
     };
     Ok(Prepared {
         text,
@@ -562,6 +568,7 @@ pub async fn approve(
     call: &CallId,
 ) -> Result<Approval, Refused> {
     let matched = standing(ctx, &prepared.text, &prepared.cwd);
+    let cost = super::cost::cost_of(&prepared.text);
     let verdict = decide(
         ctx.mode,
         ctx.trusted,
@@ -573,6 +580,7 @@ pub async fn approve(
         &Standing {
             command_entry: matched.as_ref().map(|(entry, _)| entry.id.clone()),
             mcp_allowlisted: false,
+            allow_all: ctx.allow_all && cost.is_none(),
         },
     );
     match verdict {
@@ -595,6 +603,8 @@ pub async fn approve(
                 },
             })
         }
+        // Allow all: no dialog, run as PowerShell runs an approved command.
+        Verdict::Allow(Because::AllowAll) => Ok(Approval { how: How::PowerShell }),
         Verdict::Ask(AskKind::Command) => {
             let confirmed = ctx
                 .confirmer
@@ -651,6 +661,11 @@ impl StopHandle {
 
     pub fn is_stopped(&self) -> bool {
         self.0.stopped.load(Ordering::SeqCst)
+    }
+
+    /// The ids of the command's live processes (its Job's); none once it ended.
+    pub fn process_ids(&self) -> Vec<u32> {
+        lock(&self.0.child).as_ref().and_then(|child| child.process_ids().ok()).unwrap_or_default()
     }
 
     fn hold(&self, child: &Arc<Child>) {
@@ -823,6 +838,39 @@ pub fn base64(bytes: &[u8]) -> String {
 pub fn encoded_command(text: &str) -> String {
     let bytes: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
     base64(&bytes)
+}
+
+/// Run one of Lattice's own fixed programs (not the agent's command: no
+/// policy, no Job) with `args`, its standard output read as it comes, ended
+/// if it has not finished within `wait`: its output, or why there is none.
+pub fn capture(program: &Path, args: &[OsString], wait: Duration) -> Result<String, String> {
+    let mut child = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| "the program could not start".to_owned())?;
+    let mut out = child.stdout.take().ok_or("the program gave no output")?;
+    let reader = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = out.read_to_string(&mut text);
+        text
+    });
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if started.elapsed() > wait => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("it took longer than {} s and was ended", wait.as_secs()));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(_) => return Err("the program could not be followed".to_owned()),
+        }
+    }
+    Ok(reader.join().unwrap_or_default())
 }
 
 /// `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`, from

@@ -483,8 +483,9 @@ fn start_refuses_what_it_cannot_run() {
     let unready = refused(request("hi", "endpoint:openai"));
     assert_eq!(unready.kind, RefusalKind::Invalid);
     assert_eq!(unready.message, "It is turned off in the model registry.");
+    // The built-in Anthropic row is OpenAI-compatible: refused only as switched off.
     let anthropic = refused(request("hi", "endpoint:anthropic"));
-    assert!(anthropic.message.contains("Messages API"));
+    assert_eq!(anthropic.message, "It is turned off in the model registry.");
 
     let plain = CoreService::new(config(dir.path(), MapEnv::new(), false));
     assert_eq!(

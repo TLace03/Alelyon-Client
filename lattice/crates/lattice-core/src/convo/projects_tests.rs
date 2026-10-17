@@ -126,6 +126,10 @@ fn a_chat_with_no_folder_in_a_project_is_an_agent_turn_in_either_mode() {
         tools,
         [
             "ask_question",
+            "schedule_prompt",
+            "list_schedules",
+            "cancel_schedule",
+            "web_fetch",
             "recall",
             "suggest_task",
             "withdraw_task",
@@ -135,10 +139,14 @@ fn a_chat_with_no_folder_in_a_project_is_an_agent_turn_in_either_mode() {
             "stop_task",
             "answer_task",
             "write_artifact",
+            "find_connectors",
+            "suggest_connector",
+            "write_walkthrough",
             "read_artifact",
             "give_steps",
             "read_steps",
-            "update_todos"
+            "update_todos",
+            "recommend_stack"
         ]
     );
     assert!(lead(first).contains("Answer in French."));

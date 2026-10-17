@@ -144,8 +144,23 @@ impl TaskRuns {
     }
 }
 
+/// The sentence for a Start past `inner`'s limit now (none without one).
+pub(crate) fn full_of(inner: &super::agent::Inner) -> String {
+    match inner.task_limit() {
+        Limit::At(n) if super::plan_limits::plan_holds(inner.task_runs.limit(), inner.plan()) => full_plan(n),
+        Limit::At(n) => full(n),
+        Limit::None => String::new(),
+    }
+}
+
+/// The reader's sentence for a Start past what their plan allows.
+pub fn full_plan(limit: u32) -> String {
+    let running = if limit == 1 { "1 task is running".to_owned() } else { format!("{limit} tasks are running") };
+    format!("{running}, the most your plan allows at once, so this one is queued: it starts when one ends, the highest-priority group's first. A paid plan runs more at once (Settings, under Account).")
+}
+
 /// The reader's sentence for a Start past the limit.
 pub fn full(limit: u32) -> String {
     let running = if limit == 1 { "1 task is running".to_owned() } else { format!("{limit} tasks are running") };
-    format!("{running}, the most your limit allows, so this one waits on its chip. Start it when one ends, or raise the limit on the Tools page.")
+    format!("{running}, the most your limit allows, so this one is queued: it starts when one ends, the highest-priority group's first. You can raise the limit on the Tools page.")
 }

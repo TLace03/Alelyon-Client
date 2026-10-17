@@ -182,3 +182,39 @@ fn the_folders_slots_keep_foreground_and_background_apart() {
     assert_eq!(slots.background("ws"), 0);
     assert!(!slots.busy("ws"));
 }
+
+/// A background command that listens on a loopback port is the
+/// conversation's dev server: its port is the conversation's own (the
+/// agent's browser opens it unasked), no other conversation's, and not once
+/// it is stopped.
+/// Mutants: another conversation's command counted; a stopped one counted.
+#[test]
+fn a_background_servers_port_is_its_conversations_own() {
+    let h = H::new("agent-background-port");
+    let ws = h.workspace();
+    let listen = "$l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0); $l.Start(); Write-Output (\"PORT=\" + $l.LocalEndpoint.Port); while ($true) { Start-Sleep -Milliseconds 200 }";
+    h.script(vec![call("run_command", json!({"command": listen, "background": true}), "c1"), say("listening")]);
+    let id = h.agent(None, "start the app", &ws);
+    h.events_until(&id, |events| events.iter().any(|event| matches!(event.kind, ConversationEventKind::ApprovalRequested { .. })));
+    h.runtime.block_on(h.chat.decide(&id, "c1", Decision::Approve)).unwrap();
+    h.turns_end(&id, 1);
+    let mut port = None;
+    for _ in 0..100 {
+        let out = h.chat.inner.background.output(&id, "c1").unwrap_or_default();
+        if let Some(n) = out.split("PORT=").nth(1).and_then(|rest| rest.split_whitespace().next()).and_then(|n| n.parse::<u16>().ok()) {
+            port = Some(n);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // Read everything first and stop the server before any assertion, so a failure leaves nothing running.
+    let (own, others) = (h.chat.inner.background.ports(&id), h.chat.inner.background.ports("another"));
+    let stopped = h.chat.inner.background.stop(&id, "c1");
+    h.events_until(&id, |events| exited(events, "c1").is_some());
+    let after = h.chat.inner.background.ports(&id);
+    let port = port.expect("the server said its port");
+    assert!(stopped);
+    assert!(own.contains(&port), "{own:?}");
+    assert!(others.is_empty(), "another conversation's command is not its: {others:?}");
+    assert!(!after.contains(&port), "a stopped server's port is no longer its");
+}

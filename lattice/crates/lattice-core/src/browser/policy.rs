@@ -26,6 +26,15 @@
 //!   miss a label, never one that lets a stated `share` through unasked.
 //! - **Keys** ([`parse_keys`]): a press is a key name with optional `Ctrl`,
 //!   `Alt` and `Shift`, such as `Enter`, `Tab`, `Ctrl+A`, `Shift+Tab`.
+//! - **This PC's own servers** ([`local_port`]): `localhost`, `127.0.0.1`
+//!   and `[::1]` are refused like any local address, except a port the
+//!   session says may be opened: one a background command of the agent's
+//!   own conversation listens on (its dev server), or one the reader allowed
+//!   in the core's dialog, until Lattice closes.
+//! - **Scripts** ([`script_looks`]): a script the agent runs in the page is
+//!   refused when its words reach a password or card field, cookies, a site's
+//!   stored data or the browser's saved credentials; the reader's sign-ins
+//!   and payment details stay theirs. Words only, like the guards above.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -283,7 +292,7 @@ pub fn misstated(looks: Effect, target: &Target) -> String {
     )
 }
 
-fn private_v4(ip: Ipv4Addr) -> bool {
+pub(crate) fn private_v4(ip: Ipv4Addr) -> bool {
     ip.is_loopback()
         || ip.is_private()
         || ip.is_link_local()
@@ -295,7 +304,7 @@ fn private_v4(ip: Ipv4Addr) -> bool {
         || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64)
 }
 
-fn private_v6(ip: Ipv6Addr) -> bool {
+pub(crate) fn private_v6(ip: Ipv6Addr) -> bool {
     if let Some(v4) = ip.to_ipv4_mapped() {
         return private_v4(v4);
     }
@@ -476,4 +485,39 @@ pub fn parse_keys(text: &str) -> Result<Press, String> {
         }
         _ => Err(format!("{key} is not a key the browser presses.")),
     }
+}
+
+/// Why a script the agent would run in the page is refused: its words reach a
+/// password or card field, cookies, a site's stored data or saved
+/// credentials. `None`: it may run (its stated effect still asks as a
+/// click's does).
+pub fn script_looks(script: &str) -> Option<&'static str> {
+    let text = script.to_lowercase();
+    const SECRETS: [&str; 6] = ["password", "passwd", "cc-number", "cc-csc", "cvv", "credentials"];
+    const STORED: [&str; 6] = ["cookie", "localstorage", "sessionstorage", "indexeddb", "caches.", "serviceworker"];
+    if SECRETS.iter().any(|w| text.contains(w)) {
+        return Some("That script reaches a password or card field or saved credentials, which the agent never reads or fills. Sign in or pay yourself.");
+    }
+    if STORED.iter().any(|w| text.contains(w)) {
+        return Some("That script reaches cookies or a site's stored data, where sign-ins are kept: the agent's scripts leave them alone.");
+    }
+    None
+}
+
+/// The port of an `http` or `https` address on this PC's loopback
+/// (`localhost`, `127.0.0.1`, `[::1]`), with no user name or password; `None`
+/// for any other address.
+pub fn local_port(text: &str) -> Option<u16> {
+    let text = text.trim();
+    let with_scheme = if text.contains("://") { text.to_owned() } else { format!("http://{text}") };
+    let url = url::Url::parse(&with_scheme).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+    let loopback = match url.host()? {
+        url::Host::Domain(name) => name.trim_end_matches('.').eq_ignore_ascii_case("localhost"),
+        url::Host::Ipv4(ip) => ip == Ipv4Addr::LOCALHOST,
+        url::Host::Ipv6(ip) => ip == Ipv6Addr::LOCALHOST,
+    };
+    loopback.then(|| url.port_or_known_default()).flatten()
 }

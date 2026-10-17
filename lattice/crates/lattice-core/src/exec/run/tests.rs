@@ -162,6 +162,7 @@ impl Bench {
             env: &self.env,
             globals: &self.globals,
             remote: None,
+            allow_all: false,
         }
     }
 

@@ -196,6 +196,9 @@ pub struct AgentConfig {
     /// `crate::steps_mcp::FLAG` (the desktop program sets its own); every ACP
     /// session is offered it. `None`: sessions are offered no server.
     pub steps_server: Option<std::path::PathBuf>,
+    /// The window's terminals, for `read_terminal` and `run_in_terminal`
+    /// (`super::terminal`). `None`: the tools say there are none.
+    pub terminal: Option<Arc<dyn crate::ports::TerminalPort>>,
 }
 
 impl AgentConfig {
@@ -230,6 +233,7 @@ impl AgentConfig {
             desktop: None,
             stop_keys: None,
             steps_server: None,
+            terminal: None,
         }
     }
 }
@@ -340,6 +344,8 @@ pub(crate) struct Convo {
     pub log: Arc<ConversationLog>,
     pub tripwire: Arc<Tripwire>,
     pub state: Mutex<State>,
+    /// Its helpers, working or answered (`super::helpers`).
+    pub children: super::helpers::Children,
 }
 
 struct LogWithheld(Arc<ConversationLog>);
@@ -380,6 +386,7 @@ impl Convo {
                 hook_follow_ups: 0,
                 hooks_seen: None,
             }),
+            children: super::helpers::Children::default(),
         })
     }
 
@@ -441,8 +448,22 @@ pub(crate) struct Inner {
     pub recall: Mutex<super::recall::Recall>,
     /// The topics' summaries and the reader's model for them (`super::summaries`).
     pub summaries: super::summaries::Summaries,
+    /// What was done without the reader under allow all (`super::allow`).
+    pub auto_log: super::allow::AutoLog,
     /// How many started tasks run at once, and where each came from (`super::task_runs`).
     pub task_runs: super::task_runs::TaskRuns,
+    /// What the reader's plan allows of the harness; `None` until the application says (`super::plan_limits`).
+    pub plan: Mutex<Option<super::plan_limits::PlanLimits>>,
+    /// The work's groups, each with its topics and tasks (`super::groups`).
+    pub groups: super::groups::Groups,
+    /// Brainstorm chats being begun: the first message's text and the project,
+    /// taken when the new chat is made so its first turn is one.
+    pub brainstorm_pending: Mutex<Vec<(String, Option<String>)>>,
+    /// Tasks started past the reader's limit, waiting for a slot
+    /// (`super::tasks::start_next`): in this process only.
+    pub task_queue: Mutex<Vec<super::tasks::Waiting>>,
+    /// Prompts to run later (`super::schedules`).
+    pub schedules: super::schedules::Schedules,
     pub changed: Changed,
     pub claims: Mutex<HashSet<String>>,
     /// The agent turns' traces (`<native>/chat/runs`).
@@ -480,6 +501,24 @@ pub(crate) struct Inner {
 }
 
 impl Inner {
+    /// The tasks that may run at once now: the lower of the reader's limit and the plan's (`super::plan_limits`).
+    pub(crate) fn task_limit(&self) -> super::task_runs::Limit {
+        super::plan_limits::effective(self.task_runs.limit(), *lock(&self.plan))
+    }
+
+    /// The reader's plan, when the application has said it.
+    pub(crate) fn plan(&self) -> Option<super::plan_limits::PlanLimits> {
+        *lock(&self.plan)
+    }
+
+    /// The project of a brainstorm chat being begun with `text`, taken once
+    /// (`AgentChat::begin_brainstorm`).
+    pub(crate) fn take_brainstorm(&self, text: &str) -> Option<Option<String>> {
+        let mut pending = lock(&self.brainstorm_pending);
+        let at = pending.iter().position(|(t, _)| t == text)?;
+        Some(pending.remove(at).1)
+    }
+
     pub(crate) fn now(&self) -> f64 {
         (self.config.clock)()
     }
@@ -991,9 +1030,29 @@ impl AgentChat {
         self.inner.summaries.set_choice(choice)
     }
 
+    /// What was done without the reader under allow all, newest first: in `project`, or everywhere.
+    pub fn auto_decisions(&self, project: Option<&str>) -> Vec<super::allow::Entry> {
+        self.inner.auto_log.of(project)
+    }
+
     /// How many started tasks may run at once (`super::task_runs`).
     pub fn task_limit(&self) -> super::task_runs::Limit {
         self.inner.task_runs.limit()
+    }
+
+    /// The tasks that may run at once now: the lower of the reader's limit and the plan's.
+    pub fn effective_task_limit(&self) -> super::task_runs::Limit {
+        self.inner.task_limit()
+    }
+
+    /// What the reader's plan allows of the harness (`super::plan_limits`): the application passes the signed-in
+    /// account's plan's limits, or Free's when signed out; `None` limits nothing.
+    pub fn set_plan_limits(&self, limits: Option<super::plan_limits::PlanLimits>) {
+        *lock(&self.inner.plan) = limits;
+    }
+
+    pub fn plan_limits(&self) -> Option<super::plan_limits::PlanLimits> {
+        *lock(&self.inner.plan)
     }
 
     pub fn set_task_limit(&self, limit: super::task_runs::Limit) -> Result<(), String> {
@@ -1003,6 +1062,307 @@ impl AgentChat {
     /// Each started task's topic, with the topic it was started from.
     pub fn task_origins(&self) -> std::collections::HashMap<String, super::task_runs::Origin> {
         self.inner.task_runs.origins()
+    }
+
+    // ------------------------------------------------------------- groups
+    //
+    // The work's groups (`super::groups`). Each call is blocking: it reads or
+    // writes `groups.json`, and placing a message reads the store's turns.
+
+    /// Every group, archived ones included, each with its name as shown; and
+    /// whether the grouping of earlier work waits for the reader's review.
+    pub fn groups(&self) -> (Vec<(super::groups::Group, String)>, bool) {
+        let titles: HashMap<String, String> = match self.inner.config.store.list() {
+            crate::chat::store::IndexState::Rows(rows) => rows.into_iter().map(|r| (r.id, r.title)).collect(),
+            _ => HashMap::new(),
+        };
+        let shown = self
+            .inner
+            .groups
+            .list()
+            .into_iter()
+            .map(|g| {
+                let name = super::groups::shown_name(&g, |t| titles.get(t).cloned());
+                (g, name)
+            })
+            .collect();
+        (shown, self.inner.groups.existing().1)
+    }
+
+    /// Where the reader's message `text` goes: which topic (`current` being
+    /// the one shown), and which group. In the open group `group` it stays in
+    /// that group; with none open, it joins the group of `project` that
+    /// already does that work (its topics and tasks, and its name and plan,
+    /// match it best), going to the chat responsible for the work matched, or
+    /// starts a group of its own (`super::groups`' placement).
+    pub fn route_work(
+        &self,
+        text: &str,
+        current: Option<&str>,
+        group: Option<&str>,
+        project: Option<&str>,
+    ) -> (super::recall::Route, super::groups::Placement) {
+        use super::groups::Placement;
+        use super::recall::Route;
+        let groups = self.inner.groups.list();
+        let is_task = |id: &str| super::task_tools::is_task(&self.inner, id);
+        let mut recall = lock(&self.inner.recall);
+        recall.refresh(&*self.inner.config.store);
+        if let Some(open) = group.and_then(|id| groups.iter().find(|g| g.id == id)) {
+            let inside = |id: &str| open.topics.iter().any(|t| t == id);
+            let current = current.filter(|c| inside(c) && !is_task(c));
+            let route = match recall.route(text, current) {
+                Route::Return(id) if !inside(&id) || is_task(&id) => {
+                    if current.is_some() { Route::Continue } else { Route::New }
+                }
+                Route::Continue if current.is_none() => Route::New,
+                route => route,
+            };
+            // The group's newest topic continues when nothing else fits better.
+            let route = match route {
+                Route::New if current.is_none() => match super::groups::newest_topic(&self.inner, open) {
+                    Some(id) => Route::Return(id),
+                    None => Route::New,
+                },
+                route => route,
+            };
+            return (route, Placement::Group(open.id.clone()));
+        }
+        let scores = recall.topic_scores(text);
+        let plans = self.inner.groups.plans();
+        // Each group of the project: its topics' and tasks' scores, and what it says it does.
+        let best = groups
+            .iter()
+            .filter(|g| !g.archived && g.project.as_deref() == project)
+            .map(|g| {
+                let name = super::groups::shown_name(g, |t| recall.title_of(t).map(str::to_owned));
+                let says = recall.text_score(text, &super::groups::profile(&name, plans.get(&g.id)));
+                (g, g.topics.iter().filter_map(|t| scores.get(t)).sum::<f64>() + says)
+            })
+            .filter(|(_, score)| *score >= super::groups::JOIN_MIN)
+            .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.id.cmp(&a.0.id)));
+        match best {
+            Some((g, _)) => {
+                // The chat responsible for the work matched: each topic by its own score and its tasks' (a task's
+                // thread is the task's own, so its score counts for the topic it was started from); else the
+                // group's continuing session, its newest topic.
+                let origins = self.inner.task_runs.origins();
+                let mut credit: HashMap<&str, f64> = HashMap::new();
+                for t in &g.topics {
+                    let Some(score) = scores.get(t) else { continue };
+                    let owner = if is_task(t) {
+                        origins.get(t).map(|o| o.from.as_str()).filter(|from| g.topics.iter().any(|x| x == from) && !is_task(from))
+                    } else {
+                        Some(t.as_str())
+                    };
+                    if let Some(owner) = owner {
+                        *credit.entry(owner).or_default() += score;
+                    }
+                }
+                let topic = credit
+                    .into_iter()
+                    .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+                    .map(|(t, _)| t.to_owned())
+                    .or_else(|| super::groups::newest_topic(&self.inner, g));
+                (topic.map_or(Route::New, Route::Return), Placement::Group(g.id.clone()))
+            }
+            None => (Route::New, Placement::New),
+        }
+    }
+
+
+    /// Put the topic `topic` in a group (a new one in `project`), out of any other.
+    pub fn group_add(
+        &self,
+        topic: &str,
+        into: &super::groups::Placement,
+        project: Option<&str>,
+    ) -> Result<super::groups::Group, String> {
+        self.inner.groups.add(topic, into, project, self.inner.now())
+    }
+
+    /// A new group the reader named, in `project`.
+    pub fn group_create(&self, name: &str, project: Option<&str>) -> Result<super::groups::Group, String> {
+        self.inner.groups.create(name, project, self.inner.now())
+    }
+
+    /// The reader's name for a group (empty: its first topic's title again).
+    pub fn group_rename(&self, id: &str, name: &str) -> Result<super::groups::Group, String> {
+        self.inner.groups.rename(id, name, self.inner.now())
+    }
+
+    pub fn group_archive(&self, id: &str, archived: bool) -> Result<super::groups::Group, String> {
+        self.inner.groups.archive(id, archived, self.inner.now())
+    }
+
+    /// Merge the group `from` into `into`.
+    pub fn group_merge(&self, from: &str, into: &str) -> Result<super::groups::Group, String> {
+        self.inner.groups.merge(from, into, self.inner.now())
+    }
+
+    /// The board of `project` (`super::board`): each group's card, highest
+    /// priority first. Blocking (it reads the topics' records).
+    pub fn board(&self, project: Option<&str>) -> Vec<super::board::Card> {
+        let (named, _) = self.groups();
+        let (_, moves) = self.inner.groups.plan();
+        let rows = self.rows();
+        let today = super::groups::today(self.inner.now());
+        let plans = self.inner.groups.plans();
+        super::board::cards(&named, &self.inner.groups.ranks(), &moves, &plans, &today, project, |t| self.topic_state(&rows, t))
+    }
+
+    /// A group's plan (`super::groups::Plan`).
+    pub fn group_plan(&self, id: &str) -> Option<super::groups::Plan> {
+        self.inner.groups.plan_of(id)
+    }
+
+    /// The reader's plan for a group: kept as written, and the agent's
+    /// `plan_group` no longer replaces it. An empty goal with no milestones
+    /// removes it.
+    pub fn set_group_plan(&self, id: &str, plan: super::groups::Plan) -> Result<Option<super::groups::Plan>, String> {
+        self.inner.groups.set_plan(id, plan, true)
+    }
+
+    /// Move a group one place up or down in the reader's order.
+    pub fn group_raise(&self, id: &str, up: bool) -> Result<(), String> {
+        self.inner.groups.raise(id, up)
+    }
+
+    /// The reader moves a group's card to a column (`None`: back to the one
+    /// its work gives); the move lasts until its work changes.
+    pub fn group_move(&self, id: &str, status: Option<super::groups::Status>) -> Result<(), String> {
+        let group = self.inner.groups.list().into_iter().find(|g| g.id == id).ok_or("That group is no longer listed.")?;
+        let rows = self.rows();
+        let states: Vec<super::board::TopicState> = group.topics.iter().filter_map(|t| self.topic_state(&rows, t)).collect();
+        self.inner.groups.set_move(id, status, super::board::work(&states))
+    }
+
+    fn rows(&self) -> HashMap<String, crate::chat::store::IndexRow> {
+        match self.inner.config.store.list() {
+            crate::chat::store::IndexState::Rows(rows) => rows.into_iter().map(|r| (r.id.clone(), r)).collect(),
+            _ => HashMap::new(),
+        }
+    }
+
+    /// What the board reads of the topic `id`.
+    fn topic_state(
+        &self,
+        rows: &HashMap<String, crate::chat::store::IndexRow>,
+        id: &str,
+    ) -> Option<super::board::TopicState> {
+        use lattice_protocol::conversation::TodoStatus;
+        let row = rows.get(id)?;
+        let inner = &self.inner;
+        let (running, approval) = match inner.loaded(id) {
+            Some(convo) => {
+                let state = convo.state();
+                (state.running.is_some(), !state.approvals.is_empty())
+            }
+            None => (false, false),
+        };
+        let asking = !inner.questions.waiting(id).is_empty();
+        let items = inner.sidecars.read_items(id).ok().map(|log| log.items).unwrap_or_default();
+        let todos = super::todos::latest(&items);
+        // A stack choice waiting on its card is asked as a question is: it is a decision.
+        let made: HashSet<&str> = items
+            .iter()
+            .filter_map(|i| match i {
+                super::item::Item::ChoiceMade { call_id, .. } => Some(call_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        let choosing = items.iter().any(|i| {
+            matches!(i, super::item::Item::ChoiceOffered { call_id, .. } if !made.contains(call_id.as_str()))
+        });
+        // What its answers spent, and the commands that may cost money it asked to run.
+        let stored = inner.config.store.load(id);
+        let turns: Vec<super::board::TurnSpend> = stored
+            .iter()
+            .map(|t| (t.ts, t.role != "assistant", t.provider.as_str(), t.prompt_tokens, t.completion_tokens))
+            .collect();
+        let mut spent = super::board::spent_by(&turns);
+        let costly: HashSet<&str> = items
+            .iter()
+            .filter_map(|i| match i {
+                super::item::Item::ApprovalRequested {
+                    call_id,
+                    detail: lattice_protocol::conversation::ApprovalDetail::Command { cost: Some(_), .. },
+                    ..
+                } => Some(call_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        spent.costly_asked = costly.len();
+        spent.costly_approved = items
+            .iter()
+            .filter(|i| {
+                matches!(i, super::item::Item::ApprovalDecided { call_id, decision, .. }
+                    if costly.contains(call_id.as_str()) && matches!(decision, lattice_protocol::conversation::Decision::Approve))
+            })
+            .count();
+        Some(super::board::TopicState {
+            spent,
+            turns: row.turns.max(0) as u64,
+            running,
+            approval,
+            question: asking && !choosing,
+            decision: asking && choosing,
+            todos_done: todos.iter().filter(|t| t.status == TodoStatus::Done).count(),
+            todos_total: todos.len(),
+            task: super::task_tools::is_task(inner, id),
+        })
+    }
+
+    /// Every project's brainstorm chat (`super::groups`).
+    pub fn brainstorms(&self) -> Vec<super::groups::Brainstorm> {
+        self.inner.groups.brainstorms()
+    }
+
+    /// The next new chat sent with exactly `text` is the brainstorm chat of
+    /// `project`: its first turn already asks only and is told the groups.
+    /// Send it with no conversation named, at once.
+    pub fn begin_brainstorm(&self, text: &str, project: Option<&str>) {
+        let mut pending = lock(&self.inner.brainstorm_pending);
+        pending.retain(|(t, _)| t != text);
+        pending.push((text.to_owned(), project.map(str::to_owned)));
+        // A send that never came leaves no more than a few behind.
+        while pending.len() > 8 {
+            pending.remove(0);
+        }
+    }
+
+    /// The reader keeps the grouping of earlier work.
+    pub fn group_keep(&self) -> Result<(), String> {
+        self.inner.groups.keep_review()
+    }
+
+    /// Group the work from before groups, once (`super::groups::Groups::group_existing`).
+    /// How many groups it made.
+    pub fn group_existing(&self) -> Result<usize, String> {
+        if self.inner.groups.existing().0 {
+            return Ok(0);
+        }
+        let crate::chat::store::IndexState::Rows(mut rows) = self.inner.config.store.list() else { return Ok(0) };
+        rows.sort_by(|a, b| a.created.total_cmp(&b.created));
+        let projects = self.inner.projects.list().unwrap_or_default();
+        let project_of =
+            |id: &str| projects.iter().find(|p| p.chats.iter().any(|c| c == id)).map(|p| p.id.clone());
+        let tasks: HashMap<String, String> = self
+            .inner
+            .task_runs
+            .origins()
+            .into_iter()
+            .filter(|(_, o)| !o.switch)
+            .map(|(id, o)| (id, o.from))
+            .collect();
+        let mut recall = lock(&self.inner.recall);
+        recall.refresh(&*self.inner.config.store);
+        let topics: Vec<(String, Option<String>, String)> =
+            rows.iter().map(|r| (r.id.clone(), project_of(&r.id), recall.topic_text(&r.id))).collect();
+        let mut score = |words: &str, group: &HashSet<String>| -> f64 {
+            recall.topic_scores(words).iter().filter(|(t, _)| group.contains(*t)).map(|(_, s)| s).sum()
+        };
+        self.inner.groups.group_existing(&topics, &tasks, &mut score, self.inner.now())
     }
 
     /// The reader's Forget on one of them; `Ok(false)` when none has that id.
@@ -1194,7 +1554,13 @@ impl AgentChat {
                 binary_sha: Mutex::default(),
                 recall: Mutex::default(),
                 summaries: super::summaries::Summaries::new(&config.state),
+                auto_log: super::allow::AutoLog::new(&config.state),
                 task_runs: super::task_runs::TaskRuns::new(&config.state),
+                plan: Mutex::new(None),
+                groups: super::groups::Groups::new(&config.state),
+                brainstorm_pending: Mutex::default(),
+                task_queue: Mutex::default(),
+                schedules: super::schedules::Schedules::new(&config.state),
                 changed: Changed::default(),
                 claims: Mutex::default(),
                 mcp: Arc::new(McpHub::new(
@@ -1263,7 +1629,19 @@ impl AgentChat {
         if crate::desktop::prefs::on(&chat.inner.config.state) {
             let _ = arm_stop_hotkey(&chat.inner);
         }
+        // What was scheduled runs while the service lives.
+        super::schedules::start_runner(&chat.inner);
         chat
+    }
+
+    /// Every schedule, soonest first (`super::schedules`).
+    pub fn schedules(&self) -> Vec<super::schedules::Schedule> {
+        self.inner.schedules.list()
+    }
+
+    /// The reader cancels a schedule; `false` when none has that id.
+    pub fn cancel_schedule(&self, id: &str) -> Result<bool, String> {
+        self.inner.schedules.cancel(id)
     }
 
     /// Attach a folder the shell's native picker or a drop gave (§6.1): no
@@ -2962,6 +3340,8 @@ pub(crate) fn next_queued(inner: Arc<Inner>, convo: Arc<Convo>) -> BoxFuture<'st
             state.queue.pop_front()
         };
         let Some(message) = next else {
+            // A slot freed: a task waiting for one starts, the highest-priority group's first.
+            super::tasks::start_next(inner).await;
             return;
         };
         let (mode, workspace) = {
