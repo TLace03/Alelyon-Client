@@ -79,6 +79,12 @@ pub mod git_tools;
 mod git_tools_tests;
 pub mod connectors;
 pub mod helpers;
+pub mod agent_defs;
+pub mod fork;
+#[cfg(test)]
+mod fork_tests;
+#[cfg(test)]
+mod agent_defs_tests;
 pub mod plan_limits;
 pub mod walkthrough;
 pub mod terminal;
@@ -155,6 +161,12 @@ mod choices_tests;
 pub mod board;
 #[cfg(test)]
 mod board_tests;
+pub mod fleet;
+#[cfg(test)]
+mod fleet_tests;
+pub mod record;
+#[cfg(test)]
+mod record_tests;
 #[cfg(test)]
 mod plans_group_tests;
 pub mod groups;

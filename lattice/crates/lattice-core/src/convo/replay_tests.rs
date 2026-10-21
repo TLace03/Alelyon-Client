@@ -463,6 +463,7 @@ fn the_agent_prompt_matches_its_golden() {
             "ask_question",
             "git_status",
             "git_diff",
+            "staged_diff",
             "schedule_prompt",
             "list_schedules",
             "cancel_schedule",
@@ -499,7 +500,7 @@ fn the_agent_prompt_matches_its_golden() {
         .iter()
         .map(|t| t.name)
         .collect();
-    assert_eq!(agent.len(), 50);
+    assert_eq!(agent.len(), 51);
     assert!(prompt_agent::SYSTEM.contains("PowerShell"));
     assert!(!prompt_agent::SYSTEM.contains("Project rules"));
 }

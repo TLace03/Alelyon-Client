@@ -18,7 +18,8 @@
 //!   ([`crate::skills`]), in every chat. Its MCP servers are only listed: the
 //!   window may copy them into the reader's own MCP settings
 //!   ([`Plugins::mcp_entries`], `${CLAUDE_PLUGIN_ROOT}` filled in), where each
-//!   still asks before it first starts. Its agents are listed and not used.
+//!   still asks before it first starts. Its agents are ones a helper can be sent
+//!   as ([`crate::convo::agent_defs`], as `<plugin>:<name>`).
 //!   Its hooks (`hooks/hooks.json`) run as the reader's own do
 //!   ([`crate::hooks`]): each asks once, in the core's own dialog.
 //! - **Its files** are read inside its folder only, every link bounded by it,
@@ -75,7 +76,7 @@ pub struct PluginView {
     pub commands: Vec<String>,
     /// Its skills, by their names.
     pub skills: Vec<String>,
-    /// Its agents (listed; not used).
+    /// Its agents, which a helper can be sent as (`convo::agent_defs`).
     pub agents: Vec<String>,
     /// It declares hooks (run as the reader's own, each asked for once).
     pub hooks: bool,

@@ -83,7 +83,7 @@ pub fn words(text: &str) -> Vec<String> {
 }
 
 /// One match.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Hit {
     pub conversation: String,
     pub title: String,

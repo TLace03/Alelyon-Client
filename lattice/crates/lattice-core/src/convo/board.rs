@@ -26,6 +26,7 @@
 //!   reader's own subscription; any other answer's price is not known here,
 //!   and the card says how many.
 
+use serde::Serialize;
 use std::collections::HashMap;
 
 use super::groups::{Group, Milestone, Move, Plan, Status};
@@ -50,7 +51,7 @@ pub struct TopicState {
 }
 
 /// What answers spent: measured, never estimated.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub struct Spent {
     /// Tokens in and out, as the providers reported them.
     pub tokens_in: u64,
@@ -139,7 +140,7 @@ pub fn spent_by(turns: &[TurnSpend]) -> Spent {
 }
 
 /// One card.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Card {
     pub group: String,
     pub name: String,

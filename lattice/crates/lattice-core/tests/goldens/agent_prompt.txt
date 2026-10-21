@@ -181,6 +181,20 @@ A change as git shows it (a summary of the files, then the lines): with no argum
   "type": "object"
 }
 
+TOOL staged_diff
+The changes staged in this conversation that still wait for the user's review, as unified diffs against what each file held when it was first staged. Staged changes are not on disk, so git_diff does not show them. path limits it to one file. Read-only.
+{
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Workspace-relative file, forward slashes.",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
+
 TOOL schedule_prompt
 Schedule a prompt to run later, once (in_minutes) or again and again (every_minutes, at least 5), up to 7 days away: as a new topic (a task) or, with same_topic, as a message to this conversation (a wake-up). The user is asked first. It runs only while Alelyon is open.
 {
@@ -319,6 +333,11 @@ Send a helper agent to do one task in the folder on its own and get back only it
 {
   "additionalProperties": false,
   "properties": {
+    "agent": {
+      "description": "Send it as one of the agents listed at the start of your turn, by name: its instructions, and only the tools it names.",
+      "maxLength": 140,
+      "type": "string"
+    },
     "background": {
       "description": "Answer at once with its id; wait_agent gives back its answer.",
       "type": "boolean"
@@ -326,6 +345,11 @@ Send a helper agent to do one task in the folder on its own and get back only it
     "edits": {
       "description": "Let it stage changes (Agent mode only).",
       "type": "boolean"
+    },
+    "model": {
+      "description": "Another model for it, as the model picker names it (a cheaper or local one for simple work); left out, this turn's. One off this computer is asked of the user first.",
+      "maxLength": 200,
+      "type": "string"
     },
     "task": {
       "description": "The whole task: what to find out or change, and what to report.",
@@ -344,9 +368,19 @@ Send one helper per task (at most 16), at most 4 working at once, and get back e
 {
   "additionalProperties": false,
   "properties": {
+    "agent": {
+      "description": "Send every one as one of the agents listed at the start of your turn, by name.",
+      "maxLength": 140,
+      "type": "string"
+    },
     "edits": {
       "description": "Let them stage changes (Agent mode only).",
       "type": "boolean"
+    },
+    "model": {
+      "description": "Another model for them all, as the model picker names it; left out, this turn's.",
+      "maxLength": 200,
+      "type": "string"
     },
     "tasks": {
       "items": {
