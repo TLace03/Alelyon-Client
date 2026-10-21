@@ -20,9 +20,10 @@
 //!   The window puts the result in the composer, where the reader sees and
 //!   can change it before sending.
 //! - **Built in** ([`BUILT_IN`]): `/review`, the review Claude Code and Codex
-//!   offer: a careful review of the uncommitted changes, the branch against a
-//!   base, or a commit, read with `git_diff`, findings by severity, nothing
-//!   changed. It is text like any command; one of the reader's own (or a
+//!   offer: a careful review of the changes staged in the conversation
+//!   (`staged_diff`, first when there are any), the uncommitted changes, the
+//!   branch against a base, or a commit (`git_diff`), findings by severity,
+//!   nothing changed. It is text like any command; one of the reader's own (or a
 //!   plugin's or the folder's) of the same name is listed in its place.
 //! - **Bounds:** at most 64 KiB a command and [`MAX_COMMANDS`] commands.
 
@@ -63,13 +64,14 @@ pub enum Source {
 pub const REVIEW: &str = "Review these code changes as a careful reviewer would, and change nothing: this is a review, not a fix.
 
 What to review: $ARGUMENTS
-- Nothing named: the uncommitted changes (git_diff with no argument).
+- Nothing named: the changes staged in this conversation and waiting for the user's review (staged_diff), when there are any; else the uncommitted changes (git_diff with no argument).
+- \"staged\": only the changes staged in this conversation (staged_diff).
 - \"branch\", or \"against <branch>\": everything since this branch left that branch (git_diff with base; main when none is named).
 - A commit id: that commit (git_diff with commit).
 - Anything else says what to look at most closely, in the uncommitted changes.
 
 How:
-1. Read the change with git_diff, and the code around it with read_file and grep, as far as you need to judge it.
+1. Read the change with staged_diff or git_diff, and the code around it with read_file and grep (they see the staged versions), as far as you need to judge it.
 2. Look for what would go wrong: a bug and the input that triggers it, a missed edge case, a security problem (a secret, injection, unchecked input), lost data, a race, changed behaviour no test covers, code that does not do what its name or comment says. Leave style alone unless it hides a bug.
 3. Report each finding, most severe first, as: **Critical**, **High**, **Medium** or **Low**, then `path:line`, then what is wrong in one sentence and the input or sequence that makes it fail.
 4. End with a one-line verdict. When you find nothing worth reporting, say so plainly; do not invent findings.
@@ -79,8 +81,8 @@ Do not edit, stage, run or commit anything for this review.";
 /// Lattice's own commands: (name, description, argument hint, text).
 pub const BUILT_IN: [(&str, &str, &str, &str); 1] = [(
     "review",
-    "Review the changes: the uncommitted ones, the branch against a base, or a commit. Changes nothing.",
-    "[branch | against <branch> | <commit> | what to look at]",
+    "Review the changes: the ones staged here, the uncommitted ones, the branch against a base, or a commit. Changes nothing.",
+    "[staged | branch | against <branch> | <commit> | what to look at]",
     REVIEW,
 )];
 

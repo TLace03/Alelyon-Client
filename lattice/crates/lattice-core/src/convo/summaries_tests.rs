@@ -14,7 +14,7 @@ use lattice_agents::model::OutputItem;
 use lattice_protocol::conversation::Mode;
 
 fn summary(text: &str, turns: usize) -> Summary {
-    Summary { text: text.into(), turns, at: 1.0, by: "Local".into() }
+    Summary { text: text.into(), turns, at: 1.0, by: "Local".into(), compacted_turns: 0 }
 }
 
 fn turn(role: &str, text: &str) -> StoredTurn {

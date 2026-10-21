@@ -446,6 +446,8 @@ pub(crate) struct Inner {
     pub binary_sha: Mutex<Option<BinaryStamp>>,
     /// The reader's earlier conversations, searched by their words (`super::recall`).
     pub recall: Mutex<super::recall::Recall>,
+    /// Each conversation's context use at its last turn (`super::fork::ContextUse`), in this process.
+    pub context: Mutex<HashMap<String, super::fork::ContextUse>>,
     /// The topics' summaries and the reader's model for them (`super::summaries`).
     pub summaries: super::summaries::Summaries,
     /// What was done without the reader under allow all (`super::allow`).
@@ -1553,6 +1555,7 @@ impl AgentChat {
                 tool_probes: Mutex::default(),
                 binary_sha: Mutex::default(),
                 recall: Mutex::default(),
+                context: Mutex::default(),
                 summaries: super::summaries::Summaries::new(&config.state),
                 auto_log: super::allow::AutoLog::new(&config.state),
                 task_runs: super::task_runs::TaskRuns::new(&config.state),

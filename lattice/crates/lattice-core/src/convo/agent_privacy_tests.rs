@@ -1002,6 +1002,7 @@ fn reasoning_replays_with_the_assistant_output_it_preceded() {
         &Options {
             stop_before: Some("u3".into()),
             context_tokens: Some(4_000),
+            ..Options::default()
         },
         &|_| None,
     );

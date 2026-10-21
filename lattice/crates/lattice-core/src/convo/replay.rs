@@ -75,14 +75,19 @@ pub struct Options {
     /// The current turn's user record: replay stops before it (UT1).
     pub stop_before: Option<String>,
     pub context_tokens: Option<u32>,
+    /// The first stored turns the reader compacted (`/compact`): left out, their summary leading instead.
+    pub compacted: usize,
 }
 
 /// The replayed input and what was left out.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Replay {
     pub items: Vec<InputItem>,
-    /// Earlier exchanges left out whole by the budget.
+    /// Earlier exchanges left out whole: by the budget, and those the reader compacted.
     pub left_out: usize,
+    /// The characters replayed, and the budget they had (the context meter).
+    pub used: usize,
+    pub limit: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -338,6 +343,10 @@ pub fn replay(
     options: &Options,
     read_blob: &dyn Fn(&str) -> Option<Vec<u8>>,
 ) -> Replay {
+    // What the reader compacted is left out; its summary leads the turn instead.
+    let compacted = options.compacted.min(turns.len());
+    let compacted_out = turns[..compacted].iter().filter(|t| t.role == "user" && !t.superseded).count();
+    let turns = &turns[compacted..];
     let mut exchanges = exchanges(turns, items, options.stop_before.as_deref(), read_blob);
     // The budget.
     let limit = budget(options.context_tokens);
@@ -381,11 +390,12 @@ pub fn replay(
         exchanges[at].reasoning.clear();
         at += 1;
     }
-    let mut left_out = 0;
+    let mut left_out = compacted_out;
     while total(&exchanges) > limit && exchanges.len() > 1 {
         exchanges.remove(0);
         left_out += 1;
     }
+    let used = total(&exchanges);
     let mut input = Vec::new();
     for exchange in exchanges {
         if let Some(user) = exchange.user {
@@ -422,6 +432,8 @@ pub fn replay(
     Replay {
         items: input,
         left_out,
+        used,
+        limit,
     }
 }
 

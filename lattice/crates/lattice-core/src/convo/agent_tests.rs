@@ -472,7 +472,7 @@ fn an_agent_turn_reads_answers_and_records_its_trail() {
         .map(|tool| tool.name.clone())
         .collect();
     // Every built-in tool, and a model that can see gets view_image and read_pdf.
-    assert_eq!(tools.len(), 52, "Agent mode offers every tool: {tools:?}");
+    assert_eq!(tools.len(), 53, "Agent mode offers every tool: {tools:?}");
     assert!(
         matches!(&calls[1].input.last(), Some(InputItem::ToolResult { output, .. }) if output.contains("1\ta"))
     );
@@ -554,6 +554,7 @@ fn ask_mode_offers_no_staging_tool_and_no_command() {
             "ask_question",
             "git_status",
             "git_diff",
+            "staged_diff",
             "schedule_prompt",
             "list_schedules",
             "cancel_schedule",

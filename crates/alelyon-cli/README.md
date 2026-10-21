@@ -103,6 +103,44 @@ How the app keeps these actions in check:
 
 From a terminal: `alelyon-cli app status`, `alelyon-cli app chat_send '{"text": "…"}'`.
 
+### Your fleet
+
+Lattice splits your work into **groups**. Each group has one chat, and the **topics** inside it are the sessions
+doing its work. An agent in another harness, such as Claude Code or Codex, can see the whole fleet and keep it moving:
+
+| Tool | What it does |
+|---|---|
+| `fleet_groups` | Every group in every project, highest priority first. Each shows its column, what it waits for from you, its tasks running, its steps and milestones done, and what it spent. |
+| `fleet_group` | One group's topics. Each shows the step under way, its steps, what it did last, whether it is working, and what it waits for. |
+| `fleet_record` | A group's record, which every session of the group starts with: your notes, where each session stands, what was decided, what is open, and where the work is. |
+| `fleet_watch` | Waits until something in the fleet changes, then answers with the whole fleet and a digest: a new question, a session done or waiting, a step done. Pass the last digest to keep watching, so your agent reacts instead of polling. |
+| `fleet_search` | Find past sessions by what was said in them, the best match of each first. |
+| `fleet_waiting` | Every question and approval waiting for you across all groups. A question comes with its options. |
+| `fleet_answer` | Answer a waiting question, as you would in the app. |
+| `fleet_new_group` | Hand a new piece of work to Lattice: a group of its own, with your message as the first in its chat. |
+| `fleet_decide` | Record a decision on a group's record, so no session of the group asks or decides it again. It shows as made by your agent, and you can take it off. |
+| `fleet_reply` | Guide one session: while it works, your text steers its running turn; while it is idle, it is its next message. |
+| `fleet_stop` | Stop a session's running turn. What it already did stays. |
+| `fleet_send` | Write in a group's chat. The message goes to the group's topic for that work, or starts a new one. |
+
+Approvals are listed, but only you decide them, in the app: an approval lets an agent do more than it could.
+`fleet_answer` and `fleet_send` are actions, so the app asks you once per session, as for the app tools above.
+
+From a terminal:
+
+```sh
+alelyon-cli fleet groups
+alelyon-cli fleet record <group>
+alelyon-cli fleet waiting
+alelyon-cli fleet watch          # the fleet, printed again each time it changes
+alelyon-cli fleet answer <topic> <call> "CSV first"
+alelyon-cli fleet send <group> "Ship the parser once its tests pass."
+alelyon-cli fleet new "CSV parser" "Build a CSV parser for the import page; done when its tests pass."
+alelyon-cli fleet decide <group> "Dates are ISO 8601 in every output."
+alelyon-cli fleet reply <topic> "Use the existing date helper instead of a new one."
+alelyon-cli fleet stop <topic>
+```
+
 ## What it sends
 
 - **Where:** the identity service only, over HTTPS (`https://id.api.alelyon.com`; `--url` or `ALELYON_URL` for

@@ -515,6 +515,11 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
             ),
         },
         ToolDef {
+            name: "staged_diff",
+            description: "The changes staged in this conversation that still wait for the user's review, as unified diffs against what each file held when it was first staged. Staged changes are not on disk, so git_diff does not show them. path limits it to one file. Read-only.",
+            parameters: object(json!({"path": {"type": "string", "description": "Workspace-relative file, forward slashes."}}), &[]),
+        },
+        ToolDef {
             name: "schedule_prompt",
             description: "Schedule a prompt to run later, once (in_minutes) or again and again (every_minutes, at least 5), up to 7 days away: as a new topic (a task) or, with same_topic, as a message to this conversation (a wake-up). The user is asked first. It runs only while Alelyon is open.",
             parameters: object(
@@ -578,6 +583,8 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
                     "task": {"type": "string", "maxLength": 4000, "description": "The whole task: what to find out or change, and what to report."},
                     "edits": {"type": "boolean", "description": "Let it stage changes (Agent mode only)."},
                     "background": {"type": "boolean", "description": "Answer at once with its id; wait_agent gives back its answer."},
+                    "agent": {"type": "string", "maxLength": 140, "description": "Send it as one of the agents listed at the start of your turn, by name: its instructions, and only the tools it names."},
+                    "model": {"type": "string", "maxLength": 200, "description": "Another model for it, as the model picker names it (a cheaper or local one for simple work); left out, this turn's. One off this computer is asked of the user first."},
                 }),
                 &["task"],
             ),
@@ -589,6 +596,8 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
                 json!({
                     "tasks": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 4000}},
                     "edits": {"type": "boolean", "description": "Let them stage changes (Agent mode only)."},
+                    "agent": {"type": "string", "maxLength": 140, "description": "Send every one as one of the agents listed at the start of your turn, by name."},
+                    "model": {"type": "string", "maxLength": 200, "description": "Another model for them all, as the model picker names it; left out, this turn's."},
                 }),
                 &["tasks"],
             ),
@@ -938,6 +947,15 @@ pub fn tools(mode: Mode) -> Vec<ToolDef> {
 }
 
 /// The tools of a turn in a group's topic (`super::groups`): its plan's two.
+/// A group's topic: its record's tool (`super::record`).
+pub fn record_tools() -> Vec<ToolDef> {
+    vec![ToolDef {
+        name: "record_decision",
+        description: "Record a decision on this group's record (one line, at most 300 characters): what was settled, so no session of the group asks or decides it again. Every session of the group starts with the record; the user can read it and take a decision off. Record what the user decided or what the work settled, never a guess.",
+        parameters: object(json!({"decision": {"type": "string", "maxLength": 300}}), &["decision"]),
+    }]
+}
+
 pub fn plan_tools() -> Vec<ToolDef> {
     let milestone = json!({
         "type": "object",

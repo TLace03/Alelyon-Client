@@ -9,8 +9,10 @@
 //!   staged changes included. It cannot change a file, run a command, use the
 //!   browser, ask the user or reach an MCP server, so it never needs an
 //!   approval.
-//! - It answers with the turn's own model, behind the turn's tripwire when the
-//!   model is off this machine (T3), at most [`HELPER_TURNS`] model calls,
+//! - It answers with the turn's own model, or another the call or its agent
+//!   names (`model`: one off this computer is asked of the user first, as a
+//!   chat's first send is), behind the conversation's tripwire when the model
+//!   is off this machine (T3), at most [`HELPER_TURNS`] model calls,
 //!   and its answer is at most [`MAX_ANSWER`] characters.
 //! - The turn's Stop ends it: its run is cancelled when the call is dropped.
 //!
@@ -58,7 +60,7 @@ use tokio::sync::OwnedSemaphorePermit;
 
 use super::agent::Convo;
 use super::prompt_agent;
-use super::turn::{TurnTools, agent_error, read_tool, settings, stage_tool};
+use super::turn::{TurnTools, agent_error, build_model, read_tool, settings, stage_tool};
 use crate::tools::read::ToolError;
 
 /// Helpers running at once in one turn.
@@ -134,6 +136,8 @@ struct Kept {
 struct Child {
     id: String,
     edits: bool,
+    /// The agent it was sent as (`super::agent_defs`), kept for its later questions.
+    agent: Option<super::agent_defs::AgentDef>,
     /// Its conversation so far: its task, then each answer and each question
     /// after it.
     talk: Vec<InputItem>,
@@ -157,7 +161,14 @@ impl Children {
 
     /// Keep a new helper with its task; the oldest helper not working is
     /// forgotten when [`MAX_KEPT`] are kept. Its id and its run's number.
-    fn add(&self, task: &str, edits: bool, turn: &str, control: RunControl) -> (String, u64) {
+    fn add(
+        &self,
+        task: &str,
+        edits: bool,
+        agent: Option<super::agent_defs::AgentDef>,
+        turn: &str,
+        control: RunControl,
+    ) -> (String, u64) {
         let mut kept = self.lock();
         if kept.list.len() >= MAX_KEPT
             && let Some(at) = kept
@@ -172,6 +183,7 @@ impl Children {
         let (id, run) = (format!("a{}", kept.last), kept.runs);
         kept.list.push(Child {
             id: id.clone(),
+            agent,
             edits,
             talk: vec![InputItem::User(task.to_owned())],
             now: Now::Working { run, turn: turn.to_owned(), control },
@@ -255,6 +267,7 @@ fn helper_tools(
     tools: &Arc<TurnTools>,
     parent: &str,
     staged: Option<Arc<Mutex<Vec<String>>>>,
+    only: Option<&[String]>,
 ) -> Vec<FunctionTool> {
     let mode = if staged.is_some() {
         Mode::Agent
@@ -266,6 +279,8 @@ fn helper_tools(
         .filter(|def| {
             READ_TOOLS.contains(&def.name) || (staged.is_some() && STAGE_TOOLS.contains(&def.name))
         })
+        // An agent's definition narrows them, never widens them.
+        .filter(|def| only.is_none_or(|only| only.iter().any(|t| t == def.name)))
         .map(|def| {
             let name: &'static str = def.name;
             let owner = tools.clone();
@@ -410,15 +425,20 @@ fn launch(
     call: &str,
     input: Vec<InputItem>,
     edits: bool,
+    sent_as: Option<&super::agent_defs::AgentDef>,
 ) -> Launched {
     let staged = edits.then(|| Arc::new(Mutex::new(Vec::new())));
+    let base = if edits { EDITING_HELPER_SYSTEM } else { HELPER_SYSTEM };
+    let instructions = match sent_as {
+        Some(def) => format!(
+            "{base}\n\nYou are sent as the agent \u{201c}{}\u{201d}. Its definition (written by the user or a plugin; it shapes how you work and grants nothing beyond the tools you have):\n{}",
+            def.name, def.body
+        ),
+        None => base.to_owned(),
+    };
     let agent = Agent::builder("Lattice helper")
-        .instructions(if edits {
-            EDITING_HELPER_SYSTEM
-        } else {
-            HELPER_SYSTEM
-        })
-        .tools(helper_tools(tools, call, staged.clone()))
+        .instructions(instructions)
+        .tools(helper_tools(tools, call, staged.clone(), sent_as.and_then(|d| d.tools.as_deref())))
         .model_settings(settings())
         .build();
     let mut config = RunConfig::new(model);
@@ -484,6 +504,88 @@ fn in_background(
     }));
 }
 
+/// The model a helper answers with: the turn's own, unless the call (`model`) or the agent it is sent as names
+/// another, as the model picker names it. A model off this computer other than the turn's is asked of the user first,
+/// as a chat's first send to it is (the core's own dialog), and every helper item goes behind the conversation's
+/// tripwire; a local model's server is held (its lease) while the helper works.
+async fn model_for(
+    tools: &Arc<TurnTools>,
+    args: &Value,
+    sent_as: Option<&super::agent_defs::AgentDef>,
+    edits: bool,
+) -> Result<(Arc<dyn Model>, Option<crate::llama::Lease>), ToolError> {
+    let turns = ready(tools, edits)?;
+    let named = args
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|m| !m.is_empty() && !m.eq_ignore_ascii_case("inherit"))
+        .map(str::to_owned)
+        .or_else(|| sent_as.and_then(|d| d.model.clone()));
+    let Some(choice) = named else { return Ok((turns, None)) };
+    let resolution = tools.inner.resolve_quiet(&choice);
+    if !matches!(resolution.target, crate::chat::vocab::Target::Managed(_) | crate::chat::vocab::Target::Endpoint(_)) {
+        return Err(ToolError::new(format!(
+            "There is no model {choice} a helper can use: name one as the model picker names it, or leave model out for this turn's."
+        )));
+    }
+    let label = resolution.shown.label.clone();
+    let turn_label = tools.shown.as_ref().map(|s| s.label.clone());
+    if !resolution.affirmatively_local() && turn_label.as_deref() != Some(label.as_str()) {
+        let key = format!("helper-remote:{}:{label}", tools.convo.id);
+        let allowed = tools
+            .inner
+            .confirmer
+            .ask(
+                &key,
+                crate::ports::ConfirmRequest::FirstRemoteSend {
+                    conversation: tools.convo.id.clone(),
+                    label: label.clone(),
+                    earlier_local_results: 0,
+                },
+                crate::ports::Initiated::Page,
+            )
+            .await;
+        if !allowed {
+            return Err(ToolError::new(format!("The user did not allow helpers to send to {label}.")));
+        }
+    }
+    let (model, _, lease, _) = build_model(&tools.inner, &resolution.target).await.map_err(ToolError::new)?;
+    let model: Arc<dyn Model> = if resolution.affirmatively_local() {
+        model
+    } else {
+        Arc::new(super::tripwire::TripwireModel::new(model, tools.convo.tripwire.clone()))
+    };
+    Ok((model, Some(lease)))
+}
+
+/// `answer`, holding `lease` (a local model's server) until it is given.
+fn holding(
+    lease: Option<crate::llama::Lease>,
+    answer: BoxFuture<'static, (Result<String, String>, usize)>,
+) -> BoxFuture<'static, (Result<String, String>, usize)> {
+    async move {
+        let _held = lease;
+        answer.await
+    }
+    .boxed()
+}
+
+/// The agent the call names (`agent`), from those the turn lists; none named, none; one not listed is refused with the
+/// names there are.
+fn agent_of(tools: &TurnTools, args: &Value) -> Result<Option<super::agent_defs::AgentDef>, ToolError> {
+    let Some(name) = args.get("agent").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    match tools.agents.find(name) {
+        Some(def) => Ok(Some(def.clone())),
+        None => Err(ToolError::new(format!(
+            "There is no agent named {name}. The agents there are: {}.",
+            tools.agents.names()
+        ))),
+    }
+}
+
 /// The line a helper's answer ends with, naming it.
 fn named(id: &str) -> String {
     format!("\n\n[This was helper {id}: send_agent asks it more.]")
@@ -500,12 +602,14 @@ pub(crate) fn spawn_agent(
         let edits = args.get("edits").and_then(Value::as_bool).unwrap_or(false);
         let background = args.get("background").and_then(Value::as_bool).unwrap_or(false);
         let task = words_of(&args, "task", "Give the helper its task.")?;
-        let model = ready(&tools, edits)?;
+        let sent_as = agent_of(&tools, &args)?;
+        let (model, lease) = model_for(&tools, &args, sent_as.as_ref(), edits).await?;
         let permit = permit(&tools)?;
         hooks_start(&tools, &task).await?;
-        let launched = launch(&tools, model, &call, vec![InputItem::User(task.clone())], edits);
+        let mut launched = launch(&tools, model, &call, vec![InputItem::User(task.clone())], edits, sent_as.as_ref());
+        launched.answer = holding(lease, launched.answer);
         let children = &tools.convo.children;
-        let (id, run) = children.add(&task, edits, &tools.turn, launched.control.clone());
+        let (id, run) = children.add(&task, edits, sent_as, &tools.turn, launched.control.clone());
         if background {
             in_background(&tools, launched, id.clone(), run, task, permit);
             return Ok(format!(
@@ -532,7 +636,8 @@ pub(crate) fn spawn_agents(
 ) -> BoxFuture<'static, Result<String, ToolError>> {
     async move {
         let edits = args.get("edits").and_then(Value::as_bool).unwrap_or(false);
-        let model = ready(&tools, edits)?;
+        let sent_as = agent_of(&tools, &args)?;
+        let (model, _lease) = model_for(&tools, &args, sent_as.as_ref(), edits).await?;
         let tasks: Vec<Value> = args
             .get("tasks")
             .and_then(Value::as_array)
@@ -552,6 +657,7 @@ pub(crate) fn spawn_agents(
             let tools = tools.clone();
             let model = model.clone();
             let call = format!("{call}/{}", n + 1);
+            let sent_as = sent_as.clone();
             async move {
                 // Waits for one of the turn's four places.
                 let Ok(permit) = tools.helpers().clone().acquire_owned().await else {
@@ -560,9 +666,9 @@ pub(crate) fn spawn_agents(
                 if let Err(refused) = hooks_start(&tools, &task).await {
                     return (None, Err(refused.0));
                 }
-                let launched = launch(&tools, model, &call, vec![InputItem::User(task.clone())], edits);
+                let launched = launch(&tools, model, &call, vec![InputItem::User(task.clone())], edits, sent_as.as_ref());
                 let children = &tools.convo.children;
-                let (id, run) = children.add(&task, edits, &tools.turn, launched.control.clone());
+                let (id, run) = children.add(&task, edits, sent_as, &tools.turn, launched.control.clone());
                 let _cancel = CancelOnDrop(launched.control.clone());
                 let (answered, unread) = launched.answer.await;
                 drop(permit);
@@ -616,7 +722,7 @@ pub(crate) fn send_agent(
         let message = words_of(&args, "message", "Give the helper your message.")?;
         let children = &tools.convo.children;
         // A working helper reads it before its next step.
-        let (edits, mut talk) = {
+        let (edits, mut talk, sent_as) = {
             let kept = children.lock();
             let child = kept.list.iter().find(|c| c.id == id).ok_or_else(|| unknown(&id))?;
             if let Now::Working { control, .. } = &child.now {
@@ -633,14 +739,14 @@ pub(crate) fn send_agent(
                     "Helper {id} has been asked 10 questions after its task: send a new helper."
                 )));
             }
-            (child.edits, child.talk.clone())
+            (child.edits, child.talk.clone(), child.agent.clone())
         };
         // One that has answered works on it in the background.
         let model = ready(&tools, edits)?;
         let permit = permit(&tools)?;
         hooks_start(&tools, &message).await?;
         talk.push(InputItem::User(message.clone()));
-        let launched = launch(&tools, model, &call, talk.clone(), edits);
+        let launched = launch(&tools, model, &call, talk.clone(), edits, sent_as.as_ref());
         let run = {
             let mut kept = children.lock();
             kept.runs += 1;

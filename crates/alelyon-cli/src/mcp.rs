@@ -216,6 +216,8 @@ mod tests {
                    "params": {"name": "app_chat_send", "arguments": {"text": "hi"}}}),
             json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                    "params": {"name": "pages_feed", "arguments": {}}}),
+            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                   "params": {"name": "fleet_answer", "arguments": {"topic": "t1", "call": "q1", "text": "CSV"}}}),
         ];
         let input: String = lines.iter().map(|l| format!("{l}\n")).collect();
         let mut out = Vec::new();
@@ -223,10 +225,11 @@ mod tests {
         let got: Vec<Value> = String::from_utf8(out).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
         let tools = got[0]["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), APP_TOOLS.len());
-        assert!(tools.iter().all(|t| t["name"].as_str().unwrap().starts_with("app_")));
+        assert!(tools.iter().all(|t| !t["name"].as_str().unwrap().starts_with("pages_")));
         assert_eq!(app.calls.borrow()[0], ("chat_send".to_string(), json!({"text": "hi"})));
         assert_eq!(got[2]["result"]["isError"], true, "a Pages tool without a token says how to make one");
-        assert_eq!(app.calls.borrow().len(), 1);
+        assert_eq!(app.calls.borrow()[1], ("fleet_answer".to_string(), json!({"topic": "t1", "call": "q1", "text": "CSV"})));
+        assert_eq!(app.calls.borrow().len(), 2);
     }
 
     #[test]

@@ -57,6 +57,10 @@ pub struct Summary {
     pub at: f64,
     /// The model's label.
     pub by: String,
+    /// How many of the topic's first stored turns the reader compacted into a summary (`/compact`): a turn replays
+    /// from after them, its summary leading. 0: none.
+    #[serde(default)]
+    pub compacted_turns: usize,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -137,6 +141,11 @@ impl Summaries {
 /// The request that asks for a topic's summary: its newest turns, at most
 /// [`SOURCE_CHARS`], oldest first.
 pub fn request(title: &str, turns: &[StoredTurn]) -> ModelRequest {
+    request_focused(title, turns, None)
+}
+
+/// [`request`], with what the reader wants kept above all (`/compact <focus>`).
+pub fn request_focused(title: &str, turns: &[StoredTurn], focus: Option<&str>) -> ModelRequest {
     let mut lines: Vec<String> = Vec::new();
     let mut used = 0;
     for turn in turns.iter().rev() {
@@ -152,7 +161,10 @@ pub fn request(title: &str, turns: &[StoredTurn]) -> ModelRequest {
     let title = if title.trim().is_empty() { "Untitled" } else { title.trim() };
     ModelRequest {
         system: PROMPT.to_owned(),
-        input: vec![InputItem::User(format!("Topic: {title}\n\n{}", lines.join("\n\n")))],
+        input: vec![InputItem::User(match focus.map(str::trim).filter(|f| !f.is_empty()) {
+            Some(focus) => format!("Topic: {title}\n\nKeep above all: {focus}\n\n{}", lines.join("\n\n")),
+            None => format!("Topic: {title}\n\n{}", lines.join("\n\n")),
+        })],
         tools: vec![],
         settings: ModelSettings { temperature: Some(0.2), max_tokens: Some(MAX_TOKENS), ..ModelSettings::default() },
     }
@@ -176,7 +188,12 @@ pub fn text_of(output: &[OutputItem]) -> Option<String> {
 
 /// Ask `model` for a summary.
 pub async fn write(model: &dyn Model, title: &str, turns: &[StoredTurn]) -> Option<String> {
-    let mut stream = model.stream(request(title, turns));
+    write_focused(model, title, turns, None).await
+}
+
+/// [`write`], with what to keep above all.
+pub async fn write_focused(model: &dyn Model, title: &str, turns: &[StoredTurn], focus: Option<&str>) -> Option<String> {
+    let mut stream = model.stream(request_focused(title, turns, focus));
     while let Some(event) = stream.next().await {
         match event {
             Ok(ModelEvent::Done(response)) => return text_of(&response.output),
@@ -227,7 +244,9 @@ pub(crate) fn after_turn(inner: Arc<super::agent::Inner>, topic: String, used: S
         };
         let Some((model, label, lease)) = super::turn::summary_model(&inner, &topic, &used).await else { return };
         if let Some(text) = write(model.as_ref(), &title, &turns).await {
-            let _ = inner.summaries.keep(&topic, Summary { text, turns: turns.len(), at: inner.now(), by: label });
+            // A later summary keeps what the reader compacted.
+            let compacted_turns = inner.summaries.get(&topic).map_or(0, |s| s.compacted_turns);
+            let _ = inner.summaries.keep(&topic, Summary { text, turns: turns.len(), at: inner.now(), by: label, compacted_turns });
         }
         // The local server may stop once the summary is written.
         drop(lease);

@@ -10,6 +10,7 @@ mod api;
 mod app;
 mod mcp;
 mod tools;
+mod watch;
 
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
@@ -36,6 +37,34 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum Fleet {
+    /// Every group, in every project, highest priority first.
+    Groups,
+    /// One group's topics, with each one's step under way.
+    Group { id: String },
+    /// A group's record: your notes, where its sessions stand, what was decided, what is open.
+    Record { id: String },
+    /// Find past sessions by what was said in them.
+    Search { query: String },
+    /// Every question and approval waiting for you.
+    Waiting,
+    /// Answer a question waiting in a topic.
+    Answer { topic: String, call: String, text: String },
+    /// Write in a group's chat.
+    Send { id: String, text: String },
+    /// Keep watching: the fleet printed again each time it changes (Ctrl+C stops).
+    Watch,
+    /// Hand over a new piece of work: a group of its own, with this as its first message.
+    New { name: String, text: String },
+    /// Record a decision on a group's record, which every session of the group starts with.
+    Decide { id: String, decision: String },
+    /// Guide one session: a steer while it works, else its next message.
+    Reply { topic: String, text: String },
+    /// Stop a session's running turn.
+    Stop { topic: String },
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Keep, check or forget your developer token.
     Auth {
@@ -45,7 +74,11 @@ enum Command {
     /// Serve the Pages tools to an AI agent over MCP (stdio).
     Mcp,
     /// List the Pages tools an agent gets, with the scope each needs.
-    Tools,
+    Tools {
+        /// Print the Pages tools as JSON: name, route, scope, description, hints and input schema.
+        #[arg(long)]
+        json: bool,
+    },
     /// Your own page.
     Me,
     /// Your home feed.
@@ -87,6 +120,12 @@ enum Command {
     App {
         command: String,
         fields: Option<String>,
+    },
+    /// Your fleet in the Alelyon app (Settings, Agents on): its groups, a group's topics, what waits for you; answer
+    /// a question, or write in a group's chat.
+    Fleet {
+        #[command(subcommand)]
+        action: Fleet,
     },
     /// Run any tool by name with its fields as JSON, as an agent would.
     Call {
@@ -146,6 +185,12 @@ fn run_tool(pages: &dyn Pages, name: &str, fields: Value) -> Result<Value, Strin
     })
 }
 
+/// The time now, UTC, for the watch's headings.
+fn clock() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    format!("{:02}:{:02}:{:02} UTC", secs / 3600 % 24, secs / 60 % 60, secs % 60)
+}
+
 fn print(value: &Value) {
     println!("{}", serde_json::to_string_pretty(value).unwrap_or_default());
 }
@@ -187,7 +232,11 @@ fn main() -> ExitCode {
             eprintln!("The token works. It acts as @{}.", who.as_str().unwrap_or("?"));
             Ok(())
         }
-        Command::Tools => {
+        Command::Tools { json: true } => {
+            println!("{}", serde_json::to_string_pretty(&tools::export()).unwrap_or_default());
+            Ok(())
+        }
+        Command::Tools { json: false } => {
             for t in tools::TOOLS.iter().chain(tools::APP_TOOLS) {
                 println!("{:<26} {:<15} {}", t.name, t.scope, t.description);
             }
@@ -204,6 +253,42 @@ fn main() -> ExitCode {
             let reach = mcp::Reach { pages: svc.as_ref().map(|s| s as &dyn Pages), app: &app };
             let stdin = std::io::stdin();
             mcp::serve(&reach, stdin.lock(), std::io::stdout().lock()).map_err(|_| "Standard input or output failed.".into())
+        }
+        Command::Fleet { action: Fleet::Watch } => {
+            let app = app::App { handoff: app::handoff_path() };
+            let mut since: Option<String> = None;
+            loop {
+                let fields = match &since {
+                    Some(digest) => json!({"since": digest}),
+                    None => json!({}),
+                };
+                let answer = run_tool(&app, "fleet_watch", fields)?;
+                if answer.get("changed").and_then(Value::as_bool).unwrap_or(false) {
+                    let fleet = answer.get("fleet").cloned().unwrap_or(Value::Null);
+                    since = fleet.get("digest").and_then(Value::as_str).map(str::to_owned);
+                    println!("
+== {} ==
+{}", clock(), watch::summary(&fleet));
+                }
+            }
+        }
+        Command::Fleet { action } => {
+            let (name, fields) = match action {
+                Fleet::Watch => unreachable!("handled above"),
+                Fleet::Groups => ("fleet_groups", json!({})),
+                Fleet::Group { id } => ("fleet_group", json!({"id": id})),
+                Fleet::Record { id } => ("fleet_record", json!({"id": id})),
+                Fleet::Search { query } => ("fleet_search", json!({"query": query})),
+                Fleet::Waiting => ("fleet_waiting", json!({})),
+                Fleet::Answer { topic, call, text } => ("fleet_answer", json!({"topic": topic, "call": call, "text": text})),
+                Fleet::Send { id, text } => ("fleet_send", json!({"id": id, "text": text})),
+                Fleet::New { name, text } => ("fleet_new_group", json!({"name": name, "text": text})),
+                Fleet::Decide { id, decision } => ("fleet_decide", json!({"id": id, "decision": decision})),
+                Fleet::Reply { topic, text } => ("fleet_reply", json!({"topic": topic, "text": text})),
+                Fleet::Stop { topic } => ("fleet_stop", json!({"topic": topic})),
+            };
+            let app = app::App { handoff: app::handoff_path() };
+            run_tool(&app, name, fields).map(|v| print(&v))
         }
         Command::App { command, fields } => {
             let parsed: Value = match fields {

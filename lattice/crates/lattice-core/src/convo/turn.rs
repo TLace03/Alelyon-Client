@@ -144,6 +144,8 @@ pub(crate) struct TurnTools {
     shots: Arc<Mutex<Vec<Picture>>>,
     /// The skills this turn lists, as read when it began.
     pub skills: crate::skills::Skills,
+    /// The agents a helper can be sent as (`super::agent_defs`), as read when it began.
+    pub agents: super::agent_defs::AgentDefs,
     /// The turn's model, behind its tripwire, for its helpers (`super::helpers`).
     helper_model: std::sync::OnceLock<Arc<dyn Model>>,
     /// The places of the helpers working now (`super::helpers::MAX_HELPERS`).
@@ -605,8 +607,14 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         &Options {
             stop_before: (!continuing).then(|| user_turn.id.clone()),
             context_tokens: caps.context_tokens,
+            compacted: inner.summaries.get(&id).map_or(0, |s| s.compacted_turns),
         },
         &read_blob,
+    );
+    // The context meter: how much of the budget this turn's replay used.
+    inner.context.lock().unwrap_or_else(|p| p.into_inner()).insert(
+        id.clone(),
+        super::fork::ContextUse { used: replayed.used, limit: replayed.limit, left_out: replayed.left_out },
     );
     let trusted = workspace.as_ref().is_none_or(|workspace| {
         inner.trust.state(workspace) == lattice_protocol::conversation::TrustState::Trusted
@@ -642,6 +650,18 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
             .unwrap_or_else(|_| crate::skills::load(&inner.config.state, None)),
         _ => crate::skills::load(&inner.config.state, None),
     };
+    // The agents a helper can be sent as: the reader's own, the plugins', and a trusted folder's.
+    let agents = match &workspace {
+        Some(workspace) if trusted => workspace
+            .with_rules(&inner.runner, |rules| {
+                super::agent_defs::load(
+                    &inner.config.state,
+                    Some((rules, lattice_protocol::conversation::TrustState::Trusted)),
+                )
+            })
+            .unwrap_or_else(|_| super::agent_defs::load(&inner.config.state, None)),
+        _ => super::agent_defs::load(&inner.config.state, None),
+    };
     // The chat's project leads, before the folder's rules.
     let project = inner
         .projects
@@ -653,6 +673,10 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
     };
     // The skills' list follows them.
     let rules = match (rules, skills.lead_text()) {
+        (Some(rules), Some(list)) => Some(format!("{rules}\n\n{list}")),
+        (rules, list) => rules.or(list),
+    };
+    let rules = match (rules, agents.lead_text()) {
         (Some(rules), Some(list)) => Some(format!("{rules}\n\n{list}")),
         (rules, list) => rules.or(list),
     };
@@ -718,6 +742,17 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
     let rules = match (rules, planned) {
         (Some(rules), Some(planned)) => Some(format!("{rules}\n\n{planned}")),
         (rules, planned) => rules.or(planned),
+    };
+    // ... and the group's record: where its other sessions stand, what was decided, what is open (`super::record`).
+    let recorded = inner
+        .groups
+        .of(&id)
+        .filter(|_| !brainstorm)
+        .and_then(|group| super::record::build(inner, &group.id))
+        .and_then(|record| super::record::lead_text(&record, &id));
+    let rules = match (rules, recorded) {
+        (Some(rules), Some(recorded)) => Some(format!("{rules}\n\n{recorded}")),
+        (rules, recorded) => rules.or(recorded),
     };
     let rules = if new && !hooks.hooks.is_empty() {
         let verdict = inner.handle.block_on(super::hooked::fire(
@@ -887,6 +922,7 @@ pub(crate) fn begin(inner: &Arc<Inner>, ask: &Ask, checked: Checked) -> Result<A
         mcp: Mutex::default(),
         shots: Arc::default(),
         skills,
+        agents,
         helper_model: std::sync::OnceLock::new(),
         helpers: Arc::new(tokio::sync::Semaphore::new(super::plan_limits::helper_places(inner.plan()))),
         hooks,
@@ -2102,6 +2138,14 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
     } else {
         defs
     };
+    // A group's topic, on any plan: its record's tool.
+    let defs = if !tools.inner.groups.is_brainstorm(&tools.convo.id) && tools.inner.groups.of(&tools.convo.id).is_some() {
+        let mut defs = defs;
+        defs.extend(prompt_agent::record_tools());
+        defs
+    } else {
+        defs
+    };
     // A model that can see looks at the folder's images.
     let defs = if tools.sight && tools.workspace.is_some() && !tools.inner.groups.is_brainstorm(&tools.convo.id) {
         let mut defs = defs;
@@ -2163,6 +2207,8 @@ fn builtin_tools(tools: &Arc<TurnTools>) -> Vec<FunctionTool> {
                         "remember" | "forget" => blocking_tool(tools, move |tools| {
                             super::memory::tool(tools, name, &args)
                         }),
+                        "record_decision" => blocking_tool(tools, move |tools| super::record::tool(tools, &args)),
+                        "staged_diff" => blocking_tool(tools, move |tools| super::fork::staged_diff(tools, &args)),
                         "schedule_prompt" | "list_schedules" | "cancel_schedule" => {
                             super::schedules::tool(tools, name, args).boxed()
                         }
@@ -3091,6 +3137,7 @@ fn turn_tools_for(
         shots: Arc::default(),
         // A pending call's decision reads no skill, and runs no hook.
         skills: crate::skills::Skills::default(),
+        agents: super::agent_defs::AgentDefs::default(),
         helper_model: std::sync::OnceLock::new(),
         helpers: Arc::new(tokio::sync::Semaphore::new(super::plan_limits::helper_places(inner.plan()))),
         hooks: Arc::default(),
@@ -3607,14 +3654,14 @@ pub(crate) fn settings() -> ModelSettings {
 /// Build the turn's one client (T2; N6 through `models`).
 /// The turn's model client, its address, the lease that keeps a managed
 /// server running, and that server's endpoint.
-type Built = (
+pub(super) type Built = (
     Arc<dyn Model>,
     Option<String>,
     Lease,
     Option<crate::llama::ManagedEndpoint>,
 );
 
-async fn build_model(inner: &Inner, target: &Target) -> Result<Built, String> {
+pub(super) async fn build_model(inner: &Inner, target: &Target) -> Result<Built, String> {
     match target {
         Target::Managed(model) => {
             let opened = inner
